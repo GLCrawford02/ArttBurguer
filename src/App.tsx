@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import InsumosManager from './components/InsumosManager';
 import ProdutosManager from './components/ProdutosManager';
@@ -6,6 +6,10 @@ import { LayoutDashboard, Package, ChefHat, Utensils } from 'lucide-react';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'produtos'>('dashboard');
+
+  useEffect(() => {
+    document.title = 'ArttBurguer';
+  }, []);
 
   return (
     <div className="min-h-screen bg-gray-50 flex">
