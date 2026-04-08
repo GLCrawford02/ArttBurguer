@@ -4,18 +4,21 @@ import InsumosManager from './components/InsumosManager';
 import ProdutosManager from './components/ProdutosManager';
 import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
-import { LayoutDashboard, Package, ChefHat, Utensils, Menu, X, ShoppingCart, CheckCircle } from 'lucide-react';
+import RelatoriosManager from './components/RelatoriosManager';
+import FechamentoManager from './components/FechamentoManager';
+import { LayoutDashboard, Package, ChefHat, Utensils, Menu, X, ShoppingCart, CheckCircle, BarChart3, Scale, Wallet } from 'lucide-react';
+import BalancoManager from './components/BalancoManager';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao' | 'relatorios' | 'balanco' | 'fechamento'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     document.title = 'ArttBurguer';
 
     const handleHashChange = () => {
-      const hash = window.location.hash.replace('#', '') as 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao';
-      if (['dashboard', 'insumos', 'produtos', 'compras', 'producao'].includes(hash)) {
+      const hash = window.location.hash.replace('#', '') as 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao' | 'relatorios' | 'balanco' | 'fechamento';
+      if (['dashboard', 'insumos', 'produtos', 'compras', 'producao', 'relatorios', 'balanco', 'fechamento'].includes(hash)) {
         setActiveTab(hash);
       }
       setIsMobileMenuOpen(false);
@@ -32,7 +35,7 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao') => {
+  const handleTabChange = (tab: 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao' | 'relatorios' | 'balanco' | 'fechamento') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -106,6 +109,16 @@ export default function App() {
           </button>
 
           <button
+            onClick={() => handleTabChange('balanco')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'balanco' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <Scale size={20} />
+            <span>Balanço / Ajuste</span>
+          </button>
+
+          <button
             onClick={() => handleTabChange('compras')}
             className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
               activeTab === 'compras' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
@@ -123,6 +136,26 @@ export default function App() {
           >
             <CheckCircle size={20} />
             <span>Produção</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('fechamento')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'fechamento' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <Wallet size={20} />
+            <span>Fechamento Caixa</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('relatorios')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'relatorios' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <BarChart3 size={20} />
+            <span>Relatórios</span>
           </button>
         </nav>
 
@@ -161,6 +194,9 @@ export default function App() {
           {activeTab === 'produtos' && <ProdutosManager />}
           {activeTab === 'compras' && <ComprasManager />}
           {activeTab === 'producao' && <ProducaoManager />}
+          {activeTab === 'relatorios' && <RelatoriosManager />}
+          {activeTab === 'balanco' && <BalancoManager />}
+          {activeTab === 'fechamento' && <FechamentoManager />}
         </div>
       </main>
     </div>

@@ -2,10 +2,12 @@ import { useState, useEffect, FormEvent } from 'react';
 import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Plus, Trash2, Save } from 'lucide-react';
+import { Plus, Trash2, Save, Pencil, X, Search } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [editId, setEditId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Omit<Insumo, 'id'>>({
     nome: '',
     precoPacote: 0,
@@ -24,6 +26,7 @@ export default function InsumosManager() {
           id,
           ...val,
         }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome)); // Ordena Insumos de A a Z
         setInsumos(list);
       } else {
         setInsumos([]);
@@ -33,9 +36,18 @@ export default function InsumosManager() {
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    const insumosRef = ref(db, 'insumos');
-    const newInsumoRef = push(insumosRef);
-    await set(newInsumoRef, formData);
+    
+    if (editId) {
+      // Se estiver editando, atualiza o item existente
+      await set(ref(db, `insumos/${editId}`), formData);
+      setEditId(null);
+    } else {
+      // Se não, cria um novo
+      const insumosRef = ref(db, 'insumos');
+      const newInsumoRef = push(insumosRef);
+      await set(newInsumoRef, formData);
+    }
+
     setFormData({
       nome: '',
       precoPacote: 0,
@@ -46,18 +58,38 @@ export default function InsumosManager() {
     });
   };
 
+  const handleEdit = (insumo: Insumo) => {
+    setEditId(insumo.id);
+    setFormData({
+      nome: insumo.nome,
+      precoPacote: insumo.precoPacote,
+      qtdPacote: insumo.qtdPacote,
+      estoqueAtual: insumo.estoqueAtual,
+      alertaMinimo: insumo.alertaMinimo,
+      unidade: insumo.unidade
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const cancelEdit = () => {
+    setEditId(null);
+    setFormData({ nome: '', precoPacote: 0, qtdPacote: 0, estoqueAtual: 0, alertaMinimo: 0, unidade: 'g' });
+  };
+
   const handleDelete = async (id: string) => {
     if (confirm('Deseja excluir este insumo?')) {
       await remove(ref(db, `insumos/${id}`));
     }
   };
 
+  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="space-y-8">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+      <div className={`bg-white p-6 rounded-xl shadow-sm border ${editId ? 'border-blue-300 ring-2 ring-blue-50' : 'border-gray-100'}`}>
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-          <Plus className="mr-2 text-blue-600" size={20} />
-          Novo Insumo
+          {editId ? <Pencil className="mr-2 text-blue-600" size={20} /> : <Plus className="mr-2 text-blue-600" size={20} />}
+          {editId ? 'Editar Insumo' : 'Novo Insumo'}
         </h3>
         <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="space-y-1">
@@ -124,21 +156,45 @@ export default function InsumosManager() {
               className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
-          <div className="flex items-end">
+          <div className="flex items-end space-x-2">
             <button
               type="submit"
-              className="w-full bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center"
+              className="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center"
             >
               <Save className="mr-2" size={18} />
-              Salvar Insumo
+              {editId ? 'Atualizar' : 'Salvar'}
             </button>
+            {editId && (
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300 transition-colors flex items-center justify-center"
+                title="Cancelar edição"
+              >
+                <X size={20} />
+              </button>
+            )}
           </div>
         </form>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h3 className="font-bold text-gray-800">Insumos Cadastrados</h3>
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar insumo..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+            />
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
             <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
               <th className="px-6 py-3">Insumo</th>
               <th className="px-6 py-3">Preço Pacote</th>
@@ -148,7 +204,7 @@ export default function InsumosManager() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {insumos.map(i => (
+            {filteredInsumos.map(i => (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
                 <td className="px-6 py-4 text-gray-600">R$ {i.precoPacote.toFixed(2)}</td>
@@ -159,17 +215,26 @@ export default function InsumosManager() {
                   </span>
                 </td>
                 <td className="px-6 py-4">
-                  <button
-                    onClick={() => handleDelete(i.id)}
-                    className="text-red-500 hover:text-red-700 transition-colors"
-                  >
-                    <Trash2 size={18} />
-                  </button>
+                  <div className="flex space-x-3">
+                    <button
+                      onClick={() => handleEdit(i)}
+                      className="text-blue-500 hover:text-blue-700 transition-colors"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(i.id)}
+                      className="text-red-500 hover:text-red-700 transition-colors"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   );

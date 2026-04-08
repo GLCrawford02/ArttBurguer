@@ -2,10 +2,11 @@ import { useEffect, useState } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { AlertTriangle, Package, TrendingUp } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search } from 'lucide-react';
 
 export default function Dashboard() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
@@ -16,6 +17,7 @@ export default function Dashboard() {
           id,
           ...val,
         }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome)); // Ordena de A a Z
         setInsumos(list);
       } else {
         setInsumos([]);
@@ -24,6 +26,7 @@ export default function Dashboard() {
   }, []);
 
   const baixos = insumos.filter(i => i.estoqueAtual <= i.alertaMinimo);
+  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
     <div className="space-y-6">
@@ -83,9 +86,19 @@ export default function Dashboard() {
         </div>
       )}
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-100">
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+        <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h3 className="font-bold text-gray-800">Lista de Insumos</h3>
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar insumo..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+            />
+          </div>
         </div>
         <table className="w-full text-left border-collapse">
           <thead>
@@ -97,12 +110,12 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {insumos.map(i => (
+            {filteredInsumos.map(i => (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
                 <td className="px-6 py-4 text-gray-600">{i.estoqueAtual} {i.unidade}</td>
                 <td className="px-6 py-4 text-gray-600">
-                  R$ {(i.precoPacote / i.qtdPacote).toFixed(4)} / {i.unidade}
+                  R$ {(i.precoPacote / i.qtdPacote).toFixed(3).replace('.', ',')} / {i.unidade}
                 </td>
                 <td className="px-6 py-4">
                   {i.estoqueAtual <= i.alertaMinimo ? (

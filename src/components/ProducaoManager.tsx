@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, runTransaction } from 'firebase/database';
+import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, ProdutoFinal } from '../types';
-import { CheckCircle, ChefHat } from 'lucide-react';
+import { CheckCircle, ChefHat, Search } from 'lucide-react';
 
 export default function ProducaoManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<ProdutoFinal[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -58,25 +59,55 @@ export default function ProducaoManager() {
       });
     }
     
+    // 3. Salvar no histórico de vendas para o Fechamento de Caixa
+    const vendasRef = push(ref(db, 'historico_vendas'));
+    await set(vendasRef, {
+      produtoId: produto.id,
+      nome: produto.nome,
+      quantidade: multiplicador,
+      custoProducao: produto.custoTotal * multiplicador,
+      receitaVenda: ((produto as any).precoVenda || 0) * multiplicador,
+      timestamp: Date.now()
+    });
+
     alert(`Produção de ${multiplicador}x ${produto.nome} registrada com sucesso!\nO estoque foi atualizado.`);
     setQuantidades({ ...quantidades, [produto.id]: 1 }); // Reseta o input
   };
 
+  const filteredProdutos = produtos.filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <ChefHat className="mr-2 text-orange-500" size={20} />
-          Registro de Produção / Saída
-        </h3>
-        <p className="text-sm text-gray-500 mt-1">Informe a quantidade feita de cada produto para abater os insumos do estoque automaticamente.</p>
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <div>
+            <h3 className="text-lg font-bold text-gray-800 flex items-center">
+              <ChefHat className="mr-2 text-orange-500" size={20} />
+              Registro de Produção / Saída
+            </h3>
+            <p className="text-sm text-gray-500 mt-1">Informe a quantidade feita de cada produto para abater os insumos do estoque automaticamente.</p>
+          </div>
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar produto..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm w-full sm:w-64"
+            />
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {produtos.map(p => (
+        {filteredProdutos.map(p => (
           <div key={p.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
             <div className="mb-4">
-              <h4 className="font-bold text-gray-900 text-lg">{p.nome}</h4>
+              <div className="flex justify-between items-start mb-1">
+                <h4 className="font-bold text-gray-900 text-lg leading-tight">{p.nome}</h4>
+                <span className="text-[10px] font-bold px-2 py-1 bg-gray-100 text-gray-600 rounded-full uppercase ml-2 whitespace-nowrap">{((p as any).categoria) || 'Outros'}</span>
+              </div>
               <p className="text-xs text-gray-400">{p.ingredientes.length} ingredientes na receita</p>
             </div>
             
