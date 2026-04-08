@@ -2,29 +2,81 @@ import { useState, useEffect } from 'react';
 import Dashboard from './components/Dashboard';
 import InsumosManager from './components/InsumosManager';
 import ProdutosManager from './components/ProdutosManager';
-import { LayoutDashboard, Package, ChefHat, Utensils } from 'lucide-react';
+import ComprasManager from './components/ComprasManager';
+import ProducaoManager from './components/ProducaoManager';
+import { LayoutDashboard, Package, ChefHat, Utensils, Menu, X, ShoppingCart, CheckCircle } from 'lucide-react';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'produtos'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao'>('dashboard');
+  const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   useEffect(() => {
     document.title = 'ArttBurguer';
+
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace('#', '') as 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao';
+      if (['dashboard', 'insumos', 'produtos', 'compras', 'producao'].includes(hash)) {
+        setActiveTab(hash);
+      }
+      setIsMobileMenuOpen(false);
+    };
+
+    window.addEventListener('hashchange', handleHashChange);
+    
+    if (!window.location.hash) {
+      window.location.hash = 'dashboard';
+    } else {
+      handleHashChange();
+    }
+
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  const handleTabChange = (tab: 'dashboard' | 'insumos' | 'produtos' | 'compras' | 'producao') => {
+    window.location.hash = tab;
+    setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex">
-      {/* Sidebar */}
-      <aside className="w-64 bg-gray-900 text-white flex flex-col">
-        <div className="p-6 flex items-center space-x-3 border-b border-gray-800">
+    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+      {/* Mobile Header */}
+      <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 sticky top-0">
+        <div className="flex items-center space-x-3">
           <div className="bg-orange-500 p-2 rounded-lg">
-            <Utensils size={24} className="text-white" />
+            <Utensils size={20} className="text-white" />
           </div>
-          <h1 className="text-xl font-black tracking-tighter italic">ARTT BURGUER</h1>
+          <h1 className="text-lg font-black tracking-tighter italic">ARTT BURGUER</h1>
+        </div>
+        <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 focus:outline-none hover:bg-gray-800 rounded-lg transition-colors">
+          <Menu size={24} />
+        </button>
+      </div>
+
+      {/* Mobile Overlay */}
+      {isMobileMenuOpen && (
+        <div 
+          className="md:hidden fixed inset-0 bg-black/50 z-30" 
+          onClick={() => setIsMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:min-h-screen`}>
+        <div className="flex p-6 items-center justify-between border-b border-gray-800">
+          <div className="flex items-center space-x-3">
+            <div className="bg-orange-500 p-2 rounded-lg">
+              <Utensils size={24} className="text-white" />
+            </div>
+            <h1 className="text-xl font-black tracking-tighter italic">ARTT BURGUER</h1>
+          </div>
+          <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
+            <X size={24} />
+          </button>
         </div>
         
         <nav className="flex-1 p-4 space-y-2">
           <button
-            onClick={() => setActiveTab('dashboard')}
+            onClick={() => handleTabChange('dashboard')}
             className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
               activeTab === 'dashboard' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`}
@@ -34,7 +86,7 @@ export default function App() {
           </button>
           
           <button
-            onClick={() => setActiveTab('insumos')}
+            onClick={() => handleTabChange('insumos')}
             className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
               activeTab === 'insumos' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`}
@@ -44,13 +96,33 @@ export default function App() {
           </button>
           
           <button
-            onClick={() => setActiveTab('produtos')}
+            onClick={() => handleTabChange('produtos')}
             className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
               activeTab === 'produtos' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`}
           >
             <ChefHat size={20} />
             <span>Ficha Técnica</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('compras')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'compras' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <ShoppingCart size={20} />
+            <span>Compras</span>
+          </button>
+
+          <button
+            onClick={() => handleTabChange('producao')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'producao' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <CheckCircle size={20} />
+            <span>Produção</span>
           </button>
         </nav>
 
@@ -66,13 +138,13 @@ export default function App() {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 p-8 overflow-y-auto">
-        <header className="mb-8 flex justify-between items-center">
+      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-[100vw]">
+        <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema de Gestão</h2>
             <p className="text-gray-400 text-xs">Controle de estoque e custos de produção</p>
           </div>
-          <div className="flex items-center space-x-4">
+          <div className="flex items-center space-x-4 self-end sm:self-auto">
              <div className="text-right">
                <p className="text-sm font-bold text-gray-800">Admin</p>
                <p className="text-xs text-gray-500">Gerente de Produção</p>
@@ -87,6 +159,8 @@ export default function App() {
           {activeTab === 'dashboard' && <Dashboard />}
           {activeTab === 'insumos' && <InsumosManager />}
           {activeTab === 'produtos' && <ProdutosManager />}
+          {activeTab === 'compras' && <ComprasManager />}
+          {activeTab === 'producao' && <ProducaoManager />}
         </div>
       </main>
     </div>

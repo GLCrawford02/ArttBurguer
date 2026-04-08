@@ -67,32 +67,6 @@ export default function ProdutosManager() {
     setIngredientesSelecionados([]);
   };
 
-  const baixarEstoque = async (produto: ProdutoFinal) => {
-    // Verificar se há estoque suficiente primeiro
-    const checks = produto.ingredientes.map(ing => {
-      const insumo = insumos.find(i => i.id === ing.insumoId);
-      if (!insumo || insumo.estoqueAtual < ing.quantidade) {
-        return { ok: false, nome: insumo?.nome || 'Desconhecido' };
-      }
-      return { ok: true };
-    });
-
-    const falha = checks.find(c => !c.ok);
-    if (falha) {
-      alert(`Estoque insuficiente para: ${falha.nome}`);
-      return;
-    }
-
-    // Realizar o abatimento
-    for (const ing of produto.ingredientes) {
-      const insumoRef = ref(db, `insumos/${ing.insumoId}/estoqueAtual`);
-      await runTransaction(insumoRef, (currentValue) => {
-        return (currentValue || 0) - ing.quantidade;
-      });
-    }
-    alert('Venda realizada e estoque atualizado!');
-  };
-
   const excluirProduto = async (id: string) => {
     if (confirm('Excluir este produto?')) {
       await remove(ref(db, `produtos_finais/${id}`));
@@ -204,13 +178,6 @@ export default function ProdutosManager() {
                 <p className="text-xs text-gray-400">{p.ingredientes.length} ingredientes</p>
               </div>
               <div className="flex space-x-2">
-                <button
-                  onClick={() => baixarEstoque(p)}
-                  className="bg-orange-100 text-orange-600 px-4 py-2 rounded-lg font-bold text-sm hover:bg-orange-200 transition-colors flex items-center"
-                >
-                  <ShoppingCart size={16} className="mr-2" />
-                  Vender
-                </button>
                 <button
                   onClick={() => excluirProduto(p.id)}
                   className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
