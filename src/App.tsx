@@ -95,7 +95,7 @@ export default function App() {
             }`}
           >
             <Package size={20} />
-            <span>Insumos</span>
+            <span>Cadastro de Itens</span>
           </button>
           
           <button
@@ -105,7 +105,7 @@ export default function App() {
             }`}
           >
             <ChefHat size={20} />
-            <span>Ficha Técnica</span>
+            <span>Cadastro de Produtos</span>
           </button>
 
           <button

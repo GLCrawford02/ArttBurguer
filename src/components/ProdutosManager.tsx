@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo, ProdutoFinal, IngredienteReceita } from '../types';
+import { Item, Produto, IngredienteReceita } from '../types';
 import { Plus, Trash2, Save, Calculator, ShoppingCart, Search } from 'lucide-react';
 
 export default function ProdutosManager() {
-  const [insumos, setInsumos] = useState<Insumo[]>([]);
-  const [produtos, setProdutos] = useState<ProdutoFinal[]>([]);
+  const [insumos, setInsumos] = useState<Item[]>([]);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [nomeProduto, setNomeProduto] = useState('');
   const [categoria, setCategoria] = useState('Hambúrguer');
@@ -18,8 +18,8 @@ export default function ProdutosManager() {
   const [tempQtd, setTempQtd] = useState(0);
 
   useEffect(() => {
-    const insumosRef = ref(db, 'insumos');
-    const produtosRef = ref(db, 'produtos_finais');
+    const insumosRef = ref(db, 'itens');
+    const produtosRef = ref(db, 'produtos');
 
     onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
@@ -63,7 +63,7 @@ export default function ProdutosManager() {
 
   const salvarProduto = async () => {
     if (!nomeProduto || ingredientesSelecionados.length === 0) return;
-    const produtosRef = ref(db, 'produtos_finais');
+    const produtosRef = ref(db, 'produtos');
     const newProdutoRef = push(produtosRef);
     await set(newProdutoRef, {
       nome: nomeProduto,
@@ -80,7 +80,7 @@ export default function ProdutosManager() {
 
   const excluirProduto = async (id: string) => {
     if (confirm('Excluir este produto?')) {
-      await remove(ref(db, `produtos_finais/${id}`));
+      await remove(ref(db, `produtos/${id}`));
     }
   };
 
@@ -92,7 +92,7 @@ export default function ProdutosManager() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
         <h3 className="text-lg font-bold text-gray-800 flex items-center">
           <Calculator className="mr-2 text-blue-600" size={20} />
-          Nova Ficha Técnica
+          Novo Produto
         </h3>
         
         <div className="space-y-4">
@@ -135,7 +135,7 @@ export default function ProdutosManager() {
           </div>
 
           <div className="p-4 bg-gray-50 rounded-lg space-y-4">
-            <p className="text-sm font-bold text-gray-700">Adicionar Insumo à Receita</p>
+            <p className="text-sm font-bold text-gray-700">Adicionar Item à Receita</p>
             <div className="grid grid-cols-2 gap-2">
               <select
                 value={tempInsumoId}

@@ -1,24 +1,29 @@
 import { useState, useEffect, FormEvent } from 'react';
 import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo } from '../types';
+import { Item } from '../types';
 import { Plus, Trash2, Save, Pencil, X, Search } from 'lucide-react';
 
 export default function InsumosManager() {
-  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [insumos, setInsumos] = useState<Item[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<Omit<Insumo, 'id'>>({
+  const [formData, setFormData] = useState<any>({
     nome: '',
+    fornecedor: '',
     precoPacote: 0,
     qtdPacote: 0,
     estoqueAtual: 0,
     alertaMinimo: 0,
+    estoqueMaximo: 0,
+    diasAvisoValidade: 7,
+    lote: '',
+    validade: '',
     unidade: 'g'
   });
 
   useEffect(() => {
-    const insumosRef = ref(db, 'insumos');
+    const insumosRef = ref(db, 'itens');
     return onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -39,33 +44,43 @@ export default function InsumosManager() {
     
     if (editId) {
       // Se estiver editando, atualiza o item existente
-      await set(ref(db, `insumos/${editId}`), formData);
+      await set(ref(db, `itens/${editId}`), formData);
       setEditId(null);
     } else {
       // Se não, cria um novo
-      const insumosRef = ref(db, 'insumos');
+      const insumosRef = ref(db, 'itens');
       const newInsumoRef = push(insumosRef);
       await set(newInsumoRef, formData);
     }
 
     setFormData({
       nome: '',
+      fornecedor: '',
       precoPacote: 0,
       qtdPacote: 0,
       estoqueAtual: 0,
       alertaMinimo: 0,
+      estoqueMaximo: 0,
+      diasAvisoValidade: 7,
+      lote: '',
+      validade: '',
       unidade: 'g'
     });
   };
 
-  const handleEdit = (insumo: Insumo) => {
+  const handleEdit = (insumo: Item) => {
     setEditId(insumo.id);
     setFormData({
       nome: insumo.nome,
+      fornecedor: (insumo as any).fornecedor || '',
       precoPacote: insumo.precoPacote,
       qtdPacote: insumo.qtdPacote,
       estoqueAtual: insumo.estoqueAtual,
       alertaMinimo: insumo.alertaMinimo,
+      estoqueMaximo: (insumo as any).estoqueMaximo || 0,
+      diasAvisoValidade: (insumo as any).diasAvisoValidade !== undefined ? (insumo as any).diasAvisoValidade : 7,
+      lote: (insumo as any).lote || '',
+      validade: (insumo as any).validade || '',
       unidade: insumo.unidade
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -73,12 +88,12 @@ export default function InsumosManager() {
 
   const cancelEdit = () => {
     setEditId(null);
-    setFormData({ nome: '', precoPacote: 0, qtdPacote: 0, estoqueAtual: 0, alertaMinimo: 0, unidade: 'g' });
+    setFormData({ nome: '', fornecedor: '', precoPacote: 0, qtdPacote: 0, estoqueAtual: 0, alertaMinimo: 0, estoqueMaximo: 0, diasAvisoValidade: 7, lote: '', validade: '', unidade: 'g' });
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Deseja excluir este insumo?')) {
-      await remove(ref(db, `insumos/${id}`));
+    if (confirm('Deseja excluir este item?')) {
+      await remove(ref(db, `itens/${id}`));
     }
   };
 
@@ -89,9 +104,9 @@ export default function InsumosManager() {
       <div className={`bg-white p-6 rounded-xl shadow-sm border ${editId ? 'border-blue-300 ring-2 ring-blue-50' : 'border-gray-100'}`}>
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
           {editId ? <Pencil className="mr-2 text-blue-600" size={20} /> : <Plus className="mr-2 text-blue-600" size={20} />}
-          {editId ? 'Editar Insumo' : 'Novo Insumo'}
+          {editId ? 'Editar Item' : 'Novo Item'}
         </h3>
-        <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
           <div className="space-y-1">
             <label className="text-xs font-bold text-gray-500 uppercase">Nome</label>
             <input
@@ -101,6 +116,16 @@ export default function InsumosManager() {
               onChange={e => setFormData({ ...formData, nome: e.target.value })}
               className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
               placeholder="Ex: Pão Brioche"
+            />
+          </div>
+          <div className="space-y-1">
+            <label className="text-xs font-bold text-gray-500 uppercase">Fornecedor (Opcional)</label>
+            <input
+              type="text"
+              value={formData.fornecedor}
+              onChange={e => setFormData({ ...formData, fornecedor: e.target.value })}
+              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+              placeholder="Ex: Padaria X..."
             />
           </div>
           <div className="space-y-1">
@@ -156,7 +181,27 @@ export default function InsumosManager() {
               className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
             />
           </div>
-          <div className="flex items-end space-x-2">
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-gray-500 uppercase">Estoque Máximo</label>
+          <input
+            type="number"
+            required
+            value={formData.estoqueMaximo}
+            onChange={e => setFormData({ ...formData, estoqueMaximo: Number(e.target.value) })}
+            className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+        </div>
+        <div className="space-y-1">
+          <label className="text-xs font-bold text-gray-500 uppercase">Aviso Vencimento (Dias)</label>
+          <input
+            type="number"
+            required
+            value={formData.diasAvisoValidade}
+            onChange={e => setFormData({ ...formData, diasAvisoValidade: Number(e.target.value) })}
+            className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+          />
+        </div>
+        <div className="flex items-end space-x-2 md:col-span-4 mt-2">
             <button
               type="submit"
               className="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center"
@@ -180,12 +225,12 @@ export default function InsumosManager() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h3 className="font-bold text-gray-800">Insumos Cadastrados</h3>
+          <h3 className="font-bold text-gray-800">Itens Cadastrados</h3>
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Buscar insumo..."
+              placeholder="Buscar item..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
@@ -196,7 +241,8 @@ export default function InsumosManager() {
           <table className="w-full text-left border-collapse">
             <thead>
             <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
-              <th className="px-6 py-3">Insumo</th>
+              <th className="px-6 py-3">Item</th>
+              <th className="px-6 py-3">Fornecedor</th>
               <th className="px-6 py-3">Preço Pacote</th>
               <th className="px-6 py-3">Qtd Pacote</th>
               <th className="px-6 py-3">Estoque</th>
@@ -207,6 +253,7 @@ export default function InsumosManager() {
             {filteredInsumos.map(i => (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors">
                 <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
+                <td className="px-6 py-4 text-gray-600">{(i as any).fornecedor || '-'}</td>
                 <td className="px-6 py-4 text-gray-600">R$ {i.precoPacote.toFixed(2)}</td>
                 <td className="px-6 py-4 text-gray-600">{i.qtdPacote} {i.unidade}</td>
                 <td className="px-6 py-4">

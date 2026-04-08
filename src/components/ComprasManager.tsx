@@ -1,16 +1,18 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo } from '../types';
+import { Item } from '../types';
 import { ShoppingCart, Plus, Search } from 'lucide-react';
 
 export default function ComprasManager() {
-  const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [insumos, setInsumos] = useState<Item[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
+  const [lotes, setLotes] = useState<Record<string, string>>({});
+  const [validades, setValidades] = useState<Record<string, string>>({});
 
   useEffect(() => {
-    const insumosRef = ref(db, 'insumos');
+    const insumosRef = ref(db, 'itens');
     return onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -21,15 +23,31 @@ export default function ComprasManager() {
     });
   }, []);
 
-  const registrarCompra = async (insumo: Insumo) => {
+  const registrarCompra = async (insumo: Item) => {
     const qtdPacotes = quantidades[insumo.id];
     if (!qtdPacotes || qtdPacotes <= 0) return;
 
     const qtdAdicionar = qtdPacotes * insumo.qtdPacote; // Multiplica os pacotes pela Qtd por Pacote
 
-    const insumoRef = ref(db, `insumos/${insumo.id}/estoqueAtual`);
-    await runTransaction(insumoRef, (currentValue) => {
-      return (currentValue || 0) + qtdAdicionar;
+    const lote = lotes[insumo.id] || '';
+    const validade = validades[insumo.id] || '';
+
+    const insumoRef = ref(db, `itens/${insumo.id}`);
+    await runTransaction(insumoRef, (currentData) => {
+      if (currentData) {
+        currentData.estoqueAtual = (currentData.estoqueAtual || 0) + qtdAdicionar;
+        
+        if (lote || validade) {
+          if (!currentData.lotes) currentData.lotes = {};
+          const newLoteId = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+          currentData.lotes[newLoteId] = {
+            lote: lote || 'N/A',
+            validade: validade || '',
+            quantidade: qtdAdicionar
+          };
+        }
+      }
+      return currentData;
     });
 
     // Salvar no histórico de compras financeiro
@@ -40,11 +58,15 @@ export default function ComprasManager() {
       nome: insumo.nome,
       qtdPacotes,
       custoTotal: custoTotalCompra,
+      lote,
+      validade,
       timestamp: Date.now()
     });
     
     alert(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`);
     setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
+    setLotes({ ...lotes, [insumo.id]: '' });
+    setValidades({ ...validades, [insumo.id]: '' });
   };
 
   const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
@@ -64,7 +86,7 @@ export default function ComprasManager() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Buscar insumo..."
+              placeholder="Buscar item..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
@@ -81,22 +103,39 @@ export default function ComprasManager() {
               <p className="text-sm text-gray-500">Estoque atual: <span className="font-bold">{insumo.estoqueAtual} {insumo.unidade}</span></p>
               <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 pacote = {insumo.qtdPacote} {insumo.unidade}</p>
             </div>
-            <div className="flex space-x-2">
-              <input
-                type="number"
-                min="1"
-                value={quantidades[insumo.id] || ''}
-                onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })}
-                placeholder="Qtd de pacotes"
-                className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-              />
-              <button
-                onClick={() => registrarCompra(insumo)}
-                className="bg-green-600 text-white p-2 rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center"
-                title="Adicionar ao Estoque"
-              >
-                <Plus size={20} />
-              </button>
+            <div className="space-y-2">
+              <div className="grid grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  placeholder="Lote (opcional)"
+                  value={lotes[insumo.id] || ''}
+                  onChange={(e) => setLotes({ ...lotes, [insumo.id]: e.target.value })}
+                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <input
+                  type="date"
+                  value={validades[insumo.id] || ''}
+                  onChange={(e) => setValidades({ ...validades, [insumo.id]: e.target.value })}
+                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+              <div className="flex space-x-2">
+                <input
+                  type="number"
+                  min="1"
+                  value={quantidades[insumo.id] || ''}
+                  onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })}
+                  placeholder="Qtd de pacotes"
+                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+                <button
+                  onClick={() => registrarCompra(insumo)}
+                  className="bg-green-600 text-white p-2 rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center"
+                  title="Adicionar ao Estoque"
+                >
+                  <Plus size={20} />
+                </button>
+              </div>
             </div>
           </div>
         ))}
