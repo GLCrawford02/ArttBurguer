@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo, Produto } from '../types';
+import { Insumo, Produto, Promocao } from '../types';
 import { CheckCircle, ChefHat, Search, AlertTriangle } from 'lucide-react';
 import { LoteDados } from '../types';
 
 export default function ProducaoManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
+  const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -34,14 +35,24 @@ export default function ProducaoManager() {
         setProdutos([]);
       }
     });
+
+    const promocoesRef = ref(db, 'promocoes');
+    onValue(promocoesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setPromocoes(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setPromocoes([]);
+      }
+    });
   }, []);
 
-  const registrarProducao = async (produto: Produto) => {
+  const registrarProducao = async (produto: Produto | Promocao | any) => {
     const multiplicador = quantidades[produto.id] || 1; // Padrão é 1 se não preenchido
     if (multiplicador <= 0) return;
 
     // 1. Verificar se há estoque suficiente de TODOS os ingredientes
-    const checks = produto.ingredientes.map(ing => {
+    const checks = (produto.ingredientes || []).map((ing: any) => {
       const insumo = insumos.find(i => i.id === ing.insumoId);
       const qtdNecessaria = ing.quantidade * multiplicador;
       const tem = insumo ? (insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0) : 0;
@@ -51,15 +62,15 @@ export default function ProducaoManager() {
       return { ok: true };
     });
 
-    const falhas = checks.filter(c => !c.ok);
+    const falhas = checks.filter((c: any) => !c.ok);
     if (falhas.length > 0) {
-      const msg = falhas.map(f => `- ${f.nome}: Precisa ${f.precisa}${f.unidade}, mas só tem ${f.tem}${f.unidade}`).join('\n');
+      const msg = falhas.map((f: any) => `- ${f.nome}: Precisa ${f.precisa}${f.unidade}, mas só tem ${f.tem}${f.unidade}`).join('\n');
       showToast(`ESTOQUE INSUFICIENTE!\n\n${msg}`, 'error');
       return;
     }
 
     // 2. Realizar o abatimento no estoque de forma segura (Transaction)
-    for (const ing of produto.ingredientes) {
+    for (const ing of (produto.ingredientes || [])) {
       const insumoRef = ref(db, `insumos/${ing.insumoId}`);
       const qtdNecessaria = ing.quantidade * multiplicador;
       await runTransaction(insumoRef, (currentData) => {
@@ -108,7 +119,47 @@ export default function ProducaoManager() {
     setQuantidades({ ...quantidades, [produto.id]: 1 }); // Reseta o input
   };
 
-  const filteredProdutos = produtos.filter(p => 
+  const checkPromocaoValida = (promo: Promocao) => {
+    const now = new Date();
+    
+    // Checa limite de datas
+    if (promo.dataInicio) {
+      const start = new Date(`${promo.dataInicio}T00:00:00`);
+      if (now < start) return false;
+    }
+    if (promo.dataFim) {
+      const end = new Date(`${promo.dataFim}T23:59:59`);
+      if (now > end) return false;
+    }
+
+    // Checa limite de horário, inclusive os que viram a noite
+    if (promo.horarioInicio || promo.horarioFim) {
+      const currentMinutes = now.getHours() * 60 + now.getMinutes();
+      let startMinutes = 0;
+      if (promo.horarioInicio) {
+        const [h, m] = promo.horarioInicio.split(':').map(Number);
+        startMinutes = h * 60 + m;
+      }
+      let endMinutes = 24 * 60;
+      if (promo.horarioFim) {
+        const [h, m] = promo.horarioFim.split(':').map(Number);
+        endMinutes = h * 60 + m;
+      }
+      if (startMinutes <= endMinutes) {
+        if (currentMinutes < startMinutes || currentMinutes > endMinutes) return false;
+      } else {
+        if (currentMinutes < startMinutes && currentMinutes > endMinutes) return false;
+      }
+    }
+    return true;
+  };
+
+  const allItems: any[] = [
+    ...produtos,
+    ...promocoes.filter(checkPromocaoValida).map(p => ({ ...p, categoria: 'Promoção / Combo' }))
+  ];
+
+  const filteredProdutos = allItems.filter(p => 
     (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
     ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
@@ -145,7 +196,7 @@ export default function ProducaoManager() {
                 <h4 className="font-bold text-gray-900 text-lg leading-tight">{p.nome}</h4>
                 <span className="text-[10px] font-bold px-2 py-1 bg-gray-100 text-gray-600 rounded-full uppercase ml-2 whitespace-nowrap">{((p as any).categoria) || 'Outros'}</span>
               </div>
-              <p className="text-xs text-gray-400">{p.ingredientes.length} ingredientes na receita</p>
+              <p className="text-xs text-gray-400">{(p.ingredientes || []).length} insumos totais descontados</p>
             </div>
             
             <div className="flex flex-col space-y-2">

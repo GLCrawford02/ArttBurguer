@@ -33,6 +33,24 @@ export interface Produto {
   custoTotal: number;
 }
 
+export interface ItemCombo {
+  produtoId: string;
+  quantidade: number;
+}
+
+export interface Promocao {
+  id: string;
+  nome: string;
+  itens: ItemCombo[];
+  ingredientes: IngredienteReceita[];
+  custoTotal: number;
+  precoVenda: number;
+  dataInicio?: string;
+  dataFim?: string;
+  horarioInicio?: string;
+  horarioFim?: string;
+}
+
 export interface Funcionario {
   id: string;
   nome: string;

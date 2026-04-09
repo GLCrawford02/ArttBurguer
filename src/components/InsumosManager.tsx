@@ -16,6 +16,9 @@ export default function InsumosManager() {
   const [precoPacote, setPrecoPacote] = useState('');
   const [qtdPacote, setQtdPacote] = useState('');
   const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
+  const [alertaMinimo, setAlertaMinimo] = useState('');
+  const [estoqueMaximo, setEstoqueMaximo] = useState('');
+  const [estoqueInicial, setEstoqueInicial] = useState('');
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -54,7 +57,7 @@ export default function InsumosManager() {
   }, [nome, editId]);
 
   const handleSalvar = async () => {
-    if (!nome || !unidade || !precoPacote || !qtdPacote) {
+    if (!nome || !unidade || !precoPacote || !qtdPacote || !alertaMinimo) {
       showToast('Preencha todos os campos obrigatórios.', 'error');
       return;
     }
@@ -67,6 +70,8 @@ export default function InsumosManager() {
         precoPacote: Number(precoPacote),
         qtdPacote: Number(qtdPacote),
         diasAvisoValidade: Number(diasAvisoValidade),
+        alertaMinimo: Number(alertaMinimo),
+        estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
       });
       showToast('Insumo atualizado com sucesso!', 'success');
       setEditId(null);
@@ -79,8 +84,10 @@ export default function InsumosManager() {
         precoPacote: Number(precoPacote),
         qtdPacote: Number(qtdPacote),
         diasAvisoValidade: Number(diasAvisoValidade),
+        alertaMinimo: Number(alertaMinimo),
+        estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
         estoqueRotativo: 0,
-        estoqueEstacionario: 0,
+        estoqueEstacionario: estoqueInicial ? Number(estoqueInicial) : 0,
       });
       showToast('Insumo salvo com sucesso!', 'success');
     }
@@ -92,6 +99,9 @@ export default function InsumosManager() {
     setPrecoPacote('');
     setQtdPacote('');
     setDiasAvisoValidade('7');
+    setAlertaMinimo('');
+    setEstoqueMaximo('');
+    setEstoqueInicial('');
   };
 
   const handleEdit = (insumo: Insumo) => {
@@ -102,6 +112,8 @@ export default function InsumosManager() {
     setPrecoPacote(String(insumo.precoPacote));
     setQtdPacote(String(insumo.qtdPacote));
     setDiasAvisoValidade(String(insumo.diasAvisoValidade || 7));
+    setAlertaMinimo(String(insumo.alertaMinimo || ''));
+    setEstoqueMaximo(insumo.estoqueMaximo ? String(insumo.estoqueMaximo) : '');
   };
 
   const handleCancelEdit = () => {
@@ -112,6 +124,9 @@ export default function InsumosManager() {
     setPrecoPacote('');
     setQtdPacote('');
     setDiasAvisoValidade('7');
+    setAlertaMinimo('');
+    setEstoqueMaximo('');
+    setEstoqueInicial('');
   };
 
   const handleExcluir = async (id: string) => {
@@ -165,6 +180,23 @@ export default function InsumosManager() {
               <label className="text-xs font-bold text-gray-500 uppercase">Qtd. Pacote</label>
               <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="500" />
             </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Estoque Mínimo (Alerta)</label>
+              <input type="number" value={alertaMinimo} onChange={e => setAlertaMinimo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 5" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Estoque Máximo (Opcional)</label>
+              <input type="number" value={estoqueMaximo} onChange={e => setEstoqueMaximo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 20" />
+            </div>
+            {!editId && (
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Inicial (Opcional)</label>
+                <input type="number" value={estoqueInicial} onChange={e => setEstoqueInicial(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 10" />
+              </div>
+            )}
           </div>
 
           <div className="space-y-1">
