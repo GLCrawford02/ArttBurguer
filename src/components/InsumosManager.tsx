@@ -1,37 +1,36 @@
-import { useState, useEffect, FormEvent } from 'react';
-import { ref, push, set, onValue, remove } from 'firebase/database';
+import { useState, useEffect } from 'react';
+import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Item } from '../types';
-import { Plus, Trash2, Save, Pencil, X, Search } from 'lucide-react';
+import { Insumo } from '../types';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil } from 'lucide-react';
 
 export default function InsumosManager() {
-  const [insumos, setInsumos] = useState<Item[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  
   const [editId, setEditId] = useState<string | null>(null);
-  const [formData, setFormData] = useState<any>({
-    nome: '',
-    fornecedor: '',
-    precoPacote: 0,
-    qtdPacote: 0,
-    estoqueAtual: 0,
-    alertaMinimo: 0,
-    estoqueMaximo: 0,
-    diasAvisoValidade: 7,
-    lote: '',
-    validade: '',
-    unidade: 'g'
-  });
+  // Form state
+  const [nome, setNome] = useState('');
+  const [sku, setSku] = useState('');
+  const [unidade, setUnidade] = useState('g');
+  const [precoPacote, setPrecoPacote] = useState('');
+  const [qtdPacote, setQtdPacote] = useState('');
+  const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
+
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
-    const insumosRef = ref(db, 'itens');
-    return onValue(insumosRef, (snapshot) => {
+    const insumosRef = ref(db, 'insumos');
+    onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        const list = Object.entries(data).map(([id, val]: [string, any]) => ({
-          id,
-          ...val,
-        }));
-        list.sort((a, b) => a.nome.localeCompare(b.nome)); // Ordena Insumos de A a Z
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
         setInsumos(list);
       } else {
         setInsumos([]);
@@ -39,250 +38,198 @@ export default function InsumosManager() {
     });
   }, []);
 
-  const handleSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    
+  const generateSku = (name: string): string => {
+    if (!name) return '';
+    const prefix = name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase();
+    const randomNumber = Math.floor(100 + Math.random() * 900);
+    return `${prefix}${randomNumber}`;
+  };
+
+  useEffect(() => {
+    if (!editId && nome) {
+      setSku(generateSku(nome));
+    } else if (!editId) {
+      setSku('');
+    }
+  }, [nome, editId]);
+
+  const handleSalvar = async () => {
+    if (!nome || !unidade || !precoPacote || !qtdPacote) {
+      showToast('Preencha todos os campos obrigatórios.', 'error');
+      return;
+    }
+
     if (editId) {
-      // Se estiver editando, atualiza o item existente
-      await set(ref(db, `itens/${editId}`), formData);
+      await update(ref(db, `insumos/${editId}`), {
+        nome,
+        sku: sku || generateSku(nome),
+        unidade,
+        precoPacote: Number(precoPacote),
+        qtdPacote: Number(qtdPacote),
+        diasAvisoValidade: Number(diasAvisoValidade),
+      });
+      showToast('Insumo atualizado com sucesso!', 'success');
       setEditId(null);
     } else {
-      // Se não, cria um novo
-      const insumosRef = ref(db, 'itens');
-      const newInsumoRef = push(insumosRef);
-      await set(newInsumoRef, formData);
+      const newInsumoRef = push(ref(db, 'insumos'));
+      await set(newInsumoRef, {
+        nome,
+        sku: sku || generateSku(nome),
+        unidade,
+        precoPacote: Number(precoPacote),
+        qtdPacote: Number(qtdPacote),
+        diasAvisoValidade: Number(diasAvisoValidade),
+        estoqueRotativo: 0,
+        estoqueEstacionario: 0,
+      });
+      showToast('Insumo salvo com sucesso!', 'success');
     }
 
-    setFormData({
-      nome: '',
-      fornecedor: '',
-      precoPacote: 0,
-      qtdPacote: 0,
-      estoqueAtual: 0,
-      alertaMinimo: 0,
-      estoqueMaximo: 0,
-      diasAvisoValidade: 7,
-      lote: '',
-      validade: '',
-      unidade: 'g'
-    });
+    // Reset form
+    setNome('');
+    setSku('');
+    setUnidade('g');
+    setPrecoPacote('');
+    setQtdPacote('');
+    setDiasAvisoValidade('7');
   };
 
-  const handleEdit = (insumo: Item) => {
+  const handleEdit = (insumo: Insumo) => {
     setEditId(insumo.id);
-    setFormData({
-      nome: insumo.nome,
-      fornecedor: (insumo as any).fornecedor || '',
-      precoPacote: insumo.precoPacote,
-      qtdPacote: insumo.qtdPacote,
-      estoqueAtual: insumo.estoqueAtual,
-      alertaMinimo: insumo.alertaMinimo,
-      estoqueMaximo: (insumo as any).estoqueMaximo || 0,
-      diasAvisoValidade: (insumo as any).diasAvisoValidade !== undefined ? (insumo as any).diasAvisoValidade : 7,
-      lote: (insumo as any).lote || '',
-      validade: (insumo as any).validade || '',
-      unidade: insumo.unidade
-    });
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    setNome(insumo.nome);
+    setSku((insumo as any).sku || '');
+    setUnidade(insumo.unidade);
+    setPrecoPacote(String(insumo.precoPacote));
+    setQtdPacote(String(insumo.qtdPacote));
+    setDiasAvisoValidade(String(insumo.diasAvisoValidade || 7));
   };
 
-  const cancelEdit = () => {
+  const handleCancelEdit = () => {
     setEditId(null);
-    setFormData({ nome: '', fornecedor: '', precoPacote: 0, qtdPacote: 0, estoqueAtual: 0, alertaMinimo: 0, estoqueMaximo: 0, diasAvisoValidade: 7, lote: '', validade: '', unidade: 'g' });
+    setNome('');
+    setSku('');
+    setUnidade('g');
+    setPrecoPacote('');
+    setQtdPacote('');
+    setDiasAvisoValidade('7');
   };
 
-  const handleDelete = async (id: string) => {
-    if (confirm('Deseja excluir este item?')) {
-      await remove(ref(db, `itens/${id}`));
+  const handleExcluir = async (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir este insumo? Esta ação não pode ser desfeita.')) {
+      await remove(ref(db, `insumos/${id}`));
+      showToast('Insumo excluído com sucesso.', 'success');
     }
   };
 
-  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredInsumos = insumos.filter(i => 
+    i.nome.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    ((i as any).sku && (i as any).sku.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
 
   return (
-    <div className="space-y-8">
-      <div className={`bg-white p-6 rounded-xl shadow-sm border ${editId ? 'border-blue-300 ring-2 ring-blue-50' : 'border-gray-100'}`}>
-        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center">
-          {editId ? <Pencil className="mr-2 text-blue-600" size={20} /> : <Plus className="mr-2 text-blue-600" size={20} />}
-          {editId ? 'Editar Item' : 'Novo Item'}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
+        <h3 className="text-lg font-bold text-gray-800 flex items-center">
+          <Package className="mr-2 text-green-600" size={20} />
+          {editId ? 'Editar Insumo' : 'Novo Insumo'}
         </h3>
-      <form onSubmit={handleSubmit} className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Nome</label>
-            <input
-              type="text"
-              required
-              value={formData.nome}
-              onChange={e => setFormData({ ...formData, nome: e.target.value })}
-              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="Ex: Pão Brioche"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Fornecedor (Opcional)</label>
-            <input
-              type="text"
-              value={formData.fornecedor}
-              onChange={e => setFormData({ ...formData, fornecedor: e.target.value })}
-              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              placeholder="Ex: Padaria X..."
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Preço do Pacote (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              required
-              value={formData.precoPacote}
-              onChange={e => setFormData({ ...formData, precoPacote: Number(e.target.value) })}
-              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
-          </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Qtd por Pacote</label>
-            <div className="flex space-x-2">
-              <input
-                type="number"
-                required
-                value={formData.qtdPacote}
-                onChange={e => setFormData({ ...formData, qtdPacote: Number(e.target.value) })}
-                className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-              />
-              <select
-                value={formData.unidade}
-                onChange={e => setFormData({ ...formData, unidade: e.target.value })}
-                className="p-2 border border-gray-200 rounded-lg outline-none"
-              >
-                <option value="g">g</option>
-                <option value="kg">kg</option>
-                <option value="un">un</option>
-                <option value="ml">ml</option>
-              </select>
+        
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Nome do Insumo</label>
+              <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Pão Brioche" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
+              <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono" placeholder="Ex: PAO123" />
             </div>
           </div>
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Estoque Inicial</label>
-            <input
-              type="number"
-              required
-              value={formData.estoqueAtual}
-              onChange={e => setFormData({ ...formData, estoqueAtual: Number(e.target.value) })}
-              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Unidade</label>
+              <select value={unidade} onChange={e => setUnidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white">
+                <option value="g">Grama (g)</option>
+                <option value="kg">Quilograma (kg)</option>
+                <option value="ml">Mililitro (ml)</option>
+                <option value="L">Litro (L)</option>
+                <option value="un">Unidade (un)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Preço Pacote (R$)</label>
+              <input type="number" value={precoPacote} onChange={e => setPrecoPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="15.90" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Qtd. Pacote</label>
+              <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="500" />
+            </div>
           </div>
+
           <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Alerta Mínimo</label>
-            <input
-              type="number"
-              required
-              value={formData.alertaMinimo}
-              onChange={e => setFormData({ ...formData, alertaMinimo: Number(e.target.value) })}
-              className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-            />
+            <label className="text-xs font-bold text-gray-500 uppercase">Avisar Validade (dias antes)</label>
+            <input type="number" value={diasAvisoValidade} onChange={e => setDiasAvisoValidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="7" />
           </div>
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-gray-500 uppercase">Estoque Máximo</label>
-          <input
-            type="number"
-            required
-            value={formData.estoqueMaximo}
-            onChange={e => setFormData({ ...formData, estoqueMaximo: Number(e.target.value) })}
-            className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-          />
-        </div>
-        <div className="space-y-1">
-          <label className="text-xs font-bold text-gray-500 uppercase">Aviso Vencimento (Dias)</label>
-          <input
-            type="number"
-            required
-            value={formData.diasAvisoValidade}
-            onChange={e => setFormData({ ...formData, diasAvisoValidade: Number(e.target.value) })}
-            className="w-full p-2 border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
-          />
-        </div>
-        <div className="flex items-end space-x-2 md:col-span-4 mt-2">
-            <button
-              type="submit"
-              className="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center"
-            >
-              <Save className="mr-2" size={18} />
-              {editId ? 'Atualizar' : 'Salvar'}
+
+          <div className="pt-4 border-t flex gap-2">
+            <button onClick={handleSalvar} className="flex-1 bg-green-600 text-white p-3 rounded-lg font-bold hover:bg-green-700 transition-colors">
+              {editId ? 'Atualizar Insumo' : 'Salvar Novo Insumo'}
             </button>
             {editId && (
-              <button
-                type="button"
-                onClick={cancelEdit}
-                className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300 transition-colors flex items-center justify-center"
-                title="Cancelar edição"
-              >
-                <X size={20} />
+              <button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors">
+                Cancelar
               </button>
             )}
           </div>
-        </form>
+        </div>
       </div>
 
-      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-        <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <h3 className="font-bold text-gray-800">Itens Cadastrados</h3>
+      <div className="space-y-6">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+          <h3 className="text-lg font-bold text-gray-800">Insumos Cadastrados</h3>
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar item..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
-            />
+            <input type="text" placeholder="Buscar por nome ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm w-full sm:w-64" />
           </div>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-            <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
-              <th className="px-6 py-3">Item</th>
-              <th className="px-6 py-3">Fornecedor</th>
-              <th className="px-6 py-3">Preço Pacote</th>
-              <th className="px-6 py-3">Qtd Pacote</th>
-              <th className="px-6 py-3">Estoque</th>
-              <th className="px-6 py-3">Ações</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filteredInsumos.map(i => (
-              <tr key={i.id} className="hover:bg-gray-50 transition-colors">
-                <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
-                <td className="px-6 py-4 text-gray-600">{(i as any).fornecedor || '-'}</td>
-                <td className="px-6 py-4 text-gray-600">R$ {i.precoPacote.toFixed(2)}</td>
-                <td className="px-6 py-4 text-gray-600">{i.qtdPacote} {i.unidade}</td>
-                <td className="px-6 py-4">
-                  <span className={`font-bold ${i.estoqueAtual <= i.alertaMinimo ? 'text-red-600' : 'text-gray-600'}`}>
-                    {i.estoqueAtual} {i.unidade}
-                  </span>
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={() => handleEdit(i)}
-                      className="text-blue-500 hover:text-blue-700 transition-colors"
-                    >
-                      <Pencil size={18} />
-                    </button>
-                    <button
-                      onClick={() => handleDelete(i.id)}
-                      className="text-red-500 hover:text-red-700 transition-colors"
-                    >
-                      <Trash2 size={18} />
-                    </button>
-                  </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        
+        <div className="grid grid-cols-1 gap-4">
+          {filteredInsumos.map(i => (
+            <div key={i.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
+              <div>
+                <div className="flex items-center space-x-2 mb-1">
+                  <h4 className="font-bold text-gray-900">{i.nome}</h4>
+                  <span className="text-[10px] font-mono px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{ (i as any).sku || 'N/A'}</span>
+                </div>
+                <p className="text-sm text-gray-500 font-medium">
+                  Custo: <span className="text-blue-600">R$ {(i.precoPacote / i.qtdPacote).toFixed(3)}</span> por {i.unidade}
+                </p>
+              </div>
+              <div className="flex space-x-2">
+                <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
+                  <Pencil size={18} />
+                </button>
+                <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                  <Trash2 size={18} />
+                </button>
+              </div>
+            </div>
+          ))}
+          {filteredInsumos.length === 0 && (
+            <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
+              <p className="text-gray-400">Nenhum insumo encontrado.</p>
+            </div>
+          )}
         </div>
       </div>
+
+      {toast && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}
+          <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

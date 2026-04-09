@@ -280,42 +280,41 @@ export default function App() {
 
         <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && <Dashboard />}
-          
+          {activeTab === 'funcionarios' && <FuncionariosManager />}
+          {activeTab === 'producao' && <ProducaoManager />}
+          {activeTab === 'balanco' && <BalancoManager />}
+
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>
-                {currentUser.cargo === 'Administrador' && (
-                  <button onClick={() => setSubTabCadastros('produtos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'produtos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtos</button>
+              <div className="flex bg-gray-200/50 p-1 rounded-xl w-full sm:w-fit">
+                <button onClick={() => setSubTabCadastros('insumos')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabCadastros === 'insumos' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>
+                {currentUser?.cargo === 'Administrador' && (
+                  <button onClick={() => setSubTabCadastros('produtos')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabCadastros === 'produtos' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtos</button>
                 )}
               </div>
               {subTabCadastros === 'insumos' && <InsumosManager />}
-              {subTabCadastros === 'produtos' && <ProdutosManager />}
+              {subTabCadastros === 'produtos' && currentUser?.cargo === 'Administrador' && <ProdutosManager />}
             </div>
           )}
 
           {activeTab === 'movimentacoes' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                {(currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente') && (
-                  <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Compras</button>
+              <div className="flex bg-gray-200/50 p-1 rounded-xl w-full sm:w-fit">
+                {(currentUser?.cargo === 'Administrador' || currentUser?.cargo === 'Gerente') && (
+                  <button onClick={() => setSubTabMovimentacoes('compras')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabMovimentacoes === 'compras' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Compras (Entradas)</button>
                 )}
-                <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>
+                <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>
               </div>
-              {subTabMovimentacoes === 'compras' && <ComprasManager />}
+              {subTabMovimentacoes === 'compras' && (currentUser?.cargo === 'Administrador' || currentUser?.cargo === 'Gerente') && <ComprasManager />}
               {subTabMovimentacoes === 'transferencia' && <TransferenciaManager />}
             </div>
           )}
 
-          {activeTab === 'funcionarios' && <FuncionariosManager />}
-          {activeTab === 'producao' && <ProducaoManager />}
-          {activeTab === 'balanco' && <BalancoManager />}
-
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTabFinanceiro('fechamento')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento</button>
-                <button onClick={() => setSubTabFinanceiro('relatorios')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
+              <div className="flex bg-gray-200/50 p-1 rounded-xl w-full sm:w-fit">
+                <button onClick={() => setSubTabFinanceiro('fechamento')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabFinanceiro === 'fechamento' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento de Caixa</button>
+                <button onClick={() => setSubTabFinanceiro('relatorios')} className={`flex-1 sm:flex-none px-6 py-2 rounded-lg text-sm font-bold transition-all ${subTabFinanceiro === 'relatorios' ? 'bg-white text-orange-500 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
               </div>
               {subTabFinanceiro === 'fechamento' && <FechamentoManager />}
               {subTabFinanceiro === 'relatorios' && <RelatoriosManager />}

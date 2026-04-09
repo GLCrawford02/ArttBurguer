@@ -4,12 +4,13 @@ export interface LoteDados {
   quantidade: number;
 }
 
-export interface Item {
+export interface Insumo {
   id: string;
   nome: string;
   precoPacote: number;
   qtdPacote: number; // Quantidade total no pacote (ex: 1000g, 12 unidades)
-  estoqueAtual: number;
+  estoqueRotativo: number;
+  estoqueEstacionario: number;
   alertaMinimo: number;
   estoqueMaximo?: number;
   diasAvisoValidade?: number;
@@ -30,4 +31,32 @@ export interface Produto {
   nome: string;
   ingredientes: IngredienteReceita[];
   custoTotal: number;
+}
+
+export interface Funcionario {
+  id: string;
+  nome: string;
+  pin: string;
+  cargo?: string;
+}
+
+export interface TransferenciaLog {
+  id: string;
+  insumoId: string;
+  nomeInsumo: string;
+  quantidade: number;
+  funcionarioId: string;
+  funcionarioNome: string;
+  timestamp: number;
+}
+
+export interface DescarteLog {
+  id: string;
+  insumoId: string;
+  nomeInsumo: string;
+  quantidade: number;
+  lote: string;
+  funcionarioId: string;
+  funcionarioNome: string;
+  timestamp: number;
 }

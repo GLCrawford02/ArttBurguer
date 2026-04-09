@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Item } from '../types';
-import { ShoppingCart, Plus, Search } from 'lucide-react';
+import { Insumo } from '../types';
+import { ShoppingCart, Plus, Search, CheckCircle } from 'lucide-react';
 
 export default function ComprasManager() {
-  const [insumos, setInsumos] = useState<Item[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [lotes, setLotes] = useState<Record<string, string>>({});
   const [validades, setValidades] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
-    const insumosRef = ref(db, 'itens');
+    const insumosRef = ref(db, 'insumos');
     return onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
@@ -23,19 +29,27 @@ export default function ComprasManager() {
     });
   }, []);
 
-  const registrarCompra = async (insumo: Item) => {
+  const gerarLoteData = () => {
+    const hoje = new Date();
+    const dia = String(hoje.getDate()).padStart(2, '0');
+    const mes = String(hoje.getMonth() + 1).padStart(2, '0');
+    const ano = String(hoje.getFullYear()).slice(-2);
+    return `${dia}${mes}${ano}`;
+  };
+
+  const registrarCompra = async (insumo: Insumo) => {
     const qtdPacotes = quantidades[insumo.id];
     if (!qtdPacotes || qtdPacotes <= 0) return;
 
     const qtdAdicionar = qtdPacotes * insumo.qtdPacote; // Multiplica os pacotes pela Qtd por Pacote
 
-    const lote = lotes[insumo.id] || '';
+    const lote = lotes[insumo.id] || gerarLoteData();
     const validade = validades[insumo.id] || '';
 
-    const insumoRef = ref(db, `itens/${insumo.id}`);
+    const insumoRef = ref(db, `insumos/${insumo.id}`);
     await runTransaction(insumoRef, (currentData) => {
       if (currentData) {
-        currentData.estoqueAtual = (currentData.estoqueAtual || 0) + qtdAdicionar;
+        currentData.estoqueEstacionario = (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) + qtdAdicionar;
         
         if (lote || validade) {
           if (!currentData.lotes) currentData.lotes = {};
@@ -63,13 +77,16 @@ export default function ComprasManager() {
       timestamp: Date.now()
     });
     
-    alert(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`);
+    showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
     setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
     setLotes({ ...lotes, [insumo.id]: '' });
     setValidades({ ...validades, [insumo.id]: '' });
   };
 
-  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredInsumos = insumos.filter(i => 
+    (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -86,7 +103,7 @@ export default function ComprasManager() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Buscar item..."
+              placeholder="Buscar por nome ou SKU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
@@ -99,15 +116,16 @@ export default function ComprasManager() {
         {filteredInsumos.map(insumo => (
           <div key={insumo.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
             <div className="mb-4">
-              <h4 className="font-bold text-gray-900">{insumo.nome}</h4>
-              <p className="text-sm text-gray-500">Estoque atual: <span className="font-bold">{insumo.estoqueAtual} {insumo.unidade}</span></p>
+              <h4 className="font-bold text-gray-900 leading-tight">{insumo.nome}</h4>
+              <p className="text-xs font-mono text-gray-400">{(insumo as any).sku || 'Sem SKU'}</p>
+              <p className="text-sm text-gray-500">Est. Estacionário: <span className="font-bold">{insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0} {insumo.unidade}</span></p>
               <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 pacote = {insumo.qtdPacote} {insumo.unidade}</p>
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
-                  placeholder="Lote (opcional)"
+                  placeholder={`Lote (padrão: ${gerarLoteData()})`}
                   value={lotes[insumo.id] || ''}
                   onChange={(e) => setLotes({ ...lotes, [insumo.id]: e.target.value })}
                   className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
@@ -140,6 +158,13 @@ export default function ComprasManager() {
           </div>
         ))}
       </div>
+
+      {toast && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          <CheckCircle className="mr-2" size={20} />
+          <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

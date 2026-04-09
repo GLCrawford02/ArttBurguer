@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Item, Produto } from '../types';
-import { CheckCircle, ChefHat, Search } from 'lucide-react';
+import { Insumo, Produto } from '../types';
+import { CheckCircle, ChefHat, Search, AlertTriangle } from 'lucide-react';
 import { LoteDados } from '../types';
 
 export default function ProducaoManager() {
-  const [insumos, setInsumos] = useState<Item[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
-    const insumosRef = ref(db, 'itens');
+    const insumosRef = ref(db, 'insumos');
     const produtosRef = ref(db, 'produtos');
 
     onValue(insumosRef, (snapshot) => {
@@ -38,8 +44,9 @@ export default function ProducaoManager() {
     const checks = produto.ingredientes.map(ing => {
       const insumo = insumos.find(i => i.id === ing.insumoId);
       const qtdNecessaria = ing.quantidade * multiplicador;
-      if (!insumo || insumo.estoqueAtual < qtdNecessaria) {
-        return { ok: false, nome: insumo?.nome || 'Desconhecido', precisa: qtdNecessaria, tem: insumo?.estoqueAtual || 0, unidade: insumo?.unidade || '' };
+      const tem = insumo ? (insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0) : 0;
+      if (!insumo || tem < qtdNecessaria) {
+        return { ok: false, nome: insumo?.nome || 'Desconhecido', precisa: qtdNecessaria, tem: tem, unidade: insumo?.unidade || '' };
       }
       return { ok: true };
     });
@@ -47,17 +54,17 @@ export default function ProducaoManager() {
     const falhas = checks.filter(c => !c.ok);
     if (falhas.length > 0) {
       const msg = falhas.map(f => `- ${f.nome}: Precisa ${f.precisa}${f.unidade}, mas só tem ${f.tem}${f.unidade}`).join('\n');
-      alert(`ESTOQUE INSUFICIENTE!\n\n${msg}`);
+      showToast(`ESTOQUE INSUFICIENTE!\n\n${msg}`, 'error');
       return;
     }
 
     // 2. Realizar o abatimento no estoque de forma segura (Transaction)
     for (const ing of produto.ingredientes) {
-      const insumoRef = ref(db, `itens/${ing.insumoId}`);
+      const insumoRef = ref(db, `insumos/${ing.insumoId}`);
       const qtdNecessaria = ing.quantidade * multiplicador;
       await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          currentData.estoqueAtual = (currentData.estoqueAtual || 0) - qtdNecessaria;
+          currentData.estoqueRotativo = (currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - qtdNecessaria;
           
           // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
           if (currentData.lotes) {
@@ -97,11 +104,14 @@ export default function ProducaoManager() {
       timestamp: Date.now()
     });
 
-    alert(`Produção de ${multiplicador}x ${produto.nome} registrada com sucesso!\nO estoque foi atualizado.`);
+    showToast(`Produção de ${multiplicador}x ${produto.nome} registrada com sucesso!\nO estoque foi atualizado.`, 'success');
     setQuantidades({ ...quantidades, [produto.id]: 1 }); // Reseta o input
   };
 
-  const filteredProdutos = produtos.filter(p => p.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredProdutos = produtos.filter(p => 
+    (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+    ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+  );
 
   return (
     <div className="space-y-6">
@@ -118,7 +128,7 @@ export default function ProducaoManager() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
               type="text"
-              placeholder="Buscar produto..."
+              placeholder="Buscar por nome ou SKU..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm w-full sm:w-64"
@@ -150,6 +160,13 @@ export default function ProducaoManager() {
           </div>
         ))}
       </div>
+
+      {toast && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}
+          <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

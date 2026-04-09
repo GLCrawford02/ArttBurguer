@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebase';
-import { BarChart3, TrendingDown, Calendar } from 'lucide-react';
+import { BarChart3, TrendingDown, Calendar, ArrowRightLeft, Trash2 } from 'lucide-react';
+import { TransferenciaLog, DescarteLog } from '../types';
 
 interface CompraLog {
   id: string;
@@ -13,7 +14,10 @@ interface CompraLog {
 }
 
 export default function RelatoriosManager() {
+  const [activeTab, setActiveTab] = useState<'despesas' | 'transferencias' | 'descartes'>('despesas');
   const [historico, setHistorico] = useState<CompraLog[]>([]);
+  const [transferencias, setTransferencias] = useState<TransferenciaLog[]>([]);
+  const [descartes, setDescartes] = useState<DescarteLog[]>([]);
 
   useEffect(() => {
     const historicoRef = ref(db, 'historico_compras');
@@ -23,6 +27,30 @@ export default function RelatoriosManager() {
         setHistorico(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
       } else {
         setHistorico([]);
+      }
+    });
+
+    const transRef = ref(db, 'historico_transferencias');
+    onValue(transRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => b.timestamp - a.timestamp); // Mais recentes primeiro
+        setTransferencias(list);
+      } else {
+        setTransferencias([]);
+      }
+    });
+
+    const descartesRef = ref(db, 'historico_descartes');
+    onValue(descartesRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => b.timestamp - a.timestamp); // Mais recentes primeiro
+        setDescartes(list);
+      } else {
+        setDescartes([]);
       }
     });
   }, []);
@@ -75,22 +103,81 @@ export default function RelatoriosManager() {
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6 flex items-center">
-        <div className="bg-blue-100 p-3 rounded-xl mr-4 text-blue-600">
-          <BarChart3 size={24} />
+        <div className={`p-3 rounded-xl mr-4 ${activeTab === 'despesas' ? 'bg-blue-100 text-blue-600' : activeTab === 'transferencias' ? 'bg-indigo-100 text-indigo-600' : 'bg-red-100 text-red-600'}`}>
+          {activeTab === 'despesas' && <BarChart3 size={24} />}
+          {activeTab === 'transferencias' && <ArrowRightLeft size={24} />}
+          {activeTab === 'descartes' && <Trash2 size={24} />}
         </div>
-        <div>
-          <h3 className="text-lg font-bold text-gray-800">Relatório de Despesas</h3>
-          <p className="text-sm text-gray-500">Acompanhamento de gastos com reposição de estoque.</p>
+        <div className="flex-1">
+          <h3 className="text-lg font-bold text-gray-800">{activeTab === 'despesas' ? 'Relatório de Despesas' : activeTab === 'transferencias' ? 'Histórico de Transferências' : 'Histórico de Descartes'}</h3>
+          <p className="text-sm text-gray-500">{activeTab === 'despesas' ? 'Acompanhamento de gastos com reposição de estoque.' : activeTab === 'transferencias' ? 'Registro de movimentações do estoque estacionário para o rotativo.' : 'Registro de descarte de insumos vencidos e autorizações.'}</p>
+        </div>
+        <div className="flex bg-gray-100 p-1 rounded-lg space-x-1 overflow-x-auto">
+          <button onClick={() => setActiveTab('despesas')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'despesas' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despesas</button>
+          <button onClick={() => setActiveTab('transferencias')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'transferencias' ? 'bg-white text-indigo-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>
+          <button onClick={() => setActiveTab('descartes')} className={`px-4 py-2 rounded-md text-sm font-bold transition-all whitespace-nowrap ${activeTab === 'descartes' ? 'bg-white text-red-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Descartes</button>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        <CardRelatorio titulo="Gasto Diário" valor={gastos.diario} descricao="Compras realizadas hoje" />
-        <CardRelatorio titulo="Gasto Semanal" valor={gastos.semanal} descricao="Últimos 7 dias" />
-        <CardRelatorio titulo="Fins de Semana" valor={gastos.fimDeSemana} descricao="Sábados e Domingos (Este mês)" />
-        <CardRelatorio titulo="Gasto Quinzenal" valor={gastos.quinzenal} descricao="Últimos 15 dias" />
-        <CardRelatorio titulo="Gasto Mensal" valor={gastos.mensal} descricao="Acumulado deste mês" />
-      </div>
+      {activeTab === 'despesas' ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          <CardRelatorio titulo="Gasto Diário" valor={gastos.diario} descricao="Compras realizadas hoje" />
+          <CardRelatorio titulo="Gasto Semanal" valor={gastos.semanal} descricao="Últimos 7 dias" />
+          <CardRelatorio titulo="Fins de Semana" valor={gastos.fimDeSemana} descricao="Sábados e Domingos (Este mês)" />
+          <CardRelatorio titulo="Gasto Quinzenal" valor={gastos.quinzenal} descricao="Últimos 15 dias" />
+          <CardRelatorio titulo="Gasto Mensal" valor={gastos.mensal} descricao="Acumulado deste mês" />
+        </div>
+      ) : activeTab === 'transferencias' ? (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
+                <th className="px-6 py-4">Data / Hora</th>
+                <th className="px-6 py-4">Funcionário</th>
+                <th className="px-6 py-4">Insumo</th>
+                <th className="px-6 py-4">Quantidade Transferida</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {transferencias.map(t => (
+                <tr key={t.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(t.timestamp).toLocaleString('pt-BR')}</td>
+                  <td className="px-6 py-4 font-medium text-gray-900">{t.funcionarioNome}</td>
+                  <td className="px-6 py-4 text-gray-800">{t.nomeInsumo}</td>
+                  <td className="px-6 py-4 font-bold text-indigo-600">{t.quantidade}</td>
+                </tr>
+              ))}
+              {transferencias.length === 0 && <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400">Nenhuma transferência registrada.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
+                <th className="px-6 py-4">Data / Hora</th>
+                <th className="px-6 py-4">Autorizado por</th>
+                <th className="px-6 py-4">Insumo</th>
+                <th className="px-6 py-4">Lote Referência</th>
+                <th className="px-6 py-4">Quantidade</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {descartes.map(d => (
+                <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(d.timestamp).toLocaleString('pt-BR')}</td>
+                  <td className="px-6 py-4 font-medium text-gray-900">{d.funcionarioNome}</td>
+                  <td className="px-6 py-4 text-gray-800">{d.nomeInsumo}</td>
+                  <td className="px-6 py-4 text-gray-500">{d.lote}</td>
+                  <td className="px-6 py-4 font-bold text-red-600">{d.quantidade}</td>
+                </tr>
+              ))}
+              {descartes.length === 0 && <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhum descarte registrado.</td></tr>}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }
