@@ -18,7 +18,7 @@ export default function InsumosManager() {
   const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
   const [alertaMinimo, setAlertaMinimo] = useState('');
   const [estoqueMaximo, setEstoqueMaximo] = useState('');
-  const [estoqueInicial, setEstoqueInicial] = useState('');
+  const [estoqueAtual, setEstoqueAtual] = useState('');
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -87,7 +87,7 @@ export default function InsumosManager() {
         alertaMinimo: Number(alertaMinimo),
         estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
         estoqueRotativo: 0,
-        estoqueEstacionario: estoqueInicial ? Number(estoqueInicial) : 0,
+        estoqueEstacionario: estoqueAtual ? Number(estoqueAtual) : 0,
       });
       showToast('Insumo salvo com sucesso!', 'success');
     }
@@ -101,7 +101,7 @@ export default function InsumosManager() {
     setDiasAvisoValidade('7');
     setAlertaMinimo('');
     setEstoqueMaximo('');
-    setEstoqueInicial('');
+    setEstoqueAtual('');
   };
 
   const handleEdit = (insumo: Insumo) => {
@@ -126,7 +126,7 @@ export default function InsumosManager() {
     setDiasAvisoValidade('7');
     setAlertaMinimo('');
     setEstoqueMaximo('');
-    setEstoqueInicial('');
+    setEstoqueAtual('');
   };
 
   const handleExcluir = async (id: string) => {
@@ -193,8 +193,8 @@ export default function InsumosManager() {
             </div>
             {!editId && (
               <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Inicial (Opcional)</label>
-                <input type="number" value={estoqueInicial} onChange={e => setEstoqueInicial(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 10" />
+                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Atual (Opcional)</label>
+                <input type="number" value={estoqueAtual} onChange={e => setEstoqueAtual(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 10" />
               </div>
             )}
           </div>
