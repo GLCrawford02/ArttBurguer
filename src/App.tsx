@@ -14,7 +14,7 @@ import FuncionariosManager from './components/FuncionariosManager';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
-import logoImg from '../logo.png';
+import logoImg from './assets/logo.png';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios'>('dashboard');

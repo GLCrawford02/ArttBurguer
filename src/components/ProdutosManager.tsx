@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
-import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload } from 'lucide-react';
 
 export default function ProdutosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -187,6 +187,99 @@ export default function ProdutosManager() {
   ];
   const insumosFaltantes = embalagensNecessarias.filter(nome => !insumos.some(i => (i.nome || '').trim().toLowerCase() === nome.trim().toLowerCase()));
 
+  const exportarProdutos = () => {
+    const headers = ['Nome', 'Categoria', 'Preco Venda', 'Custo Total', 'Ingredientes (Nome:Qtd|Nome:Qtd)'];
+    const rows = produtos.map(p => {
+      const ingStr = (p.ingredientes || []).map(ing => {
+        const insumo = insumos.find(i => i.id === ing.insumoId);
+        return `${insumo?.nome || 'Desconhecido'}:${ing.quantidade}`;
+      }).join('|');
+      return [
+        p.nome,
+        (p as any).categoria || 'Hambúrguer',
+        (p as any).precoVenda || 0,
+        (p.custoTotal || 0).toFixed(2),
+        ingStr
+      ];
+    });
+    const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `produtos_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = async (event) => {
+      try {
+        const text = event.target?.result as string;
+        const lines = text.split(/\r?\n/);
+        if (lines.length < 2) return showToast('Arquivo CSV vazio ou sem dados.', 'error');
+
+        let adicionados = 0;
+        let atualizados = 0;
+
+        for (let i = 1; i < lines.length; i++) {
+          const row = lines[i].split(';');
+          if (row.length < 3) continue;
+
+          const nome = row[0]?.trim();
+          if (!nome) continue;
+
+          const categoria = row[1]?.trim() || 'Hambúrguer';
+          const precoVenda = Number(row[2]?.trim().replace(',', '.')) || 0;
+          const ingredientesStr = row[4]?.trim() || '';
+
+          const ingredientesParaSalvar: IngredienteReceita[] = [];
+          if (ingredientesStr) {
+            const ingList = ingredientesStr.split('|');
+            for (const item of ingList) {
+              const parts = item.split(':');
+              if (parts.length >= 2) {
+                const ingNome = parts[0].trim();
+                const ingQtd = Number(parts[1].trim().replace(',', '.'));
+                const insumoEncontrado = insumos.find(ins => (ins.nome || '').toLowerCase().trim() === ingNome.toLowerCase());
+                if (insumoEncontrado && !isNaN(ingQtd)) {
+                  ingredientesParaSalvar.push({ insumoId: insumoEncontrado.id, quantidade: ingQtd });
+                }
+              }
+            }
+          }
+
+          const custoTotal = ingredientesParaSalvar.reduce((acc, ing) => {
+            const insumo = insumos.find(ins => ins.id === ing.insumoId);
+            if (!insumo || !insumo.qtdPacote) return acc;
+            return acc + ((insumo.precoPacote / insumo.qtdPacote) * ing.quantidade);
+          }, 0);
+
+          const produtoData = { nome, categoria, precoVenda, custoTotal, ingredientes: ingredientesParaSalvar };
+          const produtoExistente = produtos.find(p => (p.nome || '').toLowerCase().trim() === nome.toLowerCase());
+
+          if (produtoExistente) {
+            await update(ref(db, `produtos/${produtoExistente.id}`), produtoData);
+            atualizados++;
+          } else {
+            await set(push(ref(db, 'produtos')), produtoData);
+            adicionados++;
+          }
+        }
+        showToast(`Sucesso! ${adicionados} adicionados e ${atualizados} atualizados.`, 'success');
+      } catch (error: any) {
+        showToast('Erro ao importar: ' + error.message, 'error');
+      }
+    };
+    reader.readAsText(file, 'UTF-8');
+    e.target.value = '';
+  };
+
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Cadastro de Ficha Técnica */}
@@ -347,6 +440,14 @@ export default function ProdutosManager() {
             <ShoppingCart className="mr-2 text-blue-600" size={20} />
             Produtos Cadastrados
           </h3>
+        <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+          <button onClick={exportarProdutos} className="text-xs flex items-center bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
+            <Download size={14} className="mr-1" /> Exportar CSV
+          </button>
+          <label htmlFor="import-csv-produtos" className="text-xs flex items-center bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center cursor-pointer mb-2 sm:mb-0">
+            <Upload size={14} className="mr-1" /> Importar CSV
+          </label>
+          <input type="file" accept=".csv" id="import-csv-produtos" className="hidden" onChange={handleFileUpload} />
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
@@ -356,6 +457,7 @@ export default function ProdutosManager() {
               onChange={(e) => setSearchTerm(e.target.value)}
               className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
             />
+          </div>
           </div>
         </div>
         

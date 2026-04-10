@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil } from 'lucide-react';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2 } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -19,6 +19,12 @@ export default function InsumosManager() {
   const [alertaMinimo, setAlertaMinimo] = useState('');
   const [estoqueMaximo, setEstoqueMaximo] = useState('');
   const [estoqueAtual, setEstoqueAtual] = useState('');
+
+  const [cadastroMode, setCadastroMode] = useState<'manual' | 'ia'>('manual');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  // Chave da API da xAI (Grok)
+  const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -104,6 +110,91 @@ export default function InsumosManager() {
     setEstoqueAtual('');
   };
 
+  const handleCadastroIA = async () => {
+    if (!aiPrompt.trim()) {
+      showToast('Preencha os dados dos insumos que deseja cadastrar.', 'error');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${grokKey}`
+        },
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          stream: false,
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um assistente de cadastro de estoque. Extraia os insumos do texto do usuário, onde cada linha representa um insumo com os valores separados por vírgula na seguinte ordem:
+Nome, SKU, Preço por pacote, Qtd por pacote, Unidade, Estoque mínimo, Estoque máximo, Estoque atual.
+Não inclua crases, formatação markdown ou texto adicional, apenas o array JSON.
+Formato esperado para cada objeto:
+[{
+  "nome": "Nome do Insumo",
+  "sku": "SKU (se omitido ou em branco, deixe vazio)",
+  "unidade": "g" | "kg" | "ml" | "L" | "un",
+  "precoPacote": numero (preço em reais),
+  "qtdPacote": numero (quantidade por pacote),
+  "alertaMinimo": numero (estoque mínimo),
+  "estoqueMaximo": numero (estoque máximo, opcional),
+  "estoqueAtual": numero (estoque atual, opcional)
+}]`
+            },
+            {
+              role: 'user',
+              content: aiPrompt
+            }
+          ]
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        console.error('Detalhes do erro xAI:', data);
+        throw new Error(data.error?.message || data.message || JSON.stringify(data) || 'Erro na API da IA');
+      }
+      
+      const jsonText = data.choices?.[0]?.message?.content;
+      if (!jsonText) throw new Error('Resposta inválida da IA.');
+
+      const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const insumosExtraidos = JSON.parse(cleanJson);
+      if (!Array.isArray(insumosExtraidos)) throw new Error('Formato retornado não é um array.');
+
+      let adicionados = 0;
+      for (const item of insumosExtraidos) {
+        const sku = item.sku || generateSku(item.nome || 'INSUMO');
+        await set(push(ref(db, 'insumos')), {
+          nome: item.nome || 'Sem Nome',
+          sku,
+          unidade: item.unidade || 'un',
+          precoPacote: Number(item.precoPacote) || 0,
+          qtdPacote: Number(item.qtdPacote) || 1,
+          diasAvisoValidade: 7,
+          alertaMinimo: Number(item.alertaMinimo) || 5,
+          estoqueMaximo: item.estoqueMaximo ? Number(item.estoqueMaximo) : null,
+          estoqueRotativo: 0,
+          estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
+        });
+        adicionados++;
+      }
+      
+      showToast(`Sucesso! ${adicionados} insumos cadastrados pela IA.`, 'success');
+      setAiPrompt('');
+      setCadastroMode('manual');
+    } catch (error: any) {
+      showToast('Erro ao processar com IA: ' + error.message, 'error');
+      console.error(error);
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
   const handleEdit = (insumo: Insumo) => {
     setEditId(insumo.id);
     setNome(insumo.nome);
@@ -144,77 +235,118 @@ export default function InsumosManager() {
   return (
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <Package className="mr-2 text-green-600" size={20} />
-          {editId ? 'Editar Insumo' : 'Novo Insumo'}
-        </h3>
-        
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Nome do Insumo</label>
-              <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Pão Brioche" />
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center">
+            <Package className="mr-2 text-green-600" size={20} />
+            {editId ? 'Editar Insumo' : 'Cadastro de Insumos'}
+          </h3>
+          {!editId && (
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+              <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
+              <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
             </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
-              <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono" placeholder="Ex: PAO123" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Unidade</label>
-              <select value={unidade} onChange={e => setUnidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white">
-                <option value="g">Grama (g)</option>
-                <option value="kg">Quilograma (kg)</option>
-                <option value="ml">Mililitro (ml)</option>
-                <option value="L">Litro (L)</option>
-                <option value="un">Unidade (un)</option>
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Preço Pacote (R$)</label>
-              <input type="number" value={precoPacote} onChange={e => setPrecoPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="15.90" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Qtd. Pacote</label>
-              <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="500" />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Estoque Mínimo (Alerta)</label>
-              <input type="number" value={alertaMinimo} onChange={e => setAlertaMinimo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 5" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Estoque Máximo (Opcional)</label>
-              <input type="number" value={estoqueMaximo} onChange={e => setEstoqueMaximo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 20" />
-            </div>
-            {!editId && (
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Atual (Opcional)</label>
-                <input type="number" value={estoqueAtual} onChange={e => setEstoqueAtual(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 10" />
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Avisar Validade (dias antes)</label>
-            <input type="number" value={diasAvisoValidade} onChange={e => setDiasAvisoValidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="7" />
-          </div>
-
-          <div className="pt-4 border-t flex gap-2">
-            <button onClick={handleSalvar} className="flex-1 bg-green-600 text-white p-3 rounded-lg font-bold hover:bg-green-700 transition-colors">
-              {editId ? 'Atualizar Insumo' : 'Salvar Novo Insumo'}
-            </button>
-            {editId && (
-              <button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors">
-                Cancelar
-              </button>
-            )}
-          </div>
+          )}
         </div>
+        
+        {cadastroMode === 'manual' || editId ? (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nome do Insumo</label>
+                <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: Pão Brioche" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
+                <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono" placeholder="Ex: PAO123" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Unidade</label>
+                <select value={unidade} onChange={e => setUnidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white">
+                  <option value="g">Grama (g)</option>
+                  <option value="kg">Quilograma (kg)</option>
+                  <option value="ml">Mililitro (ml)</option>
+                  <option value="L">Litro (L)</option>
+                  <option value="un">Unidade (un)</option>
+                </select>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Preço Pacote (R$)</label>
+                <input type="number" value={precoPacote} onChange={e => setPrecoPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="15.90" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Qtd. Pacote</label>
+                <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="500" />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Mínimo (Alerta)</label>
+                <input type="number" value={alertaMinimo} onChange={e => setAlertaMinimo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 5" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Máximo (Opcional)</label>
+                <input type="number" value={estoqueMaximo} onChange={e => setEstoqueMaximo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 20" />
+              </div>
+              {!editId && (
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Estoque Atual (Opcional)</label>
+                  <input type="number" value={estoqueAtual} onChange={e => setEstoqueAtual(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 10" />
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Avisar Validade (dias antes)</label>
+              <input type="number" value={diasAvisoValidade} onChange={e => setDiasAvisoValidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="7" />
+            </div>
+
+            <div className="pt-4 border-t flex gap-2">
+              <button onClick={handleSalvar} className="flex-1 bg-green-600 text-white p-3 rounded-lg font-bold hover:bg-green-700 transition-colors">
+                {editId ? 'Atualizar Insumo' : 'Salvar Novo Insumo'}
+              </button>
+              {editId && (
+                <button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors">
+                  Cancelar
+                </button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-purple-50 border border-purple-100 p-4 rounded-lg space-y-3">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center text-purple-800 font-bold text-sm">
+                  <Bot size={18} className="mr-2"/> Assistente IA
+                </div>
+              </div>
+              
+              <div className="bg-white p-3 rounded border border-purple-100 shadow-sm text-xs text-gray-600">
+                <p className="font-bold text-purple-800 mb-1">Ordem de preenchimento (separado por vírgula):</p>
+                <p>Nome, SKU, Preço do pacote, Qtd por pacote, Unidade (L/ML/G/KG/UN), Estoque mínimo, Estoque máximo, Estoque atual</p>
+                <p className="font-mono text-purple-600 mt-2 bg-purple-50 p-1.5 rounded">Exemplo: Carne, CAR25, 150.00, 5, kg, 10, 50, 20</p>
+              </div>
+
+              <textarea 
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                placeholder="Carne, CAR25, 150.00, 5, kg, 10, 50, 20&#10;Pão Brioche, PAO01, 24.00, 12, un, 5, 20, 10"
+                className="w-full p-3 border border-purple-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm min-h-[140px] resize-y bg-white leading-relaxed font-mono"
+              />
+
+              <button 
+                onClick={handleCadastroIA} 
+                disabled={isGenerating}
+                className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition-colors flex items-center justify-center disabled:opacity-70 shadow-sm"
+              >
+                {isGenerating ? <><Loader2 size={18} className="mr-2 animate-spin"/> Lendo e Cadastrando...</> : <><Sparkles size={18} className="mr-2"/> Cadastrar Insumos Automaticamente</>}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       <div className="space-y-6">
