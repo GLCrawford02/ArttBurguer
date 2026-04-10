@@ -14,6 +14,7 @@ import FuncionariosManager from './components/FuncionariosManager';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
+import logoImg from '../logo.png';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios'>('dashboard');
@@ -107,10 +108,9 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
-          <div className="flex justify-center mb-6">
-            <div className="bg-orange-500 p-4 rounded-xl"><Lock size={32} className="text-white" /></div>
+          <div className="flex justify-center mb-8">
+            <img src={logoImg} alt="ArttBurguer Logo" className="h-32 w-auto object-contain" />
           </div>
-          <h1 className="text-2xl font-black text-center text-gray-800 mb-2 tracking-tighter italic">ARTT BURGUER</h1>
           <p className="text-center text-gray-500 mb-8 text-sm">Digite seu PIN para entrar no sistema</p>
           
           <form onSubmit={handleLogin}>
@@ -128,14 +128,15 @@ export default function App() {
   const allowedTabs = getAllowedTabs(currentUser.cargo || 'Atendente');
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col md:flex-row">
+    <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 sticky top-0">
-        <div className="flex items-center space-x-3">
-          <div className="bg-orange-500 p-2 rounded-lg">
-            <Utensils size={20} className="text-white" />
+      <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0">
+        <div className="flex items-center space-x-2">
+          <img src={logoImg} alt="ArttBurguer" className="h-10 w-auto object-contain" />
+          <div>
+            <h1 className="text-sm font-black tracking-tighter italic leading-tight">ARTT</h1>
+            <h1 className="text-sm font-black tracking-tighter italic leading-tight">BURGUER</h1>
           </div>
-          <h1 className="text-lg font-black tracking-tighter italic">ARTT BURGUER</h1>
         </div>
         <button onClick={() => setIsMobileMenuOpen(true)} className="p-2 focus:outline-none hover:bg-gray-800 rounded-lg transition-colors">
           <Menu size={24} />
@@ -151,20 +152,21 @@ export default function App() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:min-h-screen`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen`}>
         <div className="flex p-6 items-center justify-between border-b border-gray-800">
-          <div className="flex items-center space-x-3">
-            <div className="bg-orange-500 p-2 rounded-lg">
-              <Utensils size={24} className="text-white" />
+          <div className="flex items-center gap-3">
+            <img src={logoImg} alt="ArttBurguer" className="h-12 w-auto object-contain" />
+            <div>
+              <h1 className="text-lg font-black tracking-tighter italic leading-tight">ARTT</h1>
+              <h1 className="text-lg font-black tracking-tighter italic leading-tight">BURGUER</h1>
             </div>
-            <h1 className="text-xl font-black tracking-tighter italic">ARTT BURGUER</h1>
           </div>
           <button onClick={() => setIsMobileMenuOpen(false)} className="md:hidden p-2 text-gray-400 hover:text-white rounded-lg hover:bg-gray-800 transition-colors">
             <X size={24} />
           </button>
         </div>
         
-        <nav className="flex-1 p-4 space-y-2">
+        <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
           {allowedTabs.includes('dashboard') && (
           <button
             onClick={() => handleTabChange('dashboard')}
@@ -233,7 +235,7 @@ export default function App() {
             }`}
           >
             <Wallet size={20} />
-            <span>Financeiro & Relatórios</span>
+            <span className="text-sm">Financeiro & Relatórios</span>
           </button>
           )}
 
