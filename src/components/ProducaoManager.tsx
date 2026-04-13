@@ -93,7 +93,7 @@ export default function ProducaoManager() {
       produtoId: produto.id,
       nome: produto.nome,
       quantidade: multiplicador,
-      custoProducao: produto.custoTotal * multiplicador,
+      custoProducao: (produto.custoTotal || 0) * multiplicador,
       receitaVenda: ((produto as any).precoVenda || 0) * multiplicador,
       timestamp: Date.now()
     });

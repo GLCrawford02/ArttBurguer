@@ -402,7 +402,7 @@ Formato esperado para cada objeto:
           </div>
         </div>
         
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredInsumos.map(i => (
             <div key={i.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
               <div>

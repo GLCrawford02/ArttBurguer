@@ -398,7 +398,7 @@ export default function ProdutosManager() {
 
           <div className="space-y-2">
             <p className="text-sm font-bold text-gray-700">Ingredientes da Receita</p>
-            <div className="divide-y divide-gray-100 border rounded-lg">
+            <div className="divide-y divide-gray-100 border rounded-lg max-h-[300px] overflow-y-auto">
               {ingredientesSelecionados.map((ing, idx) => {
                 const insumo = insumos.find(i => i.id === ing.insumoId);
                 return (
@@ -471,7 +471,7 @@ export default function ProdutosManager() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredProdutos.map(p => (
             <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
               <div className="flex justify-between items-center">

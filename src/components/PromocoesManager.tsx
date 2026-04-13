@@ -34,7 +34,7 @@ export default function PromocoesManager() {
     const produtosRef = ref(db, 'produtos');
     const promocoesRef = ref(db, 'promocoes');
 
-    onValue(produtosRef, (snapshot) => {
+    const unsubProdutos = onValue(produtosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -45,7 +45,7 @@ export default function PromocoesManager() {
       }
     });
 
-    onValue(promocoesRef, (snapshot) => {
+    const unsubPromocoes = onValue(promocoesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -55,6 +55,11 @@ export default function PromocoesManager() {
         setPromocoes([]);
       }
     });
+
+    return () => {
+      unsubProdutos();
+      unsubPromocoes();
+    };
   }, []);
 
   const calcularCustoCombo = () => {
@@ -226,7 +231,7 @@ export default function PromocoesManager() {
 
           <div className="space-y-2">
             <p className="text-sm font-bold text-gray-700">Itens Inclusos</p>
-            <div className="divide-y divide-gray-100 border rounded-lg">
+            <div className="divide-y divide-gray-100 border rounded-lg max-h-[300px] overflow-y-auto">
               {itensSelecionados.map((item, idx) => {
                 const produto = produtos.find(p => p.id === item.produtoId);
                 return (
@@ -266,7 +271,7 @@ export default function PromocoesManager() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 gap-4">
+        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredPromocoes.map(p => (
             <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 flex flex-col">
               <div className="flex justify-between items-center">
