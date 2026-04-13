@@ -31,6 +31,15 @@ export default function App() {
   useEffect(() => {
     document.title = 'ArttBurguer';
 
+    // Adiciona a logo na aba do navegador (Favicon)
+    let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
+    if (!link) {
+      link = document.createElement('link');
+      link.rel = 'icon';
+      document.head.appendChild(link);
+    }
+    link.href = logoImg;
+
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as any;
       if (['dashboard', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios'].includes(hash)) {
