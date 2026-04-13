@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo, Funcionario } from '../types';
+import { Insumo, Funcionario, LoteDados } from '../types';
 import { ArrowRightLeft, Search, CheckCircle, AlertTriangle, CheckSquare } from 'lucide-react';
 
 export default function TransferenciaManager() {
@@ -23,7 +23,7 @@ export default function TransferenciaManager() {
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
-    return onValue(insumosRef, (snapshot) => {
+    const unsubInsumos = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -35,7 +35,7 @@ export default function TransferenciaManager() {
     });
 
     const funcRef = ref(db, 'funcionarios');
-    onValue(funcRef, (snapshot) => {
+    const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -43,6 +43,11 @@ export default function TransferenciaManager() {
         setFuncionarios([]);
       }
     });
+
+    return () => {
+      unsubInsumos();
+      unsubFunc();
+    };
   }, []);
 
   const confirmWithPin = (action: (func: Funcionario) => Promise<void>) => {
@@ -71,44 +76,73 @@ export default function TransferenciaManager() {
     } else {
       newSel.add(insumo.id);
       const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
-      setQuantidades({ ...quantidades, [insumo.id]: estEstacionario });
+      const maxPacotes = Math.floor(estEstacionario / (insumo.qtdPacote || 1));
+      setQuantidades({ ...quantidades, [insumo.id]: maxPacotes });
     }
     setSelecionados(newSel);
   };
 
   const handleTransfer = (insumo: Insumo) => {
     confirmWithPin(async (func: Funcionario) => {
-      const qtdTransferir = quantidades[insumo.id];
-      if (!qtdTransferir || qtdTransferir <= 0) return;
+      const numPacotesTransferir = quantidades[insumo.id];
+      if (!numPacotesTransferir || numPacotesTransferir <= 0) {
+        showToast('Informe a quantidade de pacotes para transferir.', 'error');
+        return;
+      }
+      const unitsToTransfer = numPacotesTransferir * (insumo.qtdPacote || 1);
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
-      let sucesso = false;
 
-      await runTransaction(insumoRef, (currentData) => {
+      const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
           const estEstacionario = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
           const estRotativo = currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0;
+          if (estEstacionario >= unitsToTransfer) {
+            currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
+            currentData.estoqueRotativo = estRotativo + unitsToTransfer;
 
-          if (estEstacionario >= qtdTransferir) {
-            currentData.estoqueEstacionario = estEstacionario - qtdTransferir;
-            currentData.estoqueRotativo = estRotativo + qtdTransferir;
-            sucesso = true;
+            // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
+            if (currentData.lotes) {
+              let qtdRestante = unitsToTransfer;
+              const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
+              
+              lotesArray.sort((a, b) => {
+                if (!a.validade) return 1;
+                if (!b.validade) return -1;
+                return new Date(a.validade).getTime() - new Date(b.validade).getTime();
+              });
+
+              for (const l of lotesArray) {
+                if (qtdRestante <= 0) break;
+                if (l.quantidade <= qtdRestante) {
+                  qtdRestante -= l.quantidade;
+                  delete currentData.lotes[l.id]; // Lote esgotado, remove
+                } else {
+                  currentData.lotes[l.id].quantidade -= qtdRestante;
+                  qtdRestante = 0;
+                }
+              }
+            }
+
+            return currentData;
+          } else {
+            return undefined; // Aborta a transação por falta de estoque
           }
         }
         return currentData;
       });
 
-      if (sucesso) {
+      if (result.committed) {
         const transRef = ref(db, 'historico_transferencias');
         await set(push(transRef), {
-          insumoId: insumo.id,
-          nomeInsumo: insumo.nome,
-          quantidade: qtdTransferir,
+          insumoId: insumo.id, // ID do insumo
+          nomeInsumo: insumo.nome, // Nome do insumo
+          quantidade: unitsToTransfer, // Quantidade REAL de UNIDADES transferidas
           funcionarioId: func.id,
           funcionarioNome: func.nome,
           timestamp: Date.now()
         });
-        showToast(`${qtdTransferir}${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
+        showToast(`${numPacotesTransferir} pacote(s) de ${insumo.nome} (${unitsToTransfer}${insumo.unidade}) transferido para o Estoque Rotativo!`, 'success');
         setQuantidades({ ...quantidades, [insumo.id]: 0 });
       } else {
         showToast(`Erro: Quantidade insuficiente no Estoque Estacionário!`, 'error');
@@ -122,35 +156,59 @@ export default function TransferenciaManager() {
       let sucessoCount = 0;
       
       const promessas = Array.from(selecionados).map(async (id) => {
-        const qtdTransferir = quantidades[id];
-        if (!qtdTransferir || qtdTransferir <= 0) return;
-
+        const numPacotesTransferir = quantidades[id];
+        if (!numPacotesTransferir || numPacotesTransferir <= 0) return; // Pula insumos com qtd inválida
         const insumo = insumos.find(i => i.id === id);
         if (!insumo) return;
 
+        const unitsToTransfer = numPacotesTransferir * (insumo.qtdPacote || 1);
         const insumoRef = ref(db, `insumos/${id}`);
-        let transferido = false;
 
-        await runTransaction(insumoRef, (currentData) => {
+        const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
             const estEstacionario = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
             const estRotativo = currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0;
+            if (estEstacionario >= unitsToTransfer) {
+              currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
+              currentData.estoqueRotativo = estRotativo + unitsToTransfer;
 
-            if (estEstacionario >= qtdTransferir) {
-              currentData.estoqueEstacionario = estEstacionario - qtdTransferir;
-              currentData.estoqueRotativo = estRotativo + qtdTransferir;
-              transferido = true;
+              // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
+              if (currentData.lotes) {
+                let qtdRestante = unitsToTransfer;
+                const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
+                
+                lotesArray.sort((a, b) => {
+                  if (!a.validade) return 1;
+                  if (!b.validade) return -1;
+                  return new Date(a.validade).getTime() - new Date(b.validade).getTime();
+                });
+
+                for (const l of lotesArray) {
+                  if (qtdRestante <= 0) break;
+                  if (l.quantidade <= qtdRestante) {
+                    qtdRestante -= l.quantidade;
+                    delete currentData.lotes[l.id]; // Lote esgotado, remove
+                  } else {
+                    currentData.lotes[l.id].quantidade -= qtdRestante;
+                    qtdRestante = 0;
+                  }
+                }
+              }
+
+              return currentData;
+            } else {
+              return undefined; // Aborta a transação por falta de estoque
             }
           }
           return currentData;
         });
         
-        if (transferido) {
+        if (result.committed) {
           const transRef = ref(db, 'historico_transferencias');
           await set(push(transRef), {
             insumoId: id,
             nomeInsumo: insumo.nome,
-            quantidade: qtdTransferir,
+            quantidade: unitsToTransfer,
             funcionarioId: func.id,
             funcionarioNome: func.nome,
             timestamp: Date.now()
@@ -205,6 +263,7 @@ export default function TransferenciaManager() {
           const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
           const estRotativo = insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0;
           
+          const maxPacotes = Math.floor(estEstacionario / (insumo.qtdPacote || 1));
           return (
           <div key={insumo.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
             <div className="mb-4">
@@ -218,13 +277,13 @@ export default function TransferenciaManager() {
                 />
               </div>
               <div className="flex justify-between mt-2 text-sm">
-                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{estEstacionario}{insumo.unidade}</span></span>
+                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{maxPacotes} PCT</span> <span className="text-xs">({estEstacionario}{insumo.unidade})</span></span>
                 <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span></span>
               </div>
             </div>
             <div className="flex space-x-2">
-              <input type="number" min="1" max={estEstacionario} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={`Qtd (${insumo.unidade})`} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > estEstacionario} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
+              <input type="number" min="1" max={maxPacotes} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder="Qtd (PCT)" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxPacotes} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
                 Transferir
               </button>
             </div>

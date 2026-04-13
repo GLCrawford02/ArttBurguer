@@ -31,7 +31,7 @@ export default function ProdutosManager() {
     const insumosRef = ref(db, 'insumos');
     const produtosRef = ref(db, 'produtos');
 
-    onValue(insumosRef, (snapshot) => {
+    const unsubInsumos = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -40,7 +40,7 @@ export default function ProdutosManager() {
       }
     });
 
-    onValue(produtosRef, (snapshot) => {
+    const unsubProdutos = onValue(produtosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -50,6 +50,11 @@ export default function ProdutosManager() {
         setProdutos([]);
       }
     });
+
+    return () => {
+      unsubInsumos();
+      unsubProdutos();
+    };
   }, []);
 
   const calcularCustoIngrediente = (ing: IngredienteReceita) => {
@@ -62,7 +67,12 @@ export default function ProdutosManager() {
 
   const addIngrediente = () => {
     if (!tempInsumoId || tempQtd <= 0) return;
-    setIngredientesSelecionados([...ingredientesSelecionados, { insumoId: tempInsumoId, quantidade: tempQtd }]);
+    const existente = ingredientesSelecionados.find(i => i.insumoId === tempInsumoId);
+    if (existente) {
+      setIngredientesSelecionados(ingredientesSelecionados.map(i => i.insumoId === tempInsumoId ? { ...i, quantidade: i.quantidade + tempQtd } : i));
+    } else {
+      setIngredientesSelecionados([...ingredientesSelecionados, { insumoId: tempInsumoId, quantidade: tempQtd }]);
+    }
     setTempInsumoId('');
     setTempQtd(0);
   };

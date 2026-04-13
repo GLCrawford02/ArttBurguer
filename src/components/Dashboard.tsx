@@ -50,8 +50,8 @@ export default function Dashboard() {
     };
   }, []);
 
-  // O alerta de estoque baixo agora considera o Rotativo
-  const baixos = insumos.filter(i => (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0) <= i.alertaMinimo);
+  // O alerta de estoque baixo agora considera o Estacionário
+  const baixos = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
 
   const isVencido = (item: any) => {
     const hoje = new Date();
@@ -197,7 +197,7 @@ export default function Dashboard() {
           </div>
           <div>
             <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Insumos Críticos</p>
-            <p className="text-2xl font-bold text-green-600">{insumos.filter(i => (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0) === 0).length}</p>
+            <p className="text-2xl font-bold text-green-600">{insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) === 0).length}</p>
           </div>
         </div>
       </div>
@@ -212,11 +212,15 @@ export default function Dashboard() {
               <h3 className="text-sm font-medium text-red-800">Alertas de Reposição Necessária</h3>
               <div className="mt-2 text-sm text-red-700">
                 <ul className="list-disc pl-5 space-y-1">
-                  {baixos.map(i => (
-                    <li key={i.id}>
-                      {i.nome}: {(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade} no Rotativo (Mínimo: {i.alertaMinimo} {i.unidade})
-                    </li>
-                  ))}
+                  {baixos.map(i => {
+                    const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+                    const pacotes = Math.floor(estEstacionario / (i.qtdPacote || 1));
+                    return (
+                      <li key={i.id}>
+                        <span className="font-bold">{i.nome}:</span> {pacotes} PCT <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
+                      </li>
+                    );
+                  })}
                 </ul>
               </div>
             </div>
@@ -277,7 +281,10 @@ export default function Dashboard() {
               <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
                 <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
                 <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
-                <td className="px-6 py-4 text-indigo-600 font-bold">{(i.estoqueEstacionario ?? 0)} {i.unidade}</td>
+                <td className="px-6 py-4 text-indigo-600 font-bold">
+                  {Math.floor((i.estoqueEstacionario ?? 0) / (i.qtdPacote || 1))} PCT
+                  <span className="text-xs text-gray-400 font-normal ml-1">({(i.estoqueEstacionario ?? 0)}{i.unidade})</span>
+                </td>
                 <td className="px-6 py-4 text-gray-600">
                   R$ {(i.precoPacote / i.qtdPacote).toFixed(3).replace('.', ',')} / {i.unidade}
                 </td>
@@ -321,7 +328,7 @@ export default function Dashboard() {
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-wrap gap-2">
-                    {(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0) <= i.alertaMinimo ? (
+                    {(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0) ? (
                       <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
                     ) : (
                       <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-600 rounded-full">OK</span>

@@ -23,7 +23,7 @@ export default function InsumosManager() {
   const [cadastroMode, setCadastroMode] = useState<'manual' | 'ia'>('manual');
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  // Chave da API da xAI (Grok)
+  // Chave da API da xAI (Grok) - Mantida fixa no código (sistema de uso interno restrito, conforme solicitado)
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -35,7 +35,7 @@ export default function InsumosManager() {
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
-    onValue(insumosRef, (snapshot) => {
+    const unsub = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -45,6 +45,8 @@ export default function InsumosManager() {
         setInsumos([]);
       }
     });
+    
+    return () => unsub();
   }, []);
 
   const generateSku = (name: string): string => {
@@ -68,24 +70,40 @@ export default function InsumosManager() {
       return;
     }
 
-    if (editId) {
-      await update(ref(db, `insumos/${editId}`), {
+    let existingInsumo;
+    if (sku) {
+      existingInsumo = insumos.find(i => ((i as any).sku || '').toLowerCase() === sku.toLowerCase());
+    } else {
+      existingInsumo = insumos.find(i => (i.nome || '').toLowerCase().trim() === (nome || '').toLowerCase().trim());
+    }
+
+    const finalSku = sku || (existingInsumo ? (existingInsumo as any).sku : generateSku(nome));
+    const targetId = editId || (existingInsumo ? existingInsumo.id : null);
+
+    if (targetId) {
+      const updateData: any = {
         nome,
-        sku: sku || generateSku(nome),
+        sku: finalSku,
         unidade,
         precoPacote: Number(precoPacote),
         qtdPacote: Number(qtdPacote),
         diasAvisoValidade: Number(diasAvisoValidade),
         alertaMinimo: Number(alertaMinimo),
         estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
-      });
-      showToast('Insumo atualizado com sucesso!', 'success');
+      };
+
+      if (!editId && estoqueAtual && existingInsumo) {
+        updateData.estoqueEstacionario = (existingInsumo.estoqueEstacionario || 0) + Number(estoqueAtual);
+      }
+
+      await update(ref(db, `insumos/${targetId}`), updateData);
+      showToast(existingInsumo && !editId ? 'Insumo já existia. Valores e estoque atualizados!' : 'Insumo atualizado com sucesso!', 'success');
       setEditId(null);
     } else {
       const newInsumoRef = push(ref(db, 'insumos'));
       await set(newInsumoRef, {
         nome,
-        sku: sku || generateSku(nome),
+        sku: finalSku,
         unidade,
         precoPacote: Number(precoPacote),
         qtdPacote: Number(qtdPacote),
@@ -167,24 +185,50 @@ Formato esperado para cada objeto:
       if (!Array.isArray(insumosExtraidos)) throw new Error('Formato retornado não é um array.');
 
       let adicionados = 0;
+      let atualizados = 0;
+
       for (const item of insumosExtraidos) {
-        const sku = item.sku || generateSku(item.nome || 'INSUMO');
-        await set(push(ref(db, 'insumos')), {
-          nome: item.nome || 'Sem Nome',
-          sku,
-          unidade: item.unidade || 'un',
-          precoPacote: Number(item.precoPacote) || 0,
-          qtdPacote: Number(item.qtdPacote) || 1,
-          diasAvisoValidade: 7,
-          alertaMinimo: Number(item.alertaMinimo) || 5,
-          estoqueMaximo: item.estoqueMaximo ? Number(item.estoqueMaximo) : null,
-          estoqueRotativo: 0,
-          estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
-        });
-        adicionados++;
+        let existingInsumo;
+        if (item.sku) {
+          existingInsumo = insumos.find(i => ((i as any).sku || '').toLowerCase() === item.sku.toLowerCase());
+        } else {
+          existingInsumo = insumos.find(i => (i.nome || '').toLowerCase().trim() === (item.nome || '').toLowerCase().trim());
+        }
+
+        const finalSku = item.sku || (existingInsumo ? (existingInsumo as any).sku : generateSku(item.nome || 'INSUMO'));
+
+        if (existingInsumo) {
+          const updateData: any = {
+            nome: item.nome || existingInsumo.nome,
+            sku: finalSku,
+            unidade: item.unidade || existingInsumo.unidade,
+            precoPacote: item.precoPacote !== undefined ? Number(item.precoPacote) : existingInsumo.precoPacote,
+            qtdPacote: item.qtdPacote !== undefined ? Number(item.qtdPacote) : existingInsumo.qtdPacote,
+            alertaMinimo: item.alertaMinimo !== undefined ? Number(item.alertaMinimo) : existingInsumo.alertaMinimo,
+          };
+          if (item.estoqueMaximo) updateData.estoqueMaximo = Number(item.estoqueMaximo);
+          if (item.estoqueAtual) updateData.estoqueEstacionario = (existingInsumo.estoqueEstacionario || 0) + Number(item.estoqueAtual);
+          
+          await update(ref(db, `insumos/${existingInsumo.id}`), updateData);
+          atualizados++;
+        } else {
+          await set(push(ref(db, 'insumos')), {
+            nome: item.nome || 'Sem Nome',
+            sku: finalSku,
+            unidade: item.unidade || 'un',
+            precoPacote: Number(item.precoPacote) || 0,
+            qtdPacote: Number(item.qtdPacote) || 1,
+            diasAvisoValidade: 7,
+            alertaMinimo: Number(item.alertaMinimo) || 5,
+            estoqueMaximo: item.estoqueMaximo ? Number(item.estoqueMaximo) : null,
+            estoqueRotativo: 0,
+            estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
+          });
+          adicionados++;
+        }
       }
       
-      showToast(`Sucesso! ${adicionados} insumos cadastrados pela IA.`, 'success');
+      showToast(`Sucesso! ${adicionados} cadastrados e ${atualizados} atualizados pela IA.`, 'success');
       setAiPrompt('');
       setCadastroMode('manual');
     } catch (error: any) {
@@ -284,7 +328,7 @@ Formato esperado para cada objeto:
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Mínimo (Alerta)</label>
+                <label className="text-xs font-bold text-gray-500 uppercase">Estoque Mínimo (Estacionário)</label>
                 <input type="number" value={alertaMinimo} onChange={e => setAlertaMinimo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500" placeholder="Ex: 5" />
               </div>
               <div className="space-y-1">

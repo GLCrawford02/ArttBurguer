@@ -21,7 +21,7 @@ export default function FuncionariosManager() {
   useEffect(() => {
     let isFirstLoad = true;
     const funcRef = ref(db, 'funcionarios');
-    onValue(funcRef, (snapshot) => {
+    const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -35,7 +35,7 @@ export default function FuncionariosManager() {
     });
 
     const transRef = ref(db, 'historico_transferencias');
-    onValue(transRef, (snapshot) => {
+    const unsubTrans = onValue(transRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -45,6 +45,11 @@ export default function FuncionariosManager() {
         setTransferencias([]);
       }
     });
+
+    return () => {
+      unsubFunc();
+      unsubTrans();
+    };
   }, []);
 
   const handleSubmit = async (e: FormEvent) => {

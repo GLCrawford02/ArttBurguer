@@ -10,6 +10,7 @@ import FechamentoManager from './components/FechamentoManager';
 import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
 import TransferenciaManager from './components/TransferenciaManager';
+import GestaoFinanceira from './components/GestaoFinanceira';
 import FuncionariosManager from './components/FuncionariosManager';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
@@ -20,7 +21,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'produtos' | 'promocoes'>('insumos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
-  const [subTabFinanceiro, setSubTabFinanceiro] = useState<'fechamento' | 'relatorios'>('fechamento');
+  const [subTabFinanceiro, setSubTabFinanceiro] = useState<'fechamento' | 'relatorios' | 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario'>('fechamento');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(null);
@@ -320,12 +321,20 @@ export default function App() {
 
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTabFinanceiro('fechamento')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento</button>
-                <button onClick={() => setSubTabFinanceiro('relatorios')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
+              <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
+                <button onClick={() => setSubTabFinanceiro('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento</button>
+                <button onClick={() => setSubTabFinanceiro('relatorios')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
+                <button onClick={() => setSubTabFinanceiro('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard</button>
+                <button onClick={() => setSubTabFinanceiro('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
+                <button onClick={() => setSubTabFinanceiro('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
+                <button onClick={() => setSubTabFinanceiro('fornecedores')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>
+                <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário</button>
               </div>
               {subTabFinanceiro === 'fechamento' && <FechamentoManager />}
               {subTabFinanceiro === 'relatorios' && <RelatoriosManager />}
+              {['dashboard_fin', 'pagar', 'receber', 'fornecedores', 'calendario'].includes(subTabFinanceiro) && (
+                <GestaoFinanceira activeTab={subTabFinanceiro as any} />
+              )}
             </div>
           )}
         </div>

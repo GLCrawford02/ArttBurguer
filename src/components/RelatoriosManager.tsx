@@ -21,7 +21,7 @@ export default function RelatoriosManager() {
 
   useEffect(() => {
     const historicoRef = ref(db, 'historico_compras');
-    return onValue(historicoRef, (snapshot) => {
+    const unsubHistorico = onValue(historicoRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setHistorico(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -31,7 +31,7 @@ export default function RelatoriosManager() {
     });
 
     const transRef = ref(db, 'historico_transferencias');
-    onValue(transRef, (snapshot) => {
+    const unsubTrans = onValue(transRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -43,7 +43,7 @@ export default function RelatoriosManager() {
     });
 
     const descartesRef = ref(db, 'historico_descartes');
-    onValue(descartesRef, (snapshot) => {
+    const unsubDescartes = onValue(descartesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
@@ -53,6 +53,12 @@ export default function RelatoriosManager() {
         setDescartes([]);
       }
     });
+
+    return () => {
+      unsubHistorico();
+      unsubTrans();
+      unsubDescartes();
+    };
   }, []);
 
   const calcularGastos = () => {

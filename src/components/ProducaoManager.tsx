@@ -22,12 +22,12 @@ export default function ProducaoManager() {
     const insumosRef = ref(db, 'insumos');
     const produtosRef = ref(db, 'produtos');
 
-    onValue(insumosRef, (snapshot) => {
+    const unsubInsumos = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setInsumos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
     });
 
-    onValue(produtosRef, (snapshot) => {
+    const unsubProdutos = onValue(produtosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setProdutos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -37,7 +37,7 @@ export default function ProducaoManager() {
     });
 
     const promocoesRef = ref(db, 'promocoes');
-    onValue(promocoesRef, (snapshot) => {
+    const unsubPromocoes = onValue(promocoesRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setPromocoes(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -45,6 +45,12 @@ export default function ProducaoManager() {
         setPromocoes([]);
       }
     });
+
+    return () => {
+      unsubInsumos();
+      unsubProdutos();
+      unsubPromocoes();
+    };
   }, []);
 
   const registrarProducao = async (produto: Produto | Promocao | any) => {
@@ -76,29 +82,6 @@ export default function ProducaoManager() {
       await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
           currentData.estoqueRotativo = (currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - qtdNecessaria;
-          
-          // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
-          if (currentData.lotes) {
-            let qtdRestante = qtdNecessaria;
-            const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
-            
-            lotesArray.sort((a, b) => {
-              if (!a.validade) return 1;
-              if (!b.validade) return -1;
-              return new Date(a.validade).getTime() - new Date(b.validade).getTime();
-            });
-
-            for (const l of lotesArray) {
-              if (qtdRestante <= 0) break;
-              if (l.quantidade <= qtdRestante) {
-                qtdRestante -= l.quantidade;
-                delete currentData.lotes[l.id]; // Lote esgotado, remove
-              } else {
-                currentData.lotes[l.id].quantidade -= qtdRestante;
-                qtdRestante = 0;
-              }
-            }
-          }
         }
         return currentData;
       });

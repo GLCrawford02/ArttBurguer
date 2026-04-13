@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo } from '../types';
+import { Insumo, Funcionario } from '../types';
 import { ShoppingCart, Plus, Search, CheckCircle } from 'lucide-react';
 
 export default function ComprasManager() {
@@ -12,6 +12,11 @@ export default function ComprasManager() {
   const [validades, setValidades] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pin, setPin] = useState('');
+  const [pendingInsumo, setPendingInsumo] = useState<Insumo | null>(null);
+
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -19,7 +24,7 @@ export default function ComprasManager() {
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
-    return onValue(insumosRef, (snapshot) => {
+    const unsubInsumos = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         setInsumos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
@@ -27,6 +32,21 @@ export default function ComprasManager() {
         setInsumos([]);
       }
     });
+
+    const funcRef = ref(db, 'funcionarios');
+    const unsubFunc = onValue(funcRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setFuncionarios([]);
+      }
+    });
+
+    return () => {
+      unsubInsumos();
+      unsubFunc();
+    };
   }, []);
 
   const gerarLoteData = () => {
@@ -37,17 +57,25 @@ export default function ComprasManager() {
     return `${dia}${mes}${ano}`;
   };
 
-  const registrarCompra = async (insumo: Insumo) => {
+  const registrarCompra = async (insumo: Insumo, isConfirmedAdmin = false) => {
     const qtdPacotes = quantidades[insumo.id];
     if (!qtdPacotes || qtdPacotes <= 0) return;
 
-    const qtdAdicionar = qtdPacotes * insumo.qtdPacote; // Multiplica os pacotes pela Qtd por Pacote
+    const qtdAdicionar = qtdPacotes * (insumo.qtdPacote || 1); // Multiplica os pacotes pela Qtd por Pacote (com fallback)
+    const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
+
+    if (insumo.estoqueMaximo && novoEstoque > insumo.estoqueMaximo && !isConfirmedAdmin) {
+      setPendingInsumo(insumo);
+      setPin('');
+      setShowPinModal(true);
+      return;
+    }
 
     const lote = lotes[insumo.id] || gerarLoteData();
     const validade = validades[insumo.id] || '';
 
     const insumoRef = ref(db, `insumos/${insumo.id}`);
-    await runTransaction(insumoRef, (currentData) => {
+    const result = await runTransaction(insumoRef, (currentData) => {
       if (currentData) {
         currentData.estoqueEstacionario = (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) + qtdAdicionar;
         
@@ -64,23 +92,40 @@ export default function ComprasManager() {
       return currentData;
     });
 
-    // Salvar no histórico de compras financeiro
-    const custoTotalCompra = qtdPacotes * insumo.precoPacote;
-    const historicoRef = push(ref(db, 'historico_compras'));
-    await set(historicoRef, {
-      insumoId: insumo.id,
-      nome: insumo.nome,
-      qtdPacotes,
-      custoTotal: custoTotalCompra,
-      lote,
-      validade,
-      timestamp: Date.now()
-    });
-    
-    showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
-    setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
-    setLotes({ ...lotes, [insumo.id]: '' });
-    setValidades({ ...validades, [insumo.id]: '' });
+    if (result.committed) {
+      // Salvar no histórico de compras financeiro
+      const custoTotalCompra = qtdPacotes * (insumo.precoPacote || 0);
+      const historicoRef = push(ref(db, 'historico_compras'));
+      await set(historicoRef, {
+        insumoId: insumo.id,
+        nome: insumo.nome,
+        qtdPacotes,
+        custoTotal: custoTotalCompra,
+        lote,
+        validade,
+        timestamp: Date.now()
+      });
+      
+      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
+      setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
+      setLotes({ ...lotes, [insumo.id]: '' });
+      setValidades({ ...validades, [insumo.id]: '' });
+    } else {
+      showToast(`Erro ao registrar a compra de ${insumo.nome}. Tente novamente.`, 'error');
+    }
+  };
+
+  const handlePinSubmit = async () => {
+    const admin = funcionarios.find(f => f.pin === pin && f.cargo === 'Administrador');
+    if (!admin) {
+      showToast('PIN inválido ou funcionário não é Administrador!', 'error');
+      return;
+    }
+    setShowPinModal(false);
+    if (pendingInsumo) {
+      await registrarCompra(pendingInsumo, true);
+      setPendingInsumo(null);
+    }
   };
 
   const filteredInsumos = insumos.filter(i => 
@@ -163,6 +208,34 @@ export default function ComprasManager() {
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           <CheckCircle className="mr-2" size={20} />
           <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
+
+      {showPinModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-xl font-bold text-gray-800 text-center mb-2">Autorização de Administrador</h3>
+            <p className="text-sm text-gray-500 text-center mb-6">Esta compra excederá o estoque máximo do insumo. Digite o PIN de um Administrador para liberar.</p>
+            
+            <input 
+              type="password" 
+              maxLength={4}
+              autoFocus
+              value={pin}
+              onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
+              className="w-full text-center text-3xl tracking-[1em] font-mono p-4 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all mb-6"
+              placeholder="****"
+            />
+            
+            <div className="flex space-x-3">
+              <button onClick={() => { setShowPinModal(false); setPendingInsumo(null); }} className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors">
+                Cancelar
+              </button>
+              <button onClick={handlePinSubmit} disabled={pin.length !== 4} className="flex-1 p-3 text-white bg-blue-600 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors">
+                Confirmar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

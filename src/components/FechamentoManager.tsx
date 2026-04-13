@@ -27,15 +27,20 @@ export default function FechamentoManager() {
     const vendasRef = ref(db, 'historico_vendas');
     const comprasRef = ref(db, 'historico_compras');
 
-    onValue(vendasRef, (snapshot) => {
+    const unsubVendas = onValue(vendasRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setVendas(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
     });
 
-    onValue(comprasRef, (snapshot) => {
+    const unsubCompras = onValue(comprasRef, (snapshot) => {
       const data = snapshot.val();
       if (data) setCompras(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
     });
+
+    return () => {
+      unsubVendas();
+      unsubCompras();
+    };
   }, []);
 
   const calcularFechamento = () => {
