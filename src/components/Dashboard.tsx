@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo, Funcionario } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle } from 'lucide-react';
+import { Insumo, Funcionario, Produto } from '../types';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag } from 'lucide-react';
 
 export default function Dashboard() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [produtos, setProdutos] = useState<Produto[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -34,6 +35,16 @@ export default function Dashboard() {
       }
     });
 
+    const produtosRef = ref(db, 'produtos');
+    const unsubProdutos = onValue(produtosRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setProdutos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setProdutos([]);
+      }
+    });
+
     const funcRef = ref(db, 'funcionarios');
     const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
@@ -46,6 +57,7 @@ export default function Dashboard() {
 
     return () => {
       unsubInsumos();
+      unsubProdutos();
       unsubFunc();
     };
   }, []);
@@ -182,6 +194,16 @@ export default function Dashboard() {
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
+          <div className="p-3 bg-purple-100 rounded-lg text-purple-600">
+            <ShoppingBag size={24} />
+          </div>
+          <div>
+            <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Total Produtos</p>
+            <p className="text-2xl font-bold text-purple-600">{produtos.length}</p>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
           <div className="p-3 bg-red-100 rounded-lg text-red-600">
             <AlertTriangle size={24} />
           </div>
@@ -190,63 +212,57 @@ export default function Dashboard() {
             <p className="text-2xl font-bold text-red-600">{baixos.length}</p>
           </div>
         </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
-          <div className="p-3 bg-green-100 rounded-lg text-green-600">
-            <TrendingUp size={24} />
-          </div>
-          <div>
-            <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Insumos Críticos</p>
-            <p className="text-2xl font-bold text-green-600">{insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) === 0).length}</p>
-          </div>
-        </div>
       </div>
 
-      {baixos.length > 0 && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <AlertTriangle className="h-5 w-5 text-red-500" />
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Alertas de Reposição Necessária</h3>
-              <div className="mt-2 text-sm text-red-700">
-                <ul className="list-disc pl-5 space-y-1">
-                  {baixos.map(i => {
-                    const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
-                    const pacotes = Math.floor(estEstacionario / (i.qtdPacote || 1));
-                    return (
-                      <li key={i.id}>
-                        <span className="font-bold">{i.nome}:</span> {pacotes} PCT <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
-                      </li>
-                    );
-                  })}
-                </ul>
+      {(validadeProxima.length > 0 || baixos.length > 0) && (
+        <div className="flex flex-col md:flex-row gap-4">
+          {validadeProxima.length > 0 && (
+            <div className="flex-1 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <CalendarClock className="h-5 w-5 text-red-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">Alertas de Validade (Vencidos ou Próximos de Vencer)</h3>
+                  <div className="mt-2 text-sm text-red-700 max-h-[150px] overflow-y-auto pr-2">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {validadeProxima.map((item, idx) => (
+                        <li key={`${item.id}-${idx}`}>
+                          <span className="font-bold">{item.nome}</span> - Lote: {item.loteSpec.lote || 'N/A'} - Validade: {new Date(`${item.loteSpec.validade}T00:00:00`).toLocaleDateString('pt-BR')} <span className="font-semibold text-xs">({item.loteSpec.quantidade}{item.unidade})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+          )}
 
-      {validadeProxima.length > 0 && (
-        <div className="bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
-          <div className="flex">
-            <div className="flex-shrink-0">
-              <CalendarClock className="h-5 w-5 text-red-500" />
-            </div>
-            <div className="ml-3">
-              <h3 className="text-sm font-medium text-red-800">Alertas de Validade (Vencidos ou Próximos de Vencer)</h3>
-              <div className="mt-2 text-sm text-red-700">
-                <ul className="list-disc pl-5 space-y-1">
-                  {validadeProxima.map((item, idx) => (
-                    <li key={`${item.id}-${idx}`}>
-                      <span className="font-bold">{item.nome}</span> - Lote: {item.loteSpec.lote || 'N/A'} - Validade: {new Date(`${item.loteSpec.validade}T00:00:00`).toLocaleDateString('pt-BR')} <span className="font-semibold text-xs">({item.loteSpec.quantidade}{item.unidade})</span>
-                    </li>
-                  ))}
-                </ul>
+          {baixos.length > 0 && (
+            <div className="flex-1 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <AlertTriangle className="h-5 w-5 text-red-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-red-800">Alertas de Reposição Necessária</h3>
+                  <div className="mt-2 text-sm text-red-700 max-h-[150px] overflow-y-auto pr-2">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {baixos.map(i => {
+                        const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+                        const pacotes = Math.floor(estEstacionario / (i.qtdPacote || 1));
+                        return (
+                          <li key={i.id}>
+                            <span className="font-bold">{i.nome}:</span> {pacotes} PCT <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
               </div>
             </div>
-          </div>
+          )}
         </div>
       )}
 
@@ -264,8 +280,9 @@ export default function Dashboard() {
             />
           </div>
         </div>
-        <table className="w-full text-left border-collapse">
-          <thead>
+        <div className="max-h-[400px] overflow-y-auto">
+          <table className="w-full text-left border-collapse">
+          <thead className="sticky top-0 z-10 shadow-sm">
             <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
               <th className="px-6 py-3">Insumo</th>
               <th className="px-6 py-3">Rotativo</th>
@@ -342,6 +359,7 @@ export default function Dashboard() {
             )})}
           </tbody>
         </table>
+        </div>
       </div>
 
       {toast && (

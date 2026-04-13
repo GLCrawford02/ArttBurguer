@@ -156,8 +156,9 @@ export default function BalancoManager() {
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-        <table className="w-full text-left border-collapse">
-          <thead>
+        <div className="max-h-[500px] overflow-y-auto">
+          <table className="w-full text-left border-collapse">
+          <thead className="sticky top-0 z-10 shadow-sm">
             <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
               <th className="px-6 py-3">Insumo</th>
               <th className="px-6 py-3">Distribuição por Lotes</th>
@@ -261,6 +262,7 @@ export default function BalancoManager() {
             )})}
           </tbody>
         </table>
+        </div>
       </div>
 
     {toast && (

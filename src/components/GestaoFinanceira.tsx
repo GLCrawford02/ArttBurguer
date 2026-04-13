@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface Fornecedor {
   id: string;
@@ -27,10 +27,19 @@ interface ContaReceber {
   status: 'Pendente' | 'Recebido';
 }
 
+interface Agendamento {
+  id: string;
+  titulo: string;
+  data: string;
+  horario: string;
+  descricao: string;
+}
+
 export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario' }) {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
+  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   // Estados dos Formulários
@@ -46,10 +55,19 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
   const [nomeForn, setNomeForn] = useState('');
   const [telForn, setTelefoneForn] = useState('');
 
+  // Estados do Calendário e Agendamentos
+  const [tituloAg, setTituloAg] = useState('');
+  const [dataAg, setDataAg] = useState('');
+  const [horaAg, setHoraAg] = useState('');
+  const [descAg, setDescAg] = useState('');
+  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
+
   useEffect(() => {
     const fornRef = ref(db, 'fornecedores');
     const pagarRef = ref(db, 'contas_pagar');
     const receberRef = ref(db, 'contas_receber');
+    const agendRef = ref(db, 'agendamentos');
 
     const unsubF = onValue(fornRef, (snapshot) => {
       const data = snapshot.val();
@@ -69,7 +87,13 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
       else setContasReceber([]);
     });
 
-    return () => { unsubF(); unsubP(); unsubR(); };
+    const unsubA = onValue(agendRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setAgendamentos(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setAgendamentos([]);
+    });
+
+    return () => { unsubF(); unsubP(); unsubR(); unsubA(); };
   }, []);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -83,6 +107,7 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
     setStatusPagar('Pendente'); setStatusReceber('Pendente');
     setTipoPagar('Variável'); setFornecedorId('');
     setNomeForn(''); setTelefoneForn('');
+    setTituloAg(''); setDataAg(''); setHoraAg(''); setDescAg('');
   };
 
   useEffect(() => { resetForms(); }, [activeTab]);
@@ -111,6 +136,15 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
     if (editId) await update(ref(db, `contas_receber/${editId}`), data);
     else await set(push(ref(db, 'contas_receber')), data);
     showToast(editId ? 'Conta atualizada!' : 'Conta a receber registrada!');
+    resetForms();
+  };
+
+  const salvarAgendamento = async () => {
+    if (!tituloAg || !dataAg) return showToast('Título e Data são obrigatórios!', 'error');
+    await set(push(ref(db, 'agendamentos')), {
+      titulo: tituloAg, data: dataAg, horario: horaAg, descricao: descAg
+    });
+    showToast('Agendamento registrado!');
     resetForms();
   };
 
@@ -276,32 +310,120 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
   );
 
   const renderCalendario = () => {
-    const todas = [
-      ...contasPagar.map(c => ({ ...c, _tipoConta: 'pagar' })),
-      ...contasReceber.map(c => ({ ...c, _tipoConta: 'receber' }))
-    ].sort((a, b) => a.vencimento.localeCompare(b.vencimento));
+    const year = currentMonth.getFullYear();
+    const month = currentMonth.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const days = [];
+    for (let i = 0; i < firstDayIndex; i++) days.push(null);
+    for (let i = 1; i <= daysInMonth; i++) days.push(`${year}-${pad(month + 1)}-${pad(i)}`);
+
+    const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+
+    const eventosDoDia = (dateStr: string) => {
+      const p = contasPagar.filter(c => c.vencimento === dateStr);
+      const r = contasReceber.filter(c => c.vencimento === dateStr);
+      const a = agendamentos.filter(c => c.data === dateStr);
+      return { p, r, a };
+    };
+
+    const selectedEvents = selectedDate ? eventosDoDia(selectedDate) : { p: [], r: [], a: [] };
 
     return (
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-         <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><CalendarClock className="mr-2 text-indigo-500"/> Calendário de Agendamentos</h3>
-         <div className="space-y-4">
-           {todas.map((c: any) => (
-             <div key={`${c._tipoConta}-${c.id}`} className={`flex flex-col sm:flex-row sm:items-center justify-between p-4 rounded-lg border-l-4 ${c._tipoConta === 'pagar' ? 'bg-red-50 border-red-500' : 'bg-blue-50 border-blue-500'}`}>
-               <div className="flex items-center mb-2 sm:mb-0">
-                 {c._tipoConta === 'pagar' ? <TrendingDown className="text-red-500 mr-4" size={24}/> : <TrendingUp className="text-blue-500 mr-4" size={24}/>}
-                 <div>
-                   <p className="font-bold text-gray-800">{c.descricao}</p>
-                   <p className="text-xs text-gray-500 flex items-center mt-1"><Clock size={12} className="mr-1"/> Vencimento: {formatarData(c.vencimento)}</p>
-                 </div>
-               </div>
-               <div className="text-left sm:text-right">
-                 <p className={`font-black ${c._tipoConta === 'pagar' ? 'text-red-600' : 'text-blue-600'}`}>{formatarMoeda(c.valor)}</p>
-                 <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full mt-1 inline-block ${c.status.includes('Pendente') ? 'bg-yellow-200 text-yellow-800' : 'bg-green-200 text-green-800'}`}>{c.status}</span>
-               </div>
-             </div>
-           ))}
-           {todas.length === 0 && <p className="text-center text-gray-400 py-8">Nenhum agendamento encontrado.</p>}
-         </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
+            <h3 className="text-lg font-bold text-gray-800 flex items-center">
+              <CalendarClock className="mr-2 text-indigo-500"/> Calendário Mensal
+            </h3>
+            <div className="flex items-center space-x-4 bg-gray-50 px-4 py-2 rounded-lg">
+              <button onClick={() => setCurrentMonth(new Date(year, month - 1, 1))} className="p-1 hover:bg-gray-200 rounded-full text-gray-600"><ChevronLeft size={20}/></button>
+              <span className="font-bold text-gray-700 capitalize min-w-[120px] text-center">{monthNames[month]} {year}</span>
+              <button onClick={() => setCurrentMonth(new Date(year, month + 1, 1))} className="p-1 hover:bg-gray-200 rounded-full text-gray-600"><ChevronRight size={20}/></button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1 sm:gap-2 text-center text-xs font-bold text-gray-500 mb-2">
+            <div>Dom</div><div>Seg</div><div>Ter</div><div>Qua</div><div>Qui</div><div>Sex</div><div>Sáb</div>
+          </div>
+          <div className="grid grid-cols-7 gap-1 sm:gap-2">
+            {days.map((date, idx) => {
+              if (!date) return <div key={`empty-${idx}`} className="p-1 sm:p-2"></div>;
+              const { p, r, a } = eventosDoDia(date);
+              const isSelected = date === selectedDate;
+              const isToday = date === hoje;
+
+              return (
+                <div 
+                  key={date} 
+                  onClick={() => setSelectedDate(date)}
+                  className={`min-h-[60px] sm:min-h-[80px] p-1 sm:p-2 border rounded-lg cursor-pointer transition-colors overflow-hidden ${isSelected ? 'border-indigo-500 bg-indigo-50 ring-2 ring-indigo-200' : isToday ? 'border-blue-300 bg-blue-50' : 'border-gray-100 hover:border-gray-300 hover:bg-gray-50'}`}
+                >
+                  <div className={`text-right text-xs sm:text-sm font-bold mb-1 ${isToday ? 'text-blue-600' : 'text-gray-700'}`}>{date.split('-')[2]}</div>
+                  <div className="flex flex-col gap-1">
+                    {p.length > 0 && <span className="text-[9px] sm:text-[10px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-medium truncate" title={`${p.length} a pagar`}>{p.length} pagar</span>}
+                    {r.length > 0 && <span className="text-[9px] sm:text-[10px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded font-medium truncate" title={`${r.length} a receber`}>{r.length} rec.</span>}
+                    {a.length > 0 && <span className="text-[9px] sm:text-[10px] bg-purple-100 text-purple-700 px-1 py-0.5 rounded font-medium truncate" title={`${a.length} eventos`}>{a.length} agend.</span>}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {selectedDate && (
+            <div className="mt-8 pt-6 border-t border-gray-100">
+              <h4 className="font-bold text-gray-800 mb-4">Eventos de {formatarData(selectedDate)}</h4>
+              <div className="space-y-3">
+                {selectedEvents.p.map(c => (
+                  <div key={c.id} className="flex justify-between items-center p-3 bg-red-50 border border-red-100 rounded-lg">
+                    <div className="flex items-center"><TrendingDown size={16} className="text-red-500 mr-2"/><span className="font-bold text-gray-800 text-sm">{c.descricao}</span></div>
+                    <div className="text-right flex items-center space-x-3">
+                      <span className="font-bold text-red-600 text-sm">{formatarMoeda(c.valor)}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Pago' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                    </div>
+                  </div>
+                ))}
+                {selectedEvents.r.map(c => (
+                  <div key={c.id} className="flex justify-between items-center p-3 bg-blue-50 border border-blue-100 rounded-lg">
+                    <div className="flex items-center"><TrendingUp size={16} className="text-blue-500 mr-2"/><span className="font-bold text-gray-800 text-sm">{c.descricao}</span></div>
+                    <div className="text-right flex items-center space-x-3">
+                      <span className="font-bold text-blue-600 text-sm">{formatarMoeda(c.valor)}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Recebido' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                    </div>
+                  </div>
+                ))}
+                {selectedEvents.a.map(ag => (
+                  <div key={ag.id} className="flex justify-between items-center p-3 bg-purple-50 border border-purple-100 rounded-lg">
+                    <div className="flex items-center"><Clock size={16} className="text-purple-500 mr-2 min-w-4"/>
+                      <div>
+                        <span className="font-bold text-gray-800 text-sm">{ag.titulo}</span>
+                        {ag.horario && <span className="text-xs font-bold text-purple-600 ml-2 bg-purple-100 px-1.5 py-0.5 rounded">{ag.horario}</span>}
+                        {ag.descricao && <p className="text-xs text-gray-600 mt-1">{ag.descricao}</p>}
+                      </div>
+                    </div>
+                    <button onClick={() => excluir(`agendamentos/${ag.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100"><Trash2 size={16}/></button>
+                  </div>
+                ))}
+                {selectedEvents.p.length === 0 && selectedEvents.r.length === 0 && selectedEvents.a.length === 0 && (
+                  <p className="text-sm text-gray-500 italic text-center py-4">Nenhum evento programado para este dia.</p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4 sticky top-6">
+           <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center"><Plus size={18} className="mr-2 text-purple-500"/> Novo Agendamento</h3>
+           <input type="text" placeholder="Título (Ex: Reunião Fornecedor)" value={tituloAg} onChange={e=>setTituloAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
+           <div className="grid grid-cols-2 gap-2">
+             <input type="date" value={dataAg} onChange={e=>setDataAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
+             <input type="time" value={horaAg} onChange={e=>setHoraAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
+           </div>
+           <textarea placeholder="Descrição ou observações..." value={descAg} onChange={e=>setDescAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 resize-none h-24 text-sm"></textarea>
+           <button onClick={salvarAgendamento} className="w-full bg-purple-600 text-white p-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors text-sm shadow-sm">Salvar Agendamento</button>
+        </div>
       </div>
     );
   };

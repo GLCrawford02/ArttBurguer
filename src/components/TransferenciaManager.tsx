@@ -258,7 +258,7 @@ export default function TransferenciaManager() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
         {filteredInsumos.map(insumo => {
           const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
           const estRotativo = insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0;

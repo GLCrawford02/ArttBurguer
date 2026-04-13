@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebase';
-import { BarChart3, TrendingDown, Calendar, ArrowRightLeft, Trash2 } from 'lucide-react';
-import { TransferenciaLog, DescarteLog } from '../types';
+import { BarChart3, TrendingDown, Calendar, ArrowRightLeft, Trash2, DollarSign } from 'lucide-react';
+import { TransferenciaLog, DescarteLog, Insumo } from '../types';
 
 interface CompraLog {
   id: string;
@@ -18,6 +18,7 @@ export default function RelatoriosManager() {
   const [historico, setHistorico] = useState<CompraLog[]>([]);
   const [transferencias, setTransferencias] = useState<TransferenciaLog[]>([]);
   const [descartes, setDescartes] = useState<DescarteLog[]>([]);
+  const [insumos, setInsumos] = useState<Insumo[]>([]);
 
   useEffect(() => {
     const historicoRef = ref(db, 'historico_compras');
@@ -54,10 +55,21 @@ export default function RelatoriosManager() {
       }
     });
 
+    const insumosRef = ref(db, 'insumos');
+    const unsubInsumos = onValue(insumosRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setInsumos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setInsumos([]);
+      }
+    });
+
     return () => {
       unsubHistorico();
       unsubTrans();
       unsubDescartes();
+      unsubInsumos();
     };
   }, []);
 
@@ -91,20 +103,34 @@ export default function RelatoriosManager() {
 
   const gastos = calcularGastos();
 
-  const CardRelatorio = ({ titulo, valor, descricao }: { titulo: string, valor: number, descricao: string }) => (
-    <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-      <div className="flex justify-between items-start mb-4">
-        <div>
-          <p className="text-sm font-bold text-gray-500 uppercase">{titulo}</p>
-          <h4 className="text-2xl font-black text-red-600 mt-1">R$ {valor.toFixed(2)}</h4>
+  // Calcula o valor financeiro total de todos os insumos estocados
+  const valorEstoque = insumos.reduce((acc, i) => {
+    const totalQtd = (i.estoqueEstacionario ?? 0) + (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
+    const custoUnitario = i.qtdPacote ? i.precoPacote / i.qtdPacote : 0;
+    return acc + (totalQtd * custoUnitario);
+  }, 0);
+
+  const CardRelatorio = ({ titulo, valor, descricao, colorType = 'red' }: { titulo: string, valor: number, descricao: string, colorType?: 'red' | 'emerald' }) => {
+    const isRed = colorType === 'red';
+    const Icon = isRed ? TrendingDown : DollarSign;
+    const textColor = isRed ? 'text-red-600' : 'text-emerald-600';
+    const bgColor = isRed ? 'bg-red-50' : 'bg-emerald-50';
+
+    return (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+        <div className="flex justify-between items-start mb-4">
+          <div>
+            <p className="text-sm font-bold text-gray-500 uppercase">{titulo}</p>
+            <h4 className={`text-2xl font-black ${textColor} mt-1`}>R$ {valor.toFixed(2)}</h4>
+          </div>
+          <div className={`p-2 ${bgColor} rounded-lg ${textColor}`}>
+            <Icon size={20} />
+          </div>
         </div>
-        <div className="p-2 bg-red-50 rounded-lg text-red-600">
-          <TrendingDown size={20} />
-        </div>
+        <p className="text-xs text-gray-400 flex items-center"><Calendar size={12} className="mr-1"/> {descricao}</p>
       </div>
-      <p className="text-xs text-gray-400 flex items-center"><Calendar size={12} className="mr-1"/> {descricao}</p>
-    </div>
-  );
+    );
+  };
 
   return (
     <div className="space-y-6">
@@ -132,6 +158,7 @@ export default function RelatoriosManager() {
           <CardRelatorio titulo="Fins de Semana" valor={gastos.fimDeSemana} descricao="Sábados e Domingos (Este mês)" />
           <CardRelatorio titulo="Gasto Quinzenal" valor={gastos.quinzenal} descricao="Últimos 15 dias" />
           <CardRelatorio titulo="Gasto Mensal" valor={gastos.mensal} descricao="Acumulado deste mês" />
+          <CardRelatorio titulo="Capital em Estoque" valor={valorEstoque} descricao="Valor investido em mercadorias" colorType="emerald" />
         </div>
       ) : activeTab === 'transferencias' ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
