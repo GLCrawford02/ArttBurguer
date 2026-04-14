@@ -1,4 +1,4 @@
-Faça que import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ref, onValue } from 'firebase/database';
 import { db } from '../firebase';
 import { Search, Calendar, ArrowDownRight, ArrowUpRight, Filter, FileText, Trash2 } from 'lucide-react';
