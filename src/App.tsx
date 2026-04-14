@@ -140,7 +140,7 @@ export default function App() {
   return (
     <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden">
       {/* Mobile Header */}
-      <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0">
+      <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">
         <div className="flex items-center space-x-2">
           <img src={logoImg} alt="ArttBurguer" className="h-10 w-auto object-contain" />
           <div>
@@ -162,7 +162,7 @@ export default function App() {
       )}
 
       {/* Sidebar */}
-      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen`}>
+      <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen print:hidden`}>
         <div className="flex p-6 items-center justify-between border-b border-gray-800">
           <div className="flex items-center gap-3">
             <img src={logoImg} alt="ArttBurguer" className="h-12 w-auto object-contain" />
@@ -275,7 +275,7 @@ export default function App() {
 
       {/* Main Content */}
       <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-[100vw]">
-        <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
           <div>
             <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema de Gestão</h2>
             <p className="text-gray-400 text-xs">Controle de estoque e custos de produção</p>
