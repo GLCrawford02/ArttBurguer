@@ -2,13 +2,14 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, Layers } from 'lucide-react';
 
 export default function Dashboard() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
@@ -146,7 +147,11 @@ export default function Dashboard() {
     setShowPinModal(true);
   };
 
-  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredInsumos = insumos.filter(i => {
+    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
+    return matchSearch && matchTipo;
+  });
 
   const validadeProxima: any[] = [];
   
@@ -177,6 +182,19 @@ export default function Dashboard() {
       }
     }
   });
+
+  const insumosPorTipo = insumos.reduce((acc, insumo) => {
+    const tipo = (insumo as any).tipoUso || 'Sem classificação';
+    if (!acc[tipo]) acc[tipo] = { count: 0, valorTotal: 0 };
+    acc[tipo].count += 1;
+    const totalQtd = (insumo.estoqueEstacionario ?? 0) + (insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
+    const custoUnitario = insumo.precoPacote / (insumo.qtdPacote || 1);
+    acc[tipo].valorTotal += (totalQtd * custoUnitario);
+    return acc;
+  }, {} as Record<string, { count: number, valorTotal: number }>);
+
+  // Pega os tipos únicos existentes para o select de filtro
+  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
   return (
     <div className="space-y-6">
@@ -253,7 +271,7 @@ export default function Dashboard() {
                         const pacotes = Math.floor(estEstacionario / (i.qtdPacote || 1));
                         return (
                           <li key={i.id}>
-                            <span className="font-bold">{i.nome}:</span> {pacotes} PCT <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
+                            <span className="font-bold">{i.nome}:</span> {pacotes} {(i.qtdPacote || 1) > 1 ? 'CX' : 'UN'} <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
                           </li>
                         );
                       })}
@@ -266,18 +284,43 @@ export default function Dashboard() {
         </div>
       )}
 
+      {Object.keys(insumosPorTipo).length > 0 && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
+          <h3 className="font-bold text-gray-800 mb-4 flex items-center"><Layers size={20} className="mr-2 text-indigo-500"/> Resumo por Tipo de Uso</h3>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {Object.entries(insumosPorTipo).sort((a,b) => b[1].valorTotal - a[1].valorTotal).map(([tipo, dados]) => (
+              <div key={tipo} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+                <p className="text-xs font-bold text-gray-500 uppercase truncate" title={tipo}>{tipo}</p>
+                <p className="text-xl font-black text-gray-800 mt-1">R$ {dados.valorTotal.toFixed(2)}</p>
+                <p className="text-xs text-gray-400 mt-1">{dados.count} itens cadastrados</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h3 className="font-bold text-gray-800">Lista de Insumos</h3>
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar insumo..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
-            />
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <select 
+              value={filtroTipoUso} 
+              onChange={(e) => setFiltroTipoUso(e.target.value)}
+              className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+            >
+              <option value="">Todos os Tipos</option>
+              {tiposExistentes.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
+            </select>
+            <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar insumo..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+              />
+            </div>
           </div>
         </div>
         <div className="max-h-[400px] overflow-y-auto">
@@ -285,6 +328,7 @@ export default function Dashboard() {
           <thead className="sticky top-0 z-10 shadow-sm">
             <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
               <th className="px-6 py-3">Insumo</th>
+              <th className="px-6 py-3">Tipo</th>
               <th className="px-6 py-3">Rotativo</th>
               <th className="px-6 py-3">Estacionário</th>
               <th className="px-6 py-3">Preço Unit.</th>
@@ -297,13 +341,16 @@ export default function Dashboard() {
               return (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
                 <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
+                <td className="px-6 py-4">
+                  {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400 text-xs">-</span>}
+                </td>
                 <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
                 <td className="px-6 py-4 text-indigo-600 font-bold">
-                  {Math.floor((i.estoqueEstacionario ?? 0) / (i.qtdPacote || 1))} PCT
+                  {Math.floor((i.estoqueEstacionario ?? 0) / (i.qtdPacote || 1))} {(i.qtdPacote || 1) > 1 ? 'CX' : 'UN'}
                   <span className="text-xs text-gray-400 font-normal ml-1">({(i.estoqueEstacionario ?? 0)}{i.unidade})</span>
                 </td>
                 <td className="px-6 py-4 text-gray-600">
-                  R$ {(i.precoPacote / i.qtdPacote).toFixed(3).replace('.', ',')} / {i.unidade}
+                  R$ {(i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ',')} / {i.unidade}
                 </td>
                 <td className="px-6 py-4 text-gray-600">
                   {i.lotes ? (

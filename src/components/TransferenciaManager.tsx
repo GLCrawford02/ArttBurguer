@@ -8,6 +8,7 @@ export default function TransferenciaManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -84,12 +85,12 @@ export default function TransferenciaManager() {
 
   const handleTransfer = (insumo: Insumo) => {
     confirmWithPin(async (func: Funcionario) => {
-      const numPacotesTransferir = quantidades[insumo.id];
-      if (!numPacotesTransferir || numPacotesTransferir <= 0) {
-        showToast('Informe a quantidade de pacotes para transferir.', 'error');
+      const numVolumesTransferir = quantidades[insumo.id];
+      if (!numVolumesTransferir || numVolumesTransferir <= 0) {
+        showToast('Informe a quantidade de caixas ou unidades para transferir.', 'error');
         return;
       }
-      const unitsToTransfer = numPacotesTransferir * (insumo.qtdPacote || 1);
+      const unitsToTransfer = numVolumesTransferir * (insumo.qtdPacote || 1);
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
 
@@ -142,7 +143,7 @@ export default function TransferenciaManager() {
           funcionarioNome: func.nome,
           timestamp: Date.now()
         });
-        showToast(`${numPacotesTransferir} pacote(s) de ${insumo.nome} (${unitsToTransfer}${insumo.unidade}) transferido para o Estoque Rotativo!`, 'success');
+        showToast(`${numVolumesTransferir} ${(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} de ${insumo.nome} (${unitsToTransfer}${insumo.unidade}) transferido para o Estoque Rotativo!`, 'success');
         setQuantidades({ ...quantidades, [insumo.id]: 0 });
       } else {
         showToast(`Erro: Quantidade insuficiente no Estoque Estacionário!`, 'error');
@@ -156,12 +157,12 @@ export default function TransferenciaManager() {
       let sucessoCount = 0;
       
       const promessas = Array.from(selecionados).map(async (id) => {
-        const numPacotesTransferir = quantidades[id];
-        if (!numPacotesTransferir || numPacotesTransferir <= 0) return; // Pula insumos com qtd inválida
+        const numVolumesTransferir = quantidades[id];
+        if (!numVolumesTransferir || numVolumesTransferir <= 0) return; // Pula insumos com qtd inválida
         const insumo = insumos.find(i => i.id === id);
         if (!insumo) return;
 
-        const unitsToTransfer = numPacotesTransferir * (insumo.qtdPacote || 1);
+        const unitsToTransfer = numVolumesTransferir * (insumo.qtdPacote || 1);
         const insumoRef = ref(db, `insumos/${id}`);
 
         const result = await runTransaction(insumoRef, (currentData) => {
@@ -229,7 +230,13 @@ export default function TransferenciaManager() {
     });
   };
 
-  const filteredInsumos = insumos.filter(i => i.nome.toLowerCase().includes(searchTerm.toLowerCase()));
+  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  const filteredInsumos = insumos.filter(i => {
+    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
+    return matchSearch && matchTipo;
+  });
 
   return (
     <div className="space-y-6">
@@ -251,9 +258,17 @@ export default function TransferenciaManager() {
               Transferir Selecionados ({selecionados.size})
             </button>
           )}
+          <select 
+            value={filtroTipoUso} 
+            onChange={(e) => setFiltroTipoUso(e.target.value)}
+            className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white w-full sm:w-auto"
+          >
+            <option value="">Todos os Tipos</option>
+            {tiposExistentes.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
+          </select>
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input type="text" placeholder="Buscar insumo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full" />
+            <input type="text" placeholder="Buscar insumo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-64" />
           </div>
         </div>
       </div>
@@ -277,12 +292,12 @@ export default function TransferenciaManager() {
                 />
               </div>
               <div className="flex justify-between mt-2 text-sm">
-                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{maxPacotes} PCT</span> <span className="text-xs">({estEstacionario}{insumo.unidade})</span></span>
+                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{maxPacotes} {(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'}</span> <span className="text-xs">({estEstacionario}{insumo.unidade})</span></span>
                 <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span></span>
               </div>
             </div>
             <div className="flex space-x-2">
-              <input type="number" min="1" max={maxPacotes} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder="Qtd (PCT)" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <input type="number" min="1" max={maxPacotes} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder="Qtd (CX/UN)" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxPacotes} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
                 Transferir
               </button>

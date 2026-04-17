@@ -8,6 +8,7 @@ export default function BalancoManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [novosEstoques, setNovosEstoques] = useState<Record<string, string>>({});
   const [filtroVencimento, setFiltroVencimento] = useState(false);
+  const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -98,7 +99,13 @@ export default function BalancoManager() {
     return false;
   };
 
-  const insumosExibidos = filtroVencimento ? insumos.filter(isProximoVencimento) : insumos;
+  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  const insumosExibidos = insumos.filter(i => {
+    const matchVencimento = filtroVencimento ? isProximoVencimento(i) : true;
+    const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
+    return matchVencimento && matchTipo;
+  });
 
   const exportarExcel = () => {
     const headers = ['Insumo', 'Estoque Rotativo', 'Estoque Estacionário', 'Unidade', 'Preco Unitario (R$)', 'Detalhes dos Lotes (Estacionário)'];
@@ -107,7 +114,7 @@ export default function BalancoManager() {
       i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0,
       i.estoqueEstacionario ?? 0,
       i.unidade,
-      (i.precoPacote / i.qtdPacote).toFixed(3).replace('.', ','),
+      (i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ','),
       i.lotes
         ? Object.values(i.lotes).map((l: any) => `${l.quantidade}${i.unidade} (Val: ${l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${l.lote || 'N/A'})`).join(' ; ')
         : i.validade || i.lote
@@ -138,6 +145,14 @@ export default function BalancoManager() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3">
+          <select 
+            value={filtroTipoUso} 
+            onChange={(e) => setFiltroTipoUso(e.target.value)}
+            className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white w-full sm:w-auto"
+          >
+            <option value="">Todos os Tipos</option>
+            {tiposExistentes.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
+          </select>
           <button 
             onClick={() => setFiltroVencimento(!filtroVencimento)} 
             className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors border flex items-center shadow-sm w-full sm:w-auto justify-center ${

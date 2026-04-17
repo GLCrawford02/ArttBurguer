@@ -185,78 +185,106 @@ export default function PromocoesManager() {
           {editId ? 'Editar Promoção / Combo' : 'Nova Promoção / Combo'}
         </h3>
         
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Nome da Promoção / Combo</label>
-            <input type="text" value={nomePromocao} onChange={e => setNomePromocao(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" placeholder="Ex: Combo Família" />
-          </div>
+        <div className="space-y-6">
+          
+          {/* Informações Principais */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Informações Principais</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nome da Promoção / Combo</label>
+                <input type="text" value={nomePromocao} onChange={e => setNomePromocao(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" placeholder="Ex: Combo Família" />
+              </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Preço Promocional (R$)</label>
-            <input type="number" step="0.01" value={precoVenda} onChange={e => setPrecoVenda(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" placeholder="Por quanto vai vender o combo?" />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Data Início (Opcional)</label>
-              <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Data Fim (Opcional)</label>
-              <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Horário Início (Opcional)</label>
-              <input type="time" value={horarioInicio} onChange={e => setHorarioInicio(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-            </div>
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase">Horário Fim (Opcional)</label>
-              <input type="time" value={horarioFim} onChange={e => setHorarioFim(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Preço Promocional</label>
+                <div className="relative w-full">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
+                  <input
+                    type="text"
+                    value={precoVenda === '' ? '' : Number(precoVenda).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    onChange={e => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; setPrecoVenda(val); }}
+                    className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white"
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
             </div>
           </div>
 
-          <div className="p-4 bg-purple-50 rounded-lg space-y-4">
-            <p className="text-sm font-bold text-purple-800">Adicionar Produtos ao Combo</p>
-            <div className="grid grid-cols-2 gap-2">
-              <select value={tempProdutoId} onChange={e => setTempProdutoId(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none">
-                <option value="">Selecione um produto...</option>
-                {produtos.map(p => (<option key={p.id} value={p.id}>{p.nome}</option>))}
-              </select>
-              <input type="number" min="1" value={tempQtd} onChange={e => setTempQtd(Number(e.target.value))} className="p-2 border border-gray-200 rounded-lg outline-none" placeholder="Quantidade" />
+          {/* Período de Validade */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Período de Validade (Opcional)</h4>
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Data Início</label>
+                <input type="date" value={dataInicio} onChange={e => setDataInicio(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Data Fim</label>
+                <input type="date" value={dataFim} onChange={e => setDataFim(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Horário Início</label>
+                <input type="time" value={horarioInicio} onChange={e => setHorarioInicio(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Horário Fim</label>
+                <input type="time" value={horarioFim} onChange={e => setHorarioFim(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 bg-white" />
+              </div>
             </div>
-            <button onClick={addItem} className="w-full bg-purple-600 text-white p-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors">
-              Adicionar ao Combo
-            </button>
           </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-bold text-gray-700">Itens Inclusos</p>
-            <div className="divide-y divide-gray-100 border rounded-lg max-h-[300px] overflow-y-auto">
-              {itensSelecionados.map((item, idx) => {
-                const produto = produtos.find(p => p.id === item.produtoId);
-                return (
-                  <div key={idx} className="flex justify-between items-center p-3 text-sm">
-                    <span><span className="font-bold">{item.quantidade}x</span> {produto?.nome || 'Produto Indisponível'}</span>
-                    <div className="flex items-center space-x-4">
-                      <span className="text-gray-500">Custo: R$ {((produto?.custoTotal || 0) * item.quantidade).toFixed(2)}</span>
-                      <button onClick={() => removeItem(idx)} className="text-red-500"><Trash2 size={16} /></button>
+          {/* Composição do Combo */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Composição do Combo</h4>
+            <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+              <p className="text-sm font-bold text-gray-700">Adicionar Produtos ao Combo</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <select value={tempProdutoId} onChange={e => setTempProdutoId(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500">
+                  <option value="">Selecione um produto...</option>
+                  {produtos.map(p => (<option key={p.id} value={p.id}>{p.nome}</option>))}
+                </select>
+                <div className="flex space-x-2">
+                  <input type="number" min="1" value={tempQtd} onChange={e => setTempQtd(Number(e.target.value))} className="w-24 p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500" placeholder="Qtd" />
+                  <button onClick={addItem} className="flex-1 bg-purple-600 text-white p-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm">
+                    Adicionar ao Combo
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-700">Itens Inclusos</p>
+              <div className="divide-y divide-gray-100 border border-gray-200 bg-white rounded-lg max-h-[300px] overflow-y-auto">
+                {itensSelecionados.map((item, idx) => {
+                  const produto = produtos.find(p => p.id === item.produtoId);
+                  return (
+                    <div key={idx} className="flex justify-between items-center p-3 text-sm">
+                      <span className="font-medium text-gray-800"><span className="font-bold">{item.quantidade}x</span> {produto?.nome || 'Produto Indisponível'}</span>
+                      <div className="flex items-center space-x-4">
+                        <span className="text-gray-500 font-medium">Custo: R$ {((produto?.custoTotal || 0) * item.quantidade).toFixed(2)}</span>
+                        <button onClick={() => removeItem(idx)} className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors"><Trash2 size={16} /></button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              {itensSelecionados.length === 0 && (<p className="p-4 text-center text-gray-400 text-sm italic">Nenhum produto adicionado</p>)}
+                  );
+                })}
+                {itensSelecionados.length === 0 && (<p className="p-4 text-center text-gray-400 text-sm italic">Nenhum produto adicionado</p>)}
+              </div>
             </div>
           </div>
 
-          <div className="pt-4 border-t flex gap-2 items-center">
+          <div className="pt-4 border-t flex gap-4 items-center">
             <div className="flex-1">
               <p className="text-xs text-gray-500 uppercase font-bold">Custo Total do Combo</p>
               <p className="text-2xl font-bold text-red-500">R$ {custoTotalCombo.toFixed(2)}</p>
             </div>
-            <button onClick={salvarPromocao} disabled={!nomePromocao || itensSelecionados.length === 0} className="bg-purple-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors">
-              {editId ? 'Atualizar Combo' : 'Salvar Combo'}
-            </button>
-            {editId && (<button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition-colors">Cancelar</button>)}
+            <div className="flex gap-2">
+              {editId && (<button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>)}
+              <button onClick={salvarPromocao} disabled={!nomePromocao || itensSelecionados.length === 0} className="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-sm">
+                {editId ? 'Atualizar Combo' : 'Salvar Novo Combo'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

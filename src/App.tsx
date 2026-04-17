@@ -12,6 +12,8 @@ import BalancoManager from './components/BalancoManager';
 import TransferenciaManager from './components/TransferenciaManager';
 import GestaoFinanceira from './components/GestaoFinanceira';
 import FuncionariosManager from './components/FuncionariosManager';
+import LancamentoVendas from './components/LancamentoVendas';
+import BancosCartoes from './components/BancosCartoes';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -21,7 +23,9 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'produtos' | 'promocoes'>('insumos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
-  const [subTabFinanceiro, setSubTabFinanceiro] = useState<'fechamento' | 'relatorios' | 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario'>('fechamento');
+  const [subTabFinanceiro, setSubTabFinanceiro] = useState<'lancamento_vendas' | 'pagar' | 'receber' | 'calendario' | 'relatorios_gerais' | 'configuracoes'>('lancamento_vendas');
+  const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
+  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'fornecedores'>('bancos_cartoes');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(null);
@@ -29,7 +33,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
 
   useEffect(() => {
-    document.title = 'ArttBurguer';
+    document.title = 'ArttBurger';
 
     // Adiciona a logo na aba do navegador (Favicon)
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -331,18 +335,40 @@ export default function App() {
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
               <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-                <button onClick={() => setSubTabFinanceiro('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento</button>
-                <button onClick={() => setSubTabFinanceiro('relatorios')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
-                <button onClick={() => setSubTabFinanceiro('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard</button>
+                <button onClick={() => setSubTabFinanceiro('lancamento_vendas')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'lancamento_vendas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Lançamento de Vendas</button>
                 <button onClick={() => setSubTabFinanceiro('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
                 <button onClick={() => setSubTabFinanceiro('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
-                <button onClick={() => setSubTabFinanceiro('fornecedores')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>
                 <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário</button>
+                <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
+                <button onClick={() => setSubTabFinanceiro('configuracoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'configuracoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações</button>
               </div>
-              {subTabFinanceiro === 'fechamento' && <FechamentoManager />}
-              {subTabFinanceiro === 'relatorios' && <RelatoriosManager />}
-              {['dashboard_fin', 'pagar', 'receber', 'fornecedores', 'calendario'].includes(subTabFinanceiro) && (
+              {subTabFinanceiro === 'lancamento_vendas' && <LancamentoVendas />}
+              {['pagar', 'receber', 'calendario'].includes(subTabFinanceiro) && (
                 <GestaoFinanceira activeTab={subTabFinanceiro as any} />
+              )}
+              
+              {subTabFinanceiro === 'relatorios_gerais' && (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
+                    <button onClick={() => setSubSubTabRelatorios('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento do Dia</button>
+                    <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard A Pagar/Receber</button>
+                    <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>
+                  </div>
+                  {subSubTabRelatorios === 'fechamento' && <FechamentoManager />}
+                  {subSubTabRelatorios === 'dashboard_fin' && <GestaoFinanceira activeTab="dashboard_fin" />}
+                  {subSubTabRelatorios === 'movimentacoes' && <RelatoriosManager />}
+                </div>
+              )}
+
+              {subTabFinanceiro === 'configuracoes' && (
+                <div className="space-y-6">
+                  <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
+                    <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>
+                    <button onClick={() => setSubSubTabConfiguracoes('fornecedores')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>
+                  </div>
+                  {subSubTabConfiguracoes === 'bancos_cartoes' && <BancosCartoes />}
+                  {subSubTabConfiguracoes === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" />}
+                </div>
               )}
             </div>
           )}

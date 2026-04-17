@@ -211,7 +211,10 @@ export default function GestaoFinanceira({ activeTab }: { activeTab: 'dashboard_
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
         <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Conta' : `Nova Conta a ${tipoConta === 'pagar' ? 'Pagar' : 'Receber'}`}</h3>
         <input type="text" placeholder={`Descrição (Ex: ${tipoConta === 'pagar' ? 'Conta de Luz' : 'Venda Ifood'})`} value={descricao} onChange={e=>setDescricao(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
-        <input type="number" placeholder="Valor (R$)" value={valor} onChange={e=>setValor(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
+        <div className="relative w-full">
+          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
+          <input type="text" placeholder="0,00" value={valor === '' ? '' : Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; setValor(val); }} className={`w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
+        </div>
         <input type="date" value={vencimento} onChange={e=>setVencimento(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
         
         {tipoConta === 'pagar' && (

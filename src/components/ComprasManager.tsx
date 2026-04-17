@@ -7,6 +7,7 @@ import { ShoppingCart, Plus, Search, CheckCircle } from 'lucide-react';
 export default function ComprasManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [lotes, setLotes] = useState<Record<string, string>>({});
   const [validades, setValidades] = useState<Record<string, string>>({});
@@ -58,10 +59,10 @@ export default function ComprasManager() {
   };
 
   const registrarCompra = async (insumo: Insumo, isConfirmedAdmin = false) => {
-    const qtdPacotes = quantidades[insumo.id];
-    if (!qtdPacotes || qtdPacotes <= 0) return;
+    const qtdVolumes = quantidades[insumo.id];
+    if (!qtdVolumes || qtdVolumes <= 0) return;
 
-    const qtdAdicionar = qtdPacotes * (insumo.qtdPacote || 1); // Multiplica os pacotes pela Qtd por Pacote (com fallback)
+    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1); // Multiplica os volumes pela Qtd na Caixa (1 se Unidade)
     const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
 
     if (insumo.estoqueMaximo && novoEstoque > insumo.estoqueMaximo && !isConfirmedAdmin) {
@@ -94,19 +95,19 @@ export default function ComprasManager() {
 
     if (result.committed) {
       // Salvar no histórico de compras financeiro
-      const custoTotalCompra = qtdPacotes * (insumo.precoPacote || 0);
+      const custoTotalCompra = qtdVolumes * (insumo.precoPacote || 0);
       const historicoRef = push(ref(db, 'historico_compras'));
       await set(historicoRef, {
         insumoId: insumo.id,
         nome: insumo.nome,
-        qtdPacotes,
+        qtdPacotes: qtdVolumes,
         custoTotal: custoTotalCompra,
         lote,
         validade,
         timestamp: Date.now()
       });
       
-      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdPacotes} pacote(s) = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
+      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdVolumes} ${(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
       setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
       setLotes({ ...lotes, [insumo.id]: '' });
       setValidades({ ...validades, [insumo.id]: '' });
@@ -128,10 +129,13 @@ export default function ComprasManager() {
     }
   };
 
-  const filteredInsumos = insumos.filter(i => 
-    (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  const filteredInsumos = insumos.filter(i => {
+    const matchSearch = (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
+    return matchSearch && matchTipo;
+  });
 
   return (
     <div className="space-y-6">
@@ -142,17 +146,27 @@ export default function ComprasManager() {
               <ShoppingCart className="mr-2 text-blue-600" size={20} />
               Reabastecimento de Estoque
             </h3>
-            <p className="text-sm text-gray-500 mt-1">Informe a quantidade de pacotes comprados. O sistema multiplicará pela quantidade do pacote automaticamente.</p>
+          <p className="text-sm text-gray-500 mt-1">Informe a quantidade de caixas ou unidades compradas. O sistema multiplicará pela quantidade da caixa automaticamente (se for unidade, a quantidade será a mesma).</p>
           </div>
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar por nome ou SKU..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
-            />
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <select 
+              value={filtroTipoUso} 
+              onChange={(e) => setFiltroTipoUso(e.target.value)}
+              className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
+            >
+              <option value="">Todos os Tipos</option>
+              {tiposExistentes.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
+            </select>
+            <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar por nome ou SKU..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -164,7 +178,7 @@ export default function ComprasManager() {
               <h4 className="font-bold text-gray-900 leading-tight">{insumo.nome}</h4>
               <p className="text-xs font-mono text-gray-400">{(insumo as any).sku || 'Sem SKU'}</p>
               <p className="text-sm text-gray-500">Est. Estacionário: <span className="font-bold">{insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0} {insumo.unidade}</span></p>
-              <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 pacote = {insumo.qtdPacote} {insumo.unidade}</p>
+              <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 {(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} = {insumo.qtdPacote || 1} {insumo.unidade}</p>
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
@@ -188,7 +202,7 @@ export default function ComprasManager() {
                   min="1"
                   value={quantidades[insumo.id] || ''}
                   onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })}
-                  placeholder="Qtd de pacotes"
+                  placeholder="Qtd (CX/UN)"
                   className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
                 <button

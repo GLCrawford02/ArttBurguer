@@ -109,7 +109,7 @@ export default function RelatoriosManager() {
     let filename = '';
 
     if (activeTab === 'despesas') {
-      headers = ['Data / Hora', 'Insumo', 'Qtd Pacotes', 'Custo Total (R$)'];
+      headers = ['Data / Hora', 'Insumo', 'Qtd (CX/UN)', 'Custo Total (R$)'];
       rows = historico.map(h => [
         new Date(h.timestamp).toLocaleString('pt-BR'),
         h.nome,
@@ -156,7 +156,7 @@ export default function RelatoriosManager() {
   // Calcula o valor financeiro total de todos os insumos estocados
   const valorEstoque = insumos.reduce((acc, i) => {
     const totalQtd = (i.estoqueEstacionario ?? 0) + (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
-    const custoUnitario = i.qtdPacote ? i.precoPacote / i.qtdPacote : 0;
+    const custoUnitario = i.precoPacote / (i.qtdPacote || 1);
     return acc + (totalQtd * custoUnitario);
   }, 0);
 

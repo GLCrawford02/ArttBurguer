@@ -59,8 +59,8 @@ export default function ProdutosManager() {
 
   const calcularCustoIngrediente = (ing: IngredienteReceita) => {
     const insumo = insumos.find(i => i.id === ing.insumoId);
-    if (!insumo || !insumo.qtdPacote) return 0;
-    return (insumo.precoPacote / insumo.qtdPacote) * ing.quantidade;
+    if (!insumo || !(insumo.qtdPacote || 1)) return 0;
+    return (insumo.precoPacote / (insumo.qtdPacote || 1)) * ing.quantidade;
   };
 
   const custoTotalFicha = ingredientesSelecionados.reduce((acc, ing) => acc + calcularCustoIngrediente(ing), 0);
@@ -266,8 +266,8 @@ export default function ProdutosManager() {
 
           const custoTotal = ingredientesParaSalvar.reduce((acc, ing) => {
             const insumo = insumos.find(ins => ins.id === ing.insumoId);
-            if (!insumo || !insumo.qtdPacote) return acc;
-            return acc + ((insumo.precoPacote / insumo.qtdPacote) * ing.quantidade);
+            if (!insumo) return acc;
+            return acc + ((insumo.precoPacote / (insumo.qtdPacote || 1)) * ing.quantidade);
           }, 0);
 
           const produtoData = { nome, categoria, precoVenda, custoTotal, ingredientes: ingredientesParaSalvar };
@@ -299,18 +299,53 @@ export default function ProdutosManager() {
           {editId ? 'Editar Produto' : 'Novo Produto'}
         </h3>
         
-        <div className="space-y-4">
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Nome do Hambúrguer</label>
-            <input
-              type="text"
-              value={nomeProduto}
-              onChange={e => setNomeProduto(e.target.value)}
-              className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Ex: Smash Burger Duplo"
-            />
+        <div className="space-y-6">
+          
+          {/* Informações Principais */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Informações Principais</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
+              <div className="space-y-1 sm:col-span-6">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nome do Produto</label>
+                <input
+                  type="text"
+                  value={nomeProduto}
+                  onChange={e => setNomeProduto(e.target.value)}
+                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                  placeholder="Ex: Smash Burger Duplo"
+                />
+              </div>
+              <div className="space-y-1 sm:col-span-3">
+                <label className="text-xs font-bold text-gray-500 uppercase">Categoria</label>
+                <select
+                  value={categoria}
+                  onChange={e => setCategoria(e.target.value)}
+                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                >
+                  <option value="Hambúrguer">Hambúrguer</option>
+                  <option value="Porção">Porção</option>
+                  <option value="Bebida">Bebida</option>
+                  <option value="Sobremesa">Sobremesa</option>
+                  <option value="Outros">Outros</option>
+                </select>
+              </div>
+              <div className="space-y-1 sm:col-span-3">
+                <label className="text-xs font-bold text-gray-500 uppercase">Preço de Venda</label>
+                <div className="relative w-full">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
+                  <input
+                    type="text"
+                    value={precoVenda === '' ? '' : Number(precoVenda).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    onChange={e => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; setPrecoVenda(val); }}
+                    className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+                    placeholder="0,00"
+                  />
+                </div>
+              </div>
+            </div>
+            
             {!editId && (
-              <>
+              <div className="pt-2">
                 <div className="flex items-center space-x-2 pt-1">
                   <input
                     type="checkbox"
@@ -334,111 +369,93 @@ export default function ProdutosManager() {
                     </div>
                   </div>
                 )}
-              </>
+              </div>
             )}
           </div>
 
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Categoria</label>
-            <select
-              value={categoria}
-              onChange={e => setCategoria(e.target.value)}
-              className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-            >
-              <option value="Hambúrguer">Hambúrguer</option>
-              <option value="Porção">Porção</option>
-              <option value="Bebida">Bebida</option>
-              <option value="Sobremesa">Sobremesa</option>
-              <option value="Outros">Outros</option>
-            </select>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-xs font-bold text-gray-500 uppercase">Preço de Venda (R$)</label>
-            <input
-              type="number"
-              step="0.01"
-              value={precoVenda}
-              onChange={e => setPrecoVenda(e.target.value)}
-              className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
-              placeholder="Por quanto vai vender?"
-            />
-          </div>
-
-          <div className="p-4 bg-gray-50 rounded-lg space-y-4">
-            <p className="text-sm font-bold text-gray-700">Adicionar Insumo à Receita</p>
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={tempInsumoId}
-                onChange={e => setTempInsumoId(e.target.value)}
-                className="p-2 border border-gray-200 rounded-lg outline-none"
-              >
-                <option value="">Selecione...</option>
-                {insumos
-                  .filter(i => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase()))
-                  .map(i => (
-                  <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>
-                ))}
-              </select>
-              <input
-                type="number"
-                value={tempQtd}
-                onChange={e => setTempQtd(Number(e.target.value))}
-                className="p-2 border border-gray-200 rounded-lg outline-none"
-                placeholder="Qtd"
-              />
+          {/* Ficha Técnica */}
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Composição (Ficha Técnica)</h4>
+            
+            <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
+              <p className="text-sm font-bold text-gray-700">Adicionar Insumo à Receita</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <select
+                  value={tempInsumoId}
+                  onChange={e => setTempInsumoId(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Selecione...</option>
+                  {insumos
+                    .filter(i => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase()))
+                    .map(i => (
+                    <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>
+                  ))}
+                </select>
+                <div className="flex space-x-2">
+                  <input
+                    type="number"
+                    value={tempQtd}
+                    onChange={e => setTempQtd(Number(e.target.value))}
+                    className="w-24 p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500"
+                    placeholder="Qtd"
+                  />
+                  <button
+                    onClick={addIngrediente}
+                    className="flex-1 bg-gray-800 text-white p-2 rounded-lg text-sm font-bold hover:bg-gray-900 transition-colors shadow-sm"
+                  >
+                    Adicionar à Lista
+                  </button>
+                </div>
+              </div>
             </div>
-            <button
-              onClick={addIngrediente}
-              className="w-full bg-gray-800 text-white p-2 rounded-lg text-sm font-bold hover:bg-gray-900 transition-colors"
-            >
-              Adicionar à Lista
-            </button>
-          </div>
 
-          <div className="space-y-2">
-            <p className="text-sm font-bold text-gray-700">Ingredientes da Receita</p>
-            <div className="divide-y divide-gray-100 border rounded-lg max-h-[300px] overflow-y-auto">
-              {ingredientesSelecionados.map((ing, idx) => {
-                const insumo = insumos.find(i => i.id === ing.insumoId);
-                return (
-                  <div key={idx} className="flex justify-between items-center p-3 text-sm">
-                    <span>{insumo?.nome} - {ing.quantidade}{insumo?.unidade}</span>
-                    <div className="flex items-center space-x-4">
-                      <span className="text-gray-500">R$ {calcularCustoIngrediente(ing).toFixed(2)}</span>
-                      <button onClick={() => removeIngrediente(idx)} className="text-red-500">
-                        <Trash2 size={16} />
-                      </button>
+            <div className="space-y-2">
+              <p className="text-sm font-bold text-gray-700">Ingredientes da Receita</p>
+              <div className="divide-y divide-gray-100 border border-gray-200 bg-white rounded-lg max-h-[300px] overflow-y-auto">
+                {ingredientesSelecionados.map((ing, idx) => {
+                  const insumo = insumos.find(i => i.id === ing.insumoId);
+                  return (
+                    <div key={idx} className="flex justify-between items-center p-3 text-sm">
+                      <span className="font-medium text-gray-800">{insumo?.nome} <span className="text-gray-500 font-normal ml-1">- {ing.quantidade}{insumo?.unidade}</span></span>
+                      <div className="flex items-center space-x-4">
+                        <span className="text-gray-500 font-medium">R$ {calcularCustoIngrediente(ing).toFixed(2)}</span>
+                        <button onClick={() => removeIngrediente(idx)} className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors">
+                          <Trash2 size={16} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-              {ingredientesSelecionados.length === 0 && (
-                <p className="p-4 text-center text-gray-400 text-sm italic">Nenhum ingrediente adicionado</p>
-              )}
+                  );
+                })}
+                {ingredientesSelecionados.length === 0 && (
+                  <p className="p-4 text-center text-gray-400 text-sm italic">Nenhum ingrediente adicionado</p>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="pt-4 border-t flex gap-2 items-center">
+          <div className="pt-4 border-t flex gap-4 items-center">
             <div className="flex-1">
               <p className="text-xs text-gray-500 uppercase font-bold">Custo Total Produção</p>
               <p className="text-2xl font-bold text-green-600">R$ {custoTotalFicha.toFixed(2)}</p>
             </div>
-            <button
-              onClick={salvarProduto}
-              disabled={!nomeProduto || ingredientesSelecionados.length === 0}
-              className="bg-blue-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors"
-            >
-              {editId ? 'Atualizar Produto' : 'Salvar Produto'}
-            </button>
-            {editId && (
+            <div className="flex gap-2">
+              {editId && (
+                <button
+                  onClick={handleCancelEdit}
+                  className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm"
+                >
+                  Cancelar
+                </button>
+              )}
               <button
-                onClick={handleCancelEdit}
-                className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition-colors"
+                onClick={salvarProduto}
+                disabled={!nomeProduto || ingredientesSelecionados.length === 0}
+                className="bg-blue-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm"
               >
-                Cancelar
+                {editId ? 'Atualizar Produto' : 'Salvar Novo Produto'}
               </button>
-            )}
+            </div>
           </div>
         </div>
       </div>
