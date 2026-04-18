@@ -9,6 +9,10 @@ interface CompraLog {
   insumoId: string;
   nome: string;
   qtdPacotes: number;
+  qtdEmbalagens?: number;
+  tipoEmbalagem?: string;
+  qtdUnidadesAdicionadas?: number;
+  unidadeBase?: string;
   custoTotal: number;
   timestamp: number;
 }
@@ -109,11 +113,11 @@ export default function RelatoriosManager() {
     let filename = '';
 
     if (activeTab === 'despesas') {
-      headers = ['Data / Hora', 'Insumo', 'Qtd (CX/UN)', 'Custo Total (R$)'];
+      headers = ['Data / Hora', 'Insumo', 'Qtd Comprada', 'Custo Total (R$)'];
       rows = historico.map(h => [
         new Date(h.timestamp).toLocaleString('pt-BR'),
         h.nome,
-        h.qtdPacotes,
+        `${h.qtdEmbalagens || h.qtdPacotes || 0} ${h.tipoEmbalagem || 'Volume(s)'} (${h.qtdUnidadesAdicionadas || '?'} ${h.unidadeBase || 'un'})`,
         h.custoTotal.toFixed(2).replace('.', ',')
       ]);
       filename = 'relatorio_despesas';
@@ -182,6 +186,16 @@ export default function RelatoriosManager() {
     );
   };
 
+  // Função inteligente para exibir caixas e unidades restantes
+  const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
+    if (pacote <= 1) return <span>{qtd} {unid}</span>;
+    const vols = Math.floor(qtd / pacote);
+    const resto = qtd % pacote;
+    
+    if (vols === 0) return <span>{qtd} {unid}</span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+  };
+
   return (
     <div className="space-y-6 print:space-y-0 print:block">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6 flex flex-col lg:flex-row items-start lg:items-center gap-4 print:border-none print:shadow-none print:p-0 print:mb-4">
@@ -234,14 +248,19 @@ export default function RelatoriosManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {transferencias.map(t => (
+            {transferencias.map(t => {
+              const insumo = insumos.find(i => i.id === t.insumoId);
+              return (
                 <tr key={t.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 text-sm text-gray-500">{new Date(t.timestamp).toLocaleString('pt-BR')}</td>
                   <td className="px-6 py-4 font-medium text-gray-900">{t.funcionarioNome}</td>
                   <td className="px-6 py-4 text-gray-800">{t.nomeInsumo}</td>
-                  <td className="px-6 py-4 font-bold text-indigo-600">{t.quantidade}</td>
+                  <td className="px-6 py-4 font-bold text-indigo-600">
+                    {insumo ? formatarQtdJSX(t.quantidade, insumo.qtdPacote || 1, insumo.unidade) : t.quantidade}
+                  </td>
                 </tr>
-              ))}
+              );
+            })}
               {transferencias.length === 0 && <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400">Nenhuma transferência registrada.</td></tr>}
             </tbody>
           </table>
@@ -259,15 +278,20 @@ export default function RelatoriosManager() {
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {descartes.map(d => (
+            {descartes.map(d => {
+              const insumo = insumos.find(i => i.id === d.insumoId);
+              return (
                 <tr key={d.id} className="hover:bg-gray-50 transition-colors">
                   <td className="px-6 py-4 text-sm text-gray-500">{new Date(d.timestamp).toLocaleString('pt-BR')}</td>
                   <td className="px-6 py-4 font-medium text-gray-900">{d.funcionarioNome}</td>
                   <td className="px-6 py-4 text-gray-800">{d.nomeInsumo}</td>
                   <td className="px-6 py-4 text-gray-500">{d.lote}</td>
-                  <td className="px-6 py-4 font-bold text-red-600">{d.quantidade}</td>
+                  <td className="px-6 py-4 font-bold text-red-600">
+                    {insumo ? formatarQtdJSX(d.quantidade, insumo.qtdPacote || 1, insumo.unidade) : d.quantidade}
+                  </td>
                 </tr>
-              ))}
+              );
+            })}
               {descartes.length === 0 && <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhum descarte registrado.</td></tr>}
             </tbody>
           </table>

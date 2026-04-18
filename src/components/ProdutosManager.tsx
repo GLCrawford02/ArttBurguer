@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
-import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2 } from 'lucide-react';
 
 export default function ProdutosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -16,6 +16,11 @@ export default function ProdutosManager() {
   const [criarDuplo, setCriarDuplo] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
+
+  const [cadastroMode, setCadastroMode] = useState<'manual' | 'ia'>('manual');
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -82,7 +87,29 @@ export default function ProdutosManager() {
   };
 
   const salvarProduto = async () => {
-    if (!nomeProduto || ingredientesSelecionados.length === 0) return;
+    const missingFields = [];
+    if (!nomeProduto) missingFields.push('Nome do Produto');
+    if (ingredientesSelecionados.length === 0) missingFields.push('Composição (Pelo menos 1 ingrediente na Ficha Técnica)');
+
+    if (missingFields.length > 0) {
+      showToast(`Preencha os campos obrigatórios:\n- ${missingFields.join('\n- ')}`, 'error');
+      return;
+    }
+
+    if (criarDuplo && !editId) {
+      const temDelivery = produtos.find(p => (p.nome || '').trim().toLowerCase() === `/ ${nomeProduto}`.trim().toLowerCase());
+      const temSalao = produtos.find(p => (p.nome || '').trim().toLowerCase() === `% ${nomeProduto}`.trim().toLowerCase());
+      if (temDelivery || temSalao) {
+        showToast('Já existe um produto de Salão/Delivery com este nome.', 'error');
+        return;
+      }
+    } else {
+      const duplicado = produtos.find(p => p.id !== editId && (p.nome || '').trim().toLowerCase() === nomeProduto.trim().toLowerCase());
+      if (duplicado) {
+        showToast('Já existe um produto cadastrado com este nome.', 'error');
+        return;
+      }
+    }
     
     try {
       const produtosRef = ref(db, 'produtos');
@@ -162,6 +189,108 @@ export default function ProdutosManager() {
     } catch (error: any) {
       console.error(error);
       showToast('Erro ao salvar produto: ' + error.message, 'error');
+    }
+  };
+
+  const handleCadastroIA = async () => {
+    if (!aiPrompt.trim()) {
+      showToast('Preencha os dados dos produtos que deseja cadastrar.', 'error');
+      return;
+    }
+
+    setIsGenerating(true);
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${grokKey}`
+        },
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          stream: false,
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um assistente de cadastro de produtos. Extraia os produtos do texto do usuário, onde cada linha representa um produto com valores separados por vírgula na ordem:
+Nome, Categoria (Hambúrguer, Porção, Bebida, Sobremesa, Outros), Preço de Venda, Ingredientes (Nome Insumo:Quantidade | Nome Insumo:Quantidade).
+Não inclua crases, formatação markdown ou texto adicional, apenas o array JSON.
+Formato esperado:
+[{
+  "nome": "Nome do Produto",
+  "categoria": "Hambúrguer",
+  "precoVenda": 35.90,
+  "ingredientes": [
+    { "nome": "Pão Brioche", "quantidade": 1 },
+    { "nome": "Carne", "quantidade": 0.15 }
+  ]
+}]`
+            },
+            {
+              role: 'user',
+              content: aiPrompt
+            }
+          ]
+        })
+      });
+
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error?.message || data.message || JSON.stringify(data) || 'Erro na API da IA');
+      
+      const jsonText = data.choices?.[0]?.message?.content;
+      if (!jsonText) throw new Error('Resposta inválida da IA.');
+
+      const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const produtosExtraidos = JSON.parse(cleanJson);
+      if (!Array.isArray(produtosExtraidos)) throw new Error('Formato retornado não é um array.');
+
+      let adicionados = 0;
+      let atualizados = 0;
+
+      for (const item of produtosExtraidos) {
+        const ingredientesParaSalvar: IngredienteReceita[] = [];
+        if (item.ingredientes && Array.isArray(item.ingredientes)) {
+          for (const ing of item.ingredientes) {
+            const insumoEncontrado = insumos.find(ins => (ins.nome || '').toLowerCase().trim() === (ing.nome || '').toLowerCase().trim());
+            if (insumoEncontrado && !isNaN(ing.quantidade)) {
+              ingredientesParaSalvar.push({ insumoId: insumoEncontrado.id, quantidade: Number(ing.quantidade) });
+            }
+          }
+        }
+
+        const custoTotal = ingredientesParaSalvar.reduce((acc, ing) => {
+          const insumo = insumos.find(ins => ins.id === ing.insumoId);
+          if (!insumo) return acc;
+          return acc + ((insumo.precoPacote / (insumo.qtdPacote || 1)) * ing.quantidade);
+        }, 0);
+
+        const produtoData = {
+          nome: item.nome || 'Sem Nome',
+          categoria: item.categoria || 'Hambúrguer',
+          precoVenda: Number(item.precoVenda) || 0,
+          custoTotal: custoTotal,
+          ingredientes: ingredientesParaSalvar
+        };
+
+        const produtoExistente = produtos.find(p => (p.nome || '').toLowerCase().trim() === (item.nome || '').toLowerCase().trim());
+
+        if (produtoExistente) {
+          await update(ref(db, `produtos/${produtoExistente.id}`), produtoData);
+          atualizados++;
+        } else {
+          await set(push(ref(db, 'produtos')), produtoData);
+          adicionados++;
+        }
+      }
+      
+      showToast(`Sucesso! ${adicionados} cadastrados e ${atualizados} atualizados pela IA.`, 'success');
+      setAiPrompt('');
+      setCadastroMode('manual');
+    } catch (error: any) {
+      showToast('Erro ao processar com IA: ' + error.message, 'error');
+      console.error(error);
+    } finally {
+      setIsGenerating(false);
     }
   };
 
@@ -291,16 +420,24 @@ export default function ProdutosManager() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="space-y-8">
       {/* Cadastro de Ficha Técnica */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <Calculator className="mr-2 text-blue-600" size={20} />
-          {editId ? 'Editar Produto' : 'Novo Produto'}
-        </h3>
+        <div className="flex justify-between items-center mb-2">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center">
+            <Calculator className="mr-2 text-blue-600" size={20} />
+            {editId ? 'Editar Produto' : 'Novo Produto'}
+          </h3>
+          {!editId && (
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+              <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
+              <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
+            </div>
+          )}
+        </div>
         
-        <div className="space-y-6">
-          
+        {cadastroMode === 'manual' || editId ? (
+          <div className="space-y-6">
           {/* Informações Principais */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Informações Principais</h4>
@@ -457,7 +594,39 @@ export default function ProdutosManager() {
               </button>
             </div>
           </div>
-        </div>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <div className="bg-purple-50 border border-purple-100 p-4 rounded-lg space-y-3">
+              <div className="flex justify-between items-start">
+                <div className="flex items-center text-purple-800 font-bold text-sm">
+                  <Bot size={18} className="mr-2"/> Assistente IA
+                </div>
+              </div>
+              
+              <div className="bg-white p-3 rounded border border-purple-100 shadow-sm text-xs text-gray-600">
+                <p className="font-bold text-purple-800 mb-1">Ordem de preenchimento (separado por vírgula):</p>
+                <p>Nome, Categoria (Hambúrguer, Porção, Bebida, etc), Preço Venda, Ingredientes (Nome Insumo:Quantidade | Nome Insumo:Quantidade)</p>
+                <p className="font-mono text-purple-600 mt-2 bg-purple-50 p-1.5 rounded">Exemplo: Smash Duplo, Hambúrguer, 35.90, Pão Brioche:1 | Carne:0.150 | Queijo Prato:0.040</p>
+              </div>
+
+              <textarea 
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                placeholder="Smash Duplo, Hambúrguer, 35.90, Pão Brioche:1 | Carne:0.150 | Queijo Prato:0.040&#10;Fritas P, Porção, 15.00, Batata Frita:0.150 | Sal:0.005"
+                className="w-full p-3 border border-purple-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm min-h-[140px] resize-y bg-white leading-relaxed font-mono"
+              />
+
+              <button 
+                onClick={handleCadastroIA} 
+                disabled={isGenerating}
+                className="w-full bg-purple-600 text-white p-3 rounded-lg font-bold hover:bg-purple-700 transition-colors flex items-center justify-center disabled:opacity-70 shadow-sm"
+              >
+                {isGenerating ? <><Loader2 size={18} className="mr-2 animate-spin"/> Lendo e Cadastrando...</> : <><Sparkles size={18} className="mr-2"/> Cadastrar Produtos Automaticamente</>}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Lista de Produtos e Venda */}
@@ -488,7 +657,7 @@ export default function ProdutosManager() {
           </div>
         </div>
         
-        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredProdutos.map(p => (
             <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col">
               <div className="flex justify-between items-center">

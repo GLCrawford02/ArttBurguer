@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
-import { ShoppingCart, Plus, Search, CheckCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, CheckCircle, MessageCircle } from 'lucide-react';
 
 export default function ComprasManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -62,7 +62,7 @@ export default function ComprasManager() {
     const qtdVolumes = quantidades[insumo.id];
     if (!qtdVolumes || qtdVolumes <= 0) return;
 
-    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1); // Multiplica os volumes pela Qtd na Caixa (1 se Unidade)
+    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1); // Multiplica os volumes pela Qtd na Embalagem
     const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
 
     if (insumo.estoqueMaximo && novoEstoque > insumo.estoqueMaximo && !isConfirmedAdmin) {
@@ -95,19 +95,24 @@ export default function ComprasManager() {
 
     if (result.committed) {
       // Salvar no histórico de compras financeiro
+      const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'Unidade';
       const custoTotalCompra = qtdVolumes * (insumo.precoPacote || 0);
       const historicoRef = push(ref(db, 'historico_compras'));
       await set(historicoRef, {
         insumoId: insumo.id,
         nome: insumo.nome,
-        qtdPacotes: qtdVolumes,
+        qtdPacotes: qtdVolumes, // Mantido para compatibilidade
+        qtdEmbalagens: qtdVolumes,
+        tipoEmbalagem: tipoEmb,
+        qtdUnidadesAdicionadas: qtdAdicionar,
+        unidadeBase: insumo.unidade,
         custoTotal: custoTotalCompra,
         lote,
         validade,
         timestamp: Date.now()
       });
       
-      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdVolumes} ${(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
+      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdVolumes} ${(insumo.qtdPacote || 1) > 1 ? 'Volume(s)' : 'UN'} = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
       setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
       setLotes({ ...lotes, [insumo.id]: '' });
       setValidades({ ...validades, [insumo.id]: '' });
@@ -129,6 +134,43 @@ export default function ComprasManager() {
     }
   };
 
+  const enviarWhatsApp = () => {
+    const precisandoReposicao = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
+    
+    if (precisandoReposicao.length === 0) {
+      showToast('Nenhum insumo precisando de reposição no momento.', 'error');
+      return;
+    }
+
+    let msg = '*Lista de Reposição Necessária*\n\n';
+    let estimativaTotal = 0;
+
+    precisandoReposicao.forEach(i => {
+      const atual = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+      const max = i.estoqueMaximo ? `${i.estoqueMaximo}${i.unidade}` : 'Não definido';
+      const tipoEmb = (i.qtdPacote || 1) > 1 ? 'Volume' : 'Unidade';
+      const preco = i.precoPacote || 0;
+      
+      let infoEstimativa = '';
+      if (i.estoqueMaximo && i.estoqueMaximo > atual) {
+        const qtdEmbalagensFaltantes = Math.ceil((i.estoqueMaximo - atual) / (i.qtdPacote || 1));
+        const estimativaItem = qtdEmbalagensFaltantes * preco;
+        estimativaTotal += estimativaItem;
+        infoEstimativa = `\n- Gasto estimado para encher: R$ ${estimativaItem.toFixed(2).replace('.', ',')}`;
+      }
+
+      msg += `*${i.nome}*\n- Atual: ${atual}${i.unidade}\n- Mínimo: ${i.alertaMinimo}${i.unidade}\n- Máximo: ${max}\n- Último custo: R$ ${preco.toFixed(2).replace('.', ',')} por ${tipoEmb}${infoEstimativa}\n\n`;
+    });
+
+    if (estimativaTotal > 0) {
+      msg += `*Estimativa Total p/ Encher Estoque: R$ ${estimativaTotal.toFixed(2).replace('.', ',')}*\n\n`;
+    }
+
+    const encodedMsg = encodeURIComponent(msg);
+    const phone = '5538998119347';
+    window.open(`https://wa.me/${phone}?text=${encodedMsg}`, '_blank');
+  };
+
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
   const filteredInsumos = insumos.filter(i => {
@@ -136,6 +178,16 @@ export default function ComprasManager() {
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;
   });
+
+  // Função inteligente para exibir caixas e unidades restantes
+  const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
+    if (pacote <= 1) return <span>{qtd} {unid}</span>;
+    const vols = Math.floor(qtd / pacote);
+    const resto = qtd % pacote;
+    
+    if (vols === 0) return <span>{qtd} {unid}</span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+  };
 
   return (
     <div className="space-y-6">
@@ -146,9 +198,13 @@ export default function ComprasManager() {
               <ShoppingCart className="mr-2 text-blue-600" size={20} />
               Reabastecimento de Estoque
             </h3>
-          <p className="text-sm text-gray-500 mt-1">Informe a quantidade de caixas ou unidades compradas. O sistema multiplicará pela quantidade da caixa automaticamente (se for unidade, a quantidade será a mesma).</p>
+          <p className="text-sm text-gray-500 mt-1">Informe a quantidade de embalagens (caixas, fardos, pacotes ou unidades) compradas. O sistema multiplicará pela quantidade da embalagem automaticamente.</p>
           </div>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+            <button onClick={enviarWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-600 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center">
+              <MessageCircle size={18} className="mr-2" />
+              Pedir Reposição
+            </button>
             <select 
               value={filtroTipoUso} 
               onChange={(e) => setFiltroTipoUso(e.target.value)}
@@ -172,13 +228,15 @@ export default function ComprasManager() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
-        {filteredInsumos.map(insumo => (
-          <div key={insumo.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
+        {filteredInsumos.map(insumo => {
+          const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
+          return (
+          <div key={insumo.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
             <div className="mb-4">
               <h4 className="font-bold text-gray-900 leading-tight">{insumo.nome}</h4>
               <p className="text-xs font-mono text-gray-400">{(insumo as any).sku || 'Sem SKU'}</p>
-              <p className="text-sm text-gray-500">Est. Estacionário: <span className="font-bold">{insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0} {insumo.unidade}</span></p>
-              <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 {(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} = {insumo.qtdPacote || 1} {insumo.unidade}</p>
+              <p className="text-sm text-gray-500">Est. Estacionário: <span className="font-bold">{formatarQtdJSX(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0, insumo.qtdPacote || 1, insumo.unidade)}</span></p>
+              <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 {tipoEmb} = {insumo.qtdPacote || 1} {insumo.unidade}</p>
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
@@ -202,7 +260,7 @@ export default function ComprasManager() {
                   min="1"
                   value={quantidades[insumo.id] || ''}
                   onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })}
-                  placeholder="Qtd (CX/UN)"
+                  placeholder={`Qtd (${tipoEmb.substring(0,3).toUpperCase()})`}
                   className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
                 />
                 <button
@@ -215,7 +273,7 @@ export default function ComprasManager() {
               </div>
             </div>
           </div>
-        ))}
+        )})}
       </div>
 
       {toast && (
@@ -232,7 +290,9 @@ export default function ComprasManager() {
             <p className="text-sm text-gray-500 text-center mb-6">Esta compra excederá o estoque máximo do insumo. Digite o PIN de um Administrador para liberar.</p>
             
             <input 
-              type="password" 
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
               maxLength={4}
               autoFocus
               value={pin}

@@ -2,12 +2,13 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, set, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Scale, Save, Download, CalendarClock, CheckCircle } from 'lucide-react';
+import { Scale, Save, Download, CalendarClock, CheckCircle, Search } from 'lucide-react';
 
 export default function BalancoManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [novosEstoques, setNovosEstoques] = useState<Record<string, string>>({});
   const [filtroVencimento, setFiltroVencimento] = useState(false);
+  const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -102,9 +103,12 @@ export default function BalancoManager() {
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
   const insumosExibidos = insumos.filter(i => {
+    const matchSearch = searchTerm
+      ? i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+      : true;
     const matchVencimento = filtroVencimento ? isProximoVencimento(i) : true;
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
-    return matchVencimento && matchTipo;
+    return matchSearch && matchVencimento && matchTipo;
   });
 
   const exportarExcel = () => {
@@ -132,6 +136,16 @@ export default function BalancoManager() {
     document.body.removeChild(link);
   };
 
+  // Função inteligente para exibir caixas e unidades restantes
+  const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
+    if (pacote <= 1) return <span>{qtd} {unid}</span>;
+    const vols = Math.floor(qtd / pacote);
+    const resto = qtd % pacote;
+    
+    if (vols === 0) return <span>{qtd} {unid}</span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center">
@@ -145,6 +159,16 @@ export default function BalancoManager() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3">
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar por nome ou SKU..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm w-full sm:w-56"
+            />
+          </div>
           <select 
             value={filtroTipoUso} 
             onChange={(e) => setFiltroTipoUso(e.target.value)}
@@ -200,7 +224,7 @@ export default function BalancoManager() {
                           <div key={idx} className="text-xs flex items-center justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0 gap-4">
                             <div className="flex-1">
                               <span>{l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{l.lote && l.lote !== 'N/A' && ` (L: ${l.lote})`}</span>
-                              <span className="font-bold ml-2 text-gray-500">{l.quantidade}{i.unidade}</span>
+                              <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(l.quantidade, i.qtdPacote || 1, i.unidade)}</span>
                             </div>
                             <div className="flex items-center space-x-1">
                               <input 
@@ -227,7 +251,7 @@ export default function BalancoManager() {
                     <div className="text-xs flex items-center justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0 gap-4">
                       <div className="flex-1">
                         <span>{i.validade ? new Date(`${i.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{i.lote && i.lote !== 'N/A' && ` (L: ${i.lote})`}</span>
-                        <span className="font-bold ml-2 text-gray-500">{estacionario}{i.unidade}</span>
+                        <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(estacionario, i.qtdPacote || 1, i.unidade)}</span>
                       </div>
                       <div className="flex items-center space-x-1">
                         <input 
@@ -262,7 +286,7 @@ export default function BalancoManager() {
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-col gap-2">
-                    <span className="font-bold text-indigo-600">{estacionario} {i.unidade}</span>
+                    <span className="font-bold text-indigo-600">{formatarQtdJSX(estacionario, i.qtdPacote || 1, i.unidade)}</span>
                     {!i.lotes && !i.validade && !i.lote ? (
                       <div className="flex items-center space-x-1">
                         <input type="number" value={novosEstoques[`${i.id}|est`] !== undefined ? novosEstoques[`${i.id}|est`] : ''} onChange={(e) => setNovosEstoques({...novosEstoques, [`${i.id}|est`]: e.target.value})} placeholder={String(estacionario)} className="w-16 p-1 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500" />

@@ -9,11 +9,13 @@ import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
 import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
+import PermissoesManager from './components/PermissoesManager';
 import TransferenciaManager from './components/TransferenciaManager';
 import GestaoFinanceira from './components/GestaoFinanceira';
 import FuncionariosManager from './components/FuncionariosManager';
 import LancamentoVendas from './components/LancamentoVendas';
 import BancosCartoes from './components/BancosCartoes';
+import ConfiguracoesGerais from './components/ConfiguracoesGerais';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -25,12 +27,15 @@ export default function App() {
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'lancamento_vendas' | 'pagar' | 'receber' | 'calendario' | 'relatorios_gerais' | 'configuracoes'>('lancamento_vendas');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
-  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'fornecedores'>('bancos_cartoes');
+  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'fornecedores' | 'gerais'>('gerais');
+  const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'permissoes'>('equipe');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(null);
   const [pinInput, setPinInput] = useState('');
   const [loginError, setLoginError] = useState('');
+  const [permissoes, setPermissoes] = useState<Record<string, any>>({});
+  const [tempoLogout, setTempoLogout] = useState(5);
 
   useEffect(() => {
     document.title = 'ArttBurger';
@@ -80,39 +85,102 @@ export default function App() {
     });
   }, []);
 
+  useEffect(() => {
+    const permRef = ref(db, 'permissoes');
+    return onValue(permRef, (snap) => {
+      if (snap.val()) setPermissoes(snap.val());
+      else setPermissoes({});
+    });
+  }, []);
+
+  useEffect(() => {
+    const confRef = ref(db, 'configuracoes/gerais/tempoLogout');
+    return onValue(confRef, (snap) => {
+      const val = snap.val();
+      if (val) setTempoLogout(Number(val));
+    });
+  }, []);
+
   const handleTabChange = (tab: 'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
 
-  const getAllowedTabs = (cargo: string) => {
-    if (cargo === 'Administrador') return ['dashboard', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios'];
-    if (cargo === 'Gerente') return ['dashboard', 'cadastros', 'movimentacoes', 'producao'];
-    return ['dashboard', 'producao', 'movimentacoes'];
+  const temPermissao = (modulo: string) => {
+    if (!currentUser) return false;
+    if (currentUser.cargo === 'Administrador') return true;
+    return permissoes[currentUser.cargo || 'Atendente']?.[modulo]?.visualizar || false;
+  };
+
+  const getAllowedTabs = () => {
+    if (!currentUser) return [];
+    if (currentUser.cargo === 'Administrador') return ['dashboard', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios'];
+
+    const p = permissoes[currentUser.cargo || 'Atendente'] || {};
+    const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
+    if (p['insumos']?.visualizar || p['produtos']?.visualizar) allowed.push('cadastros');
+    if (p['compras']?.visualizar || p['transferencias']?.visualizar) allowed.push('movimentacoes');
+    if (p['producao']?.visualizar) allowed.push('producao');
+    if (p['balanco']?.visualizar) allowed.push('balanco');
+    if (p['vendas']?.visualizar || p['relatorios']?.visualizar || p['configuracoes']?.visualizar) allowed.push('financeiro');
+    if (p['funcionarios']?.visualizar) allowed.push('funcionarios');
+    return allowed;
   };
 
   useEffect(() => {
     if (currentUser) {
-      const allowed = getAllowedTabs(currentUser.cargo || 'Atendente');
-      if (!allowed.includes(activeTab)) {
+      const allowed = getAllowedTabs();
+      if (!allowed.includes(activeTab) && allowed.length > 0) {
         handleTabChange(allowed[0] as any);
       }
-      if (currentUser.cargo !== 'Administrador' && (subTabCadastros === 'produtos' || subTabCadastros === 'promocoes')) {
-        setSubTabCadastros('insumos');
-      }
-      if (currentUser.cargo !== 'Administrador' && currentUser.cargo !== 'Gerente' && subTabMovimentacoes === 'compras') {
-        setSubTabMovimentacoes('transferencia');
-      }
+      
+      // Redireciona a sub-aba automaticamente se ele perder o acesso
+      setSubTabCadastros(prev => (!temPermissao('produtos') && (prev === 'produtos' || prev === 'promocoes')) ? 'insumos' : prev);
+      setSubTabMovimentacoes(prev => (!temPermissao('compras') && prev === 'compras') ? 'transferencia' : prev);
+      setSubTabFinanceiro(prev => (!temPermissao('vendas') && prev === 'lancamento_vendas') ? 'relatorios_gerais' : prev);
     }
-  }, [currentUser, activeTab]);
+  }, [currentUser, activeTab, permissoes]);
+
+  // Temporizador de Logout Automático para funcionários comuns
+  useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      const timeMs = tempoLogout * 60 * 1000;
+      timeoutId = setTimeout(() => {
+        setCurrentUser(null);
+      }, timeMs);
+    };
+
+    if (currentUser && currentUser.cargo !== 'Administrador' && currentUser.cargo !== 'Gerente') {
+      resetTimer();
+      window.addEventListener('mousemove', resetTimer);
+      window.addEventListener('keydown', resetTimer);
+      window.addEventListener('click', resetTimer);
+      window.addEventListener('touchstart', resetTimer);
+    }
+
+    return () => {
+      if (timeoutId) clearTimeout(timeoutId);
+      window.removeEventListener('mousemove', resetTimer);
+      window.removeEventListener('keydown', resetTimer);
+      window.removeEventListener('click', resetTimer);
+      window.removeEventListener('touchstart', resetTimer);
+    };
+  }, [currentUser, tempoLogout]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const user = funcionarios.find(f => f.pin === pinInput);
     if (user) {
-      setCurrentUser(user);
-      setPinInput('');
-      setLoginError('');
+      if ((user as any).ativo === false) {
+        setLoginError('Usuário inativo. Acesso negado.');
+      } else {
+        setCurrentUser(user);
+        setPinInput('');
+        setLoginError('');
+      }
     } else {
       setLoginError('PIN incorreto ou usuário não encontrado.');
     }
@@ -120,7 +188,8 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4" translate="no">
+        <style>{`@media (min-width: 768px) and (max-width: 1180px) { html { font-size: 18px; } }`}</style>
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
           <div className="flex justify-center mb-8">
             <img src={logoImg} alt="ArttBurguer Logo" className="h-32 w-auto object-contain" />
@@ -128,7 +197,7 @@ export default function App() {
           <p className="text-center text-gray-500 mb-8 text-sm">Digite seu PIN para entrar no sistema</p>
           
           <form onSubmit={handleLogin}>
-            <input type="password" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" />
+            <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" />
             {loginError && <p className="text-red-500 text-sm text-center mb-4 font-bold">{loginError}</p>}
             <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg">
               Entrar
@@ -139,10 +208,11 @@ export default function App() {
     );
   }
 
-  const allowedTabs = getAllowedTabs(currentUser.cargo || 'Atendente');
+  const allowedTabs = getAllowedTabs();
 
   return (
-    <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden">
+    <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden" translate="no">
+      <style>{`@media (min-width: 768px) and (max-width: 1180px) { html { font-size: 18px; } }`}</style>
       {/* Mobile Header */}
       <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">
         <div className="flex items-center space-x-2">
@@ -301,8 +371,8 @@ export default function App() {
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>
-                {currentUser.cargo === 'Administrador' && (
+                {temPermissao('insumos') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>}
+                {temPermissao('produtos') && (
                   <>
                     <button onClick={() => setSubTabCadastros('produtos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'produtos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtos</button>
                     <button onClick={() => setSubTabCadastros('promocoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'promocoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Promoções</button>
@@ -318,29 +388,42 @@ export default function App() {
           {activeTab === 'movimentacoes' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                {(currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente') && (
-                  <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Compras</button>
-                )}
-                <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>
+                {temPermissao('compras') && <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Compras</button>}
+                {temPermissao('transferencias') && <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>}
               </div>
               {subTabMovimentacoes === 'compras' && <ComprasManager />}
               {subTabMovimentacoes === 'transferencia' && <TransferenciaManager />}
             </div>
           )}
 
-          {activeTab === 'funcionarios' && <FuncionariosManager />}
+          {activeTab === 'funcionarios' && (
+            <div className="space-y-6">
+              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+                <button onClick={() => setSubTabFuncionarios('equipe')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'equipe' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Equipe</button>
+                {currentUser.cargo === 'Administrador' && (
+                  <button onClick={() => setSubTabFuncionarios('permissoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'permissoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Cargos e Permissões</button>
+                )}
+              </div>
+              {subTabFuncionarios === 'equipe' && <FuncionariosManager />}
+              {subTabFuncionarios === 'permissoes' && currentUser.cargo === 'Administrador' && <PermissoesManager />}
+            </div>
+          )}
           {activeTab === 'producao' && <ProducaoManager />}
           {activeTab === 'balanco' && <BalancoManager />}
 
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
               <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-                <button onClick={() => setSubTabFinanceiro('lancamento_vendas')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'lancamento_vendas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Lançamento de Vendas</button>
-                <button onClick={() => setSubTabFinanceiro('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
-                <button onClick={() => setSubTabFinanceiro('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
-                <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário</button>
-                <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
-                <button onClick={() => setSubTabFinanceiro('configuracoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'configuracoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações</button>
+                {temPermissao('vendas') && <button onClick={() => setSubTabFinanceiro('lancamento_vendas')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'lancamento_vendas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Lançamento de Vendas</button>}
+                {temPermissao('relatorios') && (
+                  <>
+                    <button onClick={() => setSubTabFinanceiro('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
+                    <button onClick={() => setSubTabFinanceiro('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
+                    <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário</button>
+                    <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
+                  </>
+                )}
+                {temPermissao('configuracoes') && <button onClick={() => setSubTabFinanceiro('configuracoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'configuracoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações</button>}
               </div>
               {subTabFinanceiro === 'lancamento_vendas' && <LancamentoVendas />}
               {['pagar', 'receber', 'calendario'].includes(subTabFinanceiro) && (
@@ -363,9 +446,11 @@ export default function App() {
               {subTabFinanceiro === 'configuracoes' && (
                 <div className="space-y-6">
                   <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
+                    <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gerais</button>
                     <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>
                     <button onClick={() => setSubSubTabConfiguracoes('fornecedores')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>
                   </div>
+                  {subSubTabConfiguracoes === 'gerais' && <ConfiguracoesGerais />}
                   {subSubTabConfiguracoes === 'bancos_cartoes' && <BancosCartoes />}
                   {subSubTabConfiguracoes === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" />}
                 </div>

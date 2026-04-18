@@ -77,8 +77,7 @@ export default function TransferenciaManager() {
     } else {
       newSel.add(insumo.id);
       const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
-      const maxPacotes = Math.floor(estEstacionario / (insumo.qtdPacote || 1));
-      setQuantidades({ ...quantidades, [insumo.id]: maxPacotes });
+        setQuantidades({ ...quantidades, [insumo.id]: estEstacionario });
     }
     setSelecionados(newSel);
   };
@@ -87,10 +86,10 @@ export default function TransferenciaManager() {
     confirmWithPin(async (func: Funcionario) => {
       const numVolumesTransferir = quantidades[insumo.id];
       if (!numVolumesTransferir || numVolumesTransferir <= 0) {
-        showToast('Informe a quantidade de caixas ou unidades para transferir.', 'error');
+        showToast('Informe a quantidade para transferir.', 'error');
         return;
       }
-      const unitsToTransfer = numVolumesTransferir * (insumo.qtdPacote || 1);
+      const unitsToTransfer = numVolumesTransferir;
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
 
@@ -143,7 +142,7 @@ export default function TransferenciaManager() {
           funcionarioNome: func.nome,
           timestamp: Date.now()
         });
-        showToast(`${numVolumesTransferir} ${(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'} de ${insumo.nome} (${unitsToTransfer}${insumo.unidade}) transferido para o Estoque Rotativo!`, 'success');
+        showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
         setQuantidades({ ...quantidades, [insumo.id]: 0 });
       } else {
         showToast(`Erro: Quantidade insuficiente no Estoque Estacionário!`, 'error');
@@ -162,7 +161,7 @@ export default function TransferenciaManager() {
         const insumo = insumos.find(i => i.id === id);
         if (!insumo) return;
 
-        const unitsToTransfer = numVolumesTransferir * (insumo.qtdPacote || 1);
+        const unitsToTransfer = numVolumesTransferir;
         const insumoRef = ref(db, `insumos/${id}`);
 
         const result = await runTransaction(insumoRef, (currentData) => {
@@ -233,10 +232,20 @@ export default function TransferenciaManager() {
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
   const filteredInsumos = insumos.filter(i => {
-    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;
   });
+
+  // Função inteligente para exibir caixas e unidades restantes
+  const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
+    if (pacote <= 1) return <span>{qtd} {unid}</span>;
+    const vols = Math.floor(qtd / pacote);
+    const resto = qtd % pacote;
+    
+    if (vols === 0) return <span>{qtd} {unid}</span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+  };
 
   return (
     <div className="space-y-6">
@@ -246,7 +255,7 @@ export default function TransferenciaManager() {
             <ArrowRightLeft className="mr-2 text-indigo-600" size={20} />
             Transferência de Estoque
           </h3>
-          <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionário para o Rotativo (Uso na Cozinha).</p>
+        <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionário para o Rotativo. Informe a quantidade exata a transferir.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           {selecionados.size > 0 && (
@@ -268,7 +277,7 @@ export default function TransferenciaManager() {
           </select>
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input type="text" placeholder="Buscar insumo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-64" />
+            <input type="text" placeholder="Buscar por nome ou SKU..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full sm:w-64" />
           </div>
         </div>
       </div>
@@ -278,7 +287,6 @@ export default function TransferenciaManager() {
           const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
           const estRotativo = insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0;
           
-          const maxPacotes = Math.floor(estEstacionario / (insumo.qtdPacote || 1));
           return (
           <div key={insumo.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
             <div className="mb-4">
@@ -292,13 +300,13 @@ export default function TransferenciaManager() {
                 />
               </div>
               <div className="flex justify-between mt-2 text-sm">
-                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{maxPacotes} {(insumo.qtdPacote || 1) > 1 ? 'CX' : 'UN'}</span> <span className="text-xs">({estEstacionario}{insumo.unidade})</span></span>
+                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{formatarQtdJSX(estEstacionario, insumo.qtdPacote || 1, insumo.unidade)}</span></span>
                 <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span></span>
               </div>
             </div>
             <div className="flex space-x-2">
-              <input type="number" min="1" max={maxPacotes} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder="Qtd (CX/UN)" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxPacotes} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
+              <input type="number" min="1" max={estEstacionario} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={`Qtd (${insumo.unidade})`} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > estEstacionario} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
                 Transferir
               </button>
             </div>
@@ -314,7 +322,9 @@ export default function TransferenciaManager() {
             <p className="text-sm text-gray-500 text-center mb-6">Digite seu PIN de 4 dígitos para confirmar a transferência.</p>
             
             <input 
-              type="password" 
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
               maxLength={4}
               autoFocus
               value={pin}

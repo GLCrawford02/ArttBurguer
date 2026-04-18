@@ -92,8 +92,19 @@ export default function PromocoesManager() {
   };
 
   const salvarPromocao = async () => {
-    if (!nomePromocao || itensSelecionados.length === 0) {
-      showToast('Preencha o nome e adicione produtos.', 'error');
+    const missingFields = [];
+    if (!nomePromocao) missingFields.push('Nome da Promoção / Combo');
+    if (!precoVenda) missingFields.push('Preço Promocional');
+    if (itensSelecionados.length === 0) missingFields.push('Composição do Combo (Pelo menos 1 produto)');
+
+    if (missingFields.length > 0) {
+      showToast(`Preencha os campos obrigatórios:\n- ${missingFields.join('\n- ')}`, 'error');
+      return;
+    }
+
+    const duplicado = promocoes.find(p => p.id !== editId && (p.nome || '').trim().toLowerCase() === nomePromocao.trim().toLowerCase());
+    if (duplicado) {
+      showToast('Já existe uma promoção ou combo com este nome.', 'error');
       return;
     }
 
@@ -177,7 +188,7 @@ export default function PromocoesManager() {
   const filteredPromocoes = promocoes.filter(p => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="space-y-8">
       {/* Cadastro de Promoção */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
         <h3 className="text-lg font-bold text-gray-800 flex items-center">
@@ -298,13 +309,12 @@ export default function PromocoesManager() {
             <input type="text" placeholder="Buscar combo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm w-full sm:w-64" />
           </div>
         </div>
-        
-        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredPromocoes.map(p => (
             <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 flex flex-col">
               <div className="flex justify-between items-center">
                 <div>
-                  <div className="flex items-center space-x-2 mb-1"><h4 className="font-bold text-purple-900">{p.nome}</h4><span className="text-[10px] font-bold px-2 py-0.5 bg-purple-100 text-purple-600 rounded-full uppercase">PROMO</span></div>
+                  <h4 className="font-bold text-gray-900 mb-1">{p.nome}</h4>
                   <p className="text-sm text-gray-500 font-medium">Custo: <span className="text-red-500">R$ {(p.custoTotal || 0).toFixed(2)}</span> | Venda: <span className="text-green-600">R$ {(p.precoVenda || 0).toFixed(2)}</span></p>
                   {(p.dataInicio || p.dataFim || p.horarioInicio || p.horarioFim) && (
                     <p className="text-[10px] text-gray-400 mt-0.5 font-medium">

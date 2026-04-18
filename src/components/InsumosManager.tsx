@@ -68,9 +68,7 @@ export default function InsumosManager() {
 
   const generateSku = (name: string): string => {
     if (!name) return '';
-    const prefix = name.replace(/[^a-zA-Z0-9]/g, '').slice(0, 3).toUpperCase();
-    const randomNumber = Math.floor(100 + Math.random() * 900);
-    return `${prefix}${randomNumber}`;
+    return `#${name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
   };
 
   useEffect(() => {
@@ -94,22 +92,33 @@ export default function InsumosManager() {
   };
 
   const handleSalvar = async () => {
-    if (!nome || !unidade || !precoPacote || !qtdPacote || !alertaMinimo) {
-      showToast('Preencha todos os campos obrigatórios.', 'error');
+    const missingFields = [];
+    if (!nome) missingFields.push('Nome do Insumo');
+    if (!unidade) missingFields.push('Unidade de Medida');
+    if (!precoPacote) missingFields.push('Preço (Embalagem)');
+    if (!qtdPacote) missingFields.push('Qtd. na Embalagem');
+    if (!alertaMinimo) missingFields.push('Estoque Mínimo');
+
+    if (missingFields.length > 0) {
+      showToast(`Preencha os campos obrigatórios:\n- ${missingFields.join('\n- ')}`, 'error');
       return;
     }
 
-    let existingInsumo;
-    if (sku) {
-      existingInsumo = insumos.find(i => ((i as any).sku || '').toLowerCase() === sku.toLowerCase());
-    } else {
-      existingInsumo = insumos.find(i => (i.nome || '').toLowerCase().trim() === (nome || '').toLowerCase().trim());
+    const duplicado = insumos.find(i => {
+      if (i.id === editId) return false;
+      const iNome = (i.nome || '').trim().toLowerCase();
+      const iSku = ((i as any).sku || '').trim().toLowerCase();
+      return iNome === nome.trim().toLowerCase() || (sku && iSku === sku.trim().toLowerCase());
+    });
+
+    if (duplicado) {
+      showToast('Já existe um insumo cadastrado com este nome ou SKU.', 'error');
+      return;
     }
 
-    const finalSku = sku || (existingInsumo ? (existingInsumo as any).sku : generateSku(nome));
-    const targetId = editId || (existingInsumo ? existingInsumo.id : null);
+    const finalSku = sku || generateSku(nome);
 
-    if (targetId) {
+    if (editId) {
       const updateData: any = {
         nome,
         sku: finalSku,
@@ -122,12 +131,8 @@ export default function InsumosManager() {
         tipoUso: tipoUso,
       };
 
-      if (!editId && estoqueAtual && existingInsumo) {
-        updateData.estoqueEstacionario = (existingInsumo.estoqueEstacionario || 0) + Number(estoqueAtual);
-      }
-
-      await update(ref(db, `insumos/${targetId}`), updateData);
-      showToast(existingInsumo && !editId ? 'Insumo já existia. Valores e estoque atualizados!' : 'Insumo atualizado com sucesso!', 'success');
+      await update(ref(db, `insumos/${editId}`), updateData);
+      showToast('Insumo atualizado com sucesso!', 'success');
       setEditId(null);
     } else {
       const newInsumoRef = push(ref(db, 'insumos'));
@@ -181,15 +186,15 @@ export default function InsumosManager() {
             {
               role: 'system',
               content: `Você é um assistente de cadastro de estoque. Extraia os insumos do texto do usuário, onde cada linha representa um insumo com os valores separados por vírgula na seguinte ordem:
-Nome, SKU, Preço Compra (CX/UN), Qtd na caixa (1 se UN), Unidade, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso.
+Nome, SKU, Preço Compra (Embalagem), Qtd na embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso.
 Não inclua crases, formatação markdown ou texto adicional, apenas o array JSON.
 Formato esperado para cada objeto:
 [{
   "nome": "Nome do Insumo",
   "sku": "SKU (se omitido ou em branco, deixe vazio)",
-  "unidade": "g" | "kg" | "ml" | "L" | "un" | "cx",
+  "unidade": "g" | "kg" | "ml" | "L" | "un" | "cx" | "fd" | "pc",
   "precoPacote": numero (preço de compra em reais da caixa/unidade),
-  "qtdPacote": numero (quantidade na caixa, ou 1 se unidade),
+  "qtdPacote": numero (quantidade na embalagem),
   "alertaMinimo": numero (estoque mínimo),
   "estoqueMaximo": numero (estoque máximo, opcional),
   "estoqueAtual": numero (estoque atual, opcional),
@@ -315,7 +320,7 @@ Formato esperado para cada objeto:
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="space-y-8">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
         <div className="flex justify-between items-center mb-2">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
@@ -353,7 +358,7 @@ Formato esperado para cada objeto:
                 </div>
                 <div className="space-y-1 sm:col-span-3">
                   <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
-                  <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono bg-white text-sm" placeholder="Ex: PAO123" />
+                  <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono bg-white text-sm" placeholder="Ex: #paobrioche" />
                 </div>
               </div>
             </div>
@@ -370,11 +375,13 @@ Formato esperado para cada objeto:
                     <option value="ml">Mililitro (ml)</option>
                     <option value="L">Litro (L)</option>
                     <option value="un">Unidade (un)</option>
-                    <option value="cx">Caixa/Fardo (cx)</option>
+                    <option value="cx">Caixa (cx)</option>
+                    <option value="fd">Fardo (fd)</option>
+                    <option value="pc">Pacote (pc)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase">Preço Compra (CX/UN)</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase">Preço (Embalagem)</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
                     <input 
@@ -387,7 +394,7 @@ Formato esperado para cada objeto:
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase">Qtd. na Caixa</label>
+                  <label className="text-xs font-bold text-gray-500 uppercase">Qtd. na Embalagem</label>
                   <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" placeholder="1 = Unidade" />
                 </div>
               </div>
@@ -443,7 +450,7 @@ Formato esperado para cada objeto:
               
               <div className="bg-white p-3 rounded border border-purple-100 shadow-sm text-xs text-gray-600">
                 <p className="font-bold text-purple-800 mb-1">Ordem de preenchimento (separado por vírgula):</p>
-                <p>Nome, SKU, Preço Compra (CX/UN), Qtd na Caixa (1 se Un.), Unidade (L/ML/G/KG/UN/CX), Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso</p>
+                <p>Nome, SKU, Preço Compra (Embalagem), Qtd na Embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso</p>
                 <p className="font-mono text-purple-600 mt-2 bg-purple-50 p-1.5 rounded">Exemplo: Carne, CAR25, 150.00, 5, kg, 10, 50, 20, Matéria prima</p>
               </div>
 
@@ -485,7 +492,7 @@ Formato esperado para cada objeto:
           </div>
         </div>
         
-        <div className="grid grid-cols-1 gap-4 max-h-[450px] overflow-y-auto pr-2">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredInsumos.map(i => (
             <div key={i.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
               <div>

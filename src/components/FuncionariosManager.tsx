@@ -2,15 +2,16 @@ import { useState, useEffect, FormEvent } from 'react';
 import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
-import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck } from 'lucide-react';
 
 export default function FuncionariosManager() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [transferencias, setTransferencias] = useState<TransferenciaLog[]>([]);
+  const [cargos, setCargos] = useState<{id: string, nome: string}[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [historicoFuncionarioId, setHistoricoFuncionarioId] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({ nome: '', pin: '', cargo: 'Atendente' });
+  const [formData, setFormData] = useState({ nome: '', pin: '', cargo: 'Atendente', ativo: true });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -46,9 +47,25 @@ export default function FuncionariosManager() {
       }
     });
 
+    const cargosRef = ref(db, 'cargos');
+    const unsubCargos = onValue(cargosRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        setCargos(Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome })));
+      } else {
+        setCargos([
+          { id: 'admin', nome: 'Administrador' },
+          { id: 'gerente', nome: 'Gerente' },
+          { id: 'cozinheiro', nome: 'Cozinheiro' },
+          { id: 'atendente', nome: 'Atendente' }
+        ]);
+      }
+    });
+
     return () => {
       unsubFunc();
       unsubTrans();
+      unsubCargos();
     };
   }, []);
 
@@ -67,16 +84,23 @@ export default function FuncionariosManager() {
       await set(push(ref(db, 'funcionarios')), formData);
       showToast('Funcionário cadastrado!', 'success');
     }
-    setFormData({ nome: '', pin: '', cargo: 'Atendente' });
+    setFormData({ nome: '', pin: '', cargo: 'Atendente', ativo: true });
   };
 
   const handleEdit = (f: Funcionario) => {
     setEditId(f.id);
-    setFormData({ nome: f.nome, pin: f.pin, cargo: f.cargo || 'Atendente' });
+    setFormData({ nome: f.nome, pin: f.pin, cargo: f.cargo || 'Atendente', ativo: (f as any).ativo !== false });
+  };
+
+  const toggleAtivo = async (f: Funcionario) => {
+    if (confirm(`Deseja ${(f as any).ativo === false ? 'ativar' : 'inativar'} o funcionário ${f.nome}?`)) {
+      await set(ref(db, `funcionarios/${f.id}/ativo`), (f as any).ativo === false);
+      showToast((f as any).ativo === false ? 'Funcionário ativado!' : 'Funcionário inativado!', 'success');
+    }
   };
 
   const handleDelete = async (id: string) => {
-    if (confirm('Deseja excluir este funcionário?')) {
+    if (confirm('Deseja excluir permanentemente este funcionário? Recomenda-se apenas inativar.')) {
       await remove(ref(db, `funcionarios/${id}`));
       showToast('Funcionário excluído!', 'success');
     }
@@ -109,22 +133,27 @@ export default function FuncionariosManager() {
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">Cargo</label>
                 <select value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="Administrador">Administrador</option>
-                  <option value="Gerente">Gerente</option>
-                  <option value="Cozinheiro">Cozinheiro</option>
-                  <option value="Atendente">Atendente</option>
+                  {cargos.map(c => (
+                    <option key={c.id} value={c.nome}>{c.nome}</option>
+                  ))}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">PIN (4 dígitos)</label>
-                <input type="password" maxLength={4} required value={formData.pin} onChange={e => setFormData({...formData, pin: e.target.value.replace(/\D/g, '')})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-center tracking-widest text-lg font-mono" placeholder="****" />
+                <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} required value={formData.pin} onChange={e => setFormData({...formData, pin: e.target.value.replace(/\D/g, '')})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-center tracking-widest text-lg font-mono" placeholder="****" />
+              </div>
+              <div className="pt-2">
+                <label className="flex items-center space-x-2 cursor-pointer">
+                  <input type="checkbox" checked={formData.ativo} onChange={e => setFormData({...formData, ativo: e.target.checked})} className="rounded text-blue-600 focus:ring-blue-500 w-4 h-4 cursor-pointer" />
+                  <span className="text-sm font-bold text-gray-700">Funcionário Ativo no Sistema</span>
+                </label>
               </div>
               <div className="flex space-x-2">
                 <button type="submit" className="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center">
                   <Save size={18} className="mr-2" /> Salvar
                 </button>
                 {editId && (
-                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: 'Atendente'});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
+                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: 'Atendente', ativo: true});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
                     <X size={20} />
                   </button>
                 )}
@@ -141,14 +170,18 @@ export default function FuncionariosManager() {
                 <div key={f.id} className="p-4 flex items-center justify-between hover:bg-gray-50 transition-colors">
                   <div>
                     <div className="flex items-center space-x-2">
-                      <p className="font-bold text-gray-800">{f.nome}</p>
+                      <p className={`font-bold ${(f as any).ativo === false ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{f.nome}</p>
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${f.cargo === 'Administrador' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{f.cargo || 'Atendente'}</span>
+                      {(f as any).ativo === false && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-red-100 text-red-600">Inativo</span>}
                     </div>
                     <p className="text-xs text-gray-500 font-mono">PIN: ****</p>
                   </div>
                   <div className="flex space-x-2">
                     <button onClick={() => setHistoricoFuncionarioId(f.id)} className={`p-1.5 rounded-lg ${historicoFuncionarioId === f.id ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:bg-gray-100'}`} title="Ver Histórico">
                       <History size={18} />
+                    </button>
+                    <button onClick={() => toggleAtivo(f)} className={`p-1.5 rounded-lg ${(f as any).ativo === false ? 'text-green-500 hover:bg-green-50' : 'text-orange-500 hover:bg-orange-50'}`} title={(f as any).ativo === false ? 'Ativar Funcionário' : 'Inativar Funcionário'}>
+                      {(f as any).ativo === false ? <UserCheck size={18} /> : <UserX size={18} />}
                     </button>
                     <button onClick={() => handleEdit(f)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg"><Pencil size={18} /></button>
                     <button onClick={() => handleDelete(f.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>

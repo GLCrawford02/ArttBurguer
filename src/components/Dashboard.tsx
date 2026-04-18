@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, Layers } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag } from 'lucide-react';
 
 export default function Dashboard() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -65,6 +65,7 @@ export default function Dashboard() {
 
   // O alerta de estoque baixo agora considera o Estacionário
   const baixos = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
+  const excedentes = insumos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
 
   const isVencido = (item: any) => {
     const hoje = new Date();
@@ -183,18 +184,18 @@ export default function Dashboard() {
     }
   });
 
-  const insumosPorTipo = insumos.reduce((acc, insumo) => {
-    const tipo = (insumo as any).tipoUso || 'Sem classificação';
-    if (!acc[tipo]) acc[tipo] = { count: 0, valorTotal: 0 };
-    acc[tipo].count += 1;
-    const totalQtd = (insumo.estoqueEstacionario ?? 0) + (insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
-    const custoUnitario = insumo.precoPacote / (insumo.qtdPacote || 1);
-    acc[tipo].valorTotal += (totalQtd * custoUnitario);
-    return acc;
-  }, {} as Record<string, { count: number, valorTotal: number }>);
-
   // Pega os tipos únicos existentes para o select de filtro
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  // Função inteligente para exibir caixas e unidades restantes
+  const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
+    if (pacote <= 1) return <span>{qtd} {unid}</span>;
+    const vols = Math.floor(qtd / pacote);
+    const resto = qtd % pacote;
+    
+    if (vols === 0) return <span>{qtd} {unid}</span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+  };
 
   return (
     <div className="space-y-6">
@@ -232,10 +233,10 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {(validadeProxima.length > 0 || baixos.length > 0) && (
-        <div className="flex flex-col md:flex-row gap-4">
+      {(validadeProxima.length > 0 || baixos.length > 0 || excedentes.length > 0) && (
+        <div className="flex flex-col md:flex-row flex-wrap gap-4">
           {validadeProxima.length > 0 && (
-            <div className="flex-1 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
+            <div className="flex-1 min-w-[300px] bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
               <div className="flex">
                 <div className="flex-shrink-0">
                   <CalendarClock className="h-5 w-5 text-red-500" />
@@ -257,7 +258,7 @@ export default function Dashboard() {
           )}
 
           {baixos.length > 0 && (
-            <div className="flex-1 bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
+            <div className="flex-1 min-w-[300px] bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
               <div className="flex">
                 <div className="flex-shrink-0">
                   <AlertTriangle className="h-5 w-5 text-red-500" />
@@ -268,10 +269,9 @@ export default function Dashboard() {
                     <ul className="list-disc pl-5 space-y-1">
                       {baixos.map(i => {
                         const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
-                        const pacotes = Math.floor(estEstacionario / (i.qtdPacote || 1));
                         return (
                           <li key={i.id}>
-                            <span className="font-bold">{i.nome}:</span> {pacotes} {(i.qtdPacote || 1) > 1 ? 'CX' : 'UN'} <span className="text-xs">({estEstacionario}{i.unidade})</span> no Estacionário (Mínimo: {i.alertaMinimo})
+                            <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} no Estacionário (Mínimo: {i.alertaMinimo})
                           </li>
                         );
                       })}
@@ -281,21 +281,31 @@ export default function Dashboard() {
               </div>
             </div>
           )}
-        </div>
-      )}
-
-      {Object.keys(insumosPorTipo).length > 0 && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-          <h3 className="font-bold text-gray-800 mb-4 flex items-center"><Layers size={20} className="mr-2 text-indigo-500"/> Resumo por Tipo de Uso</h3>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {Object.entries(insumosPorTipo).sort((a,b) => b[1].valorTotal - a[1].valorTotal).map(([tipo, dados]) => (
-              <div key={tipo} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-                <p className="text-xs font-bold text-gray-500 uppercase truncate" title={tipo}>{tipo}</p>
-                <p className="text-xl font-black text-gray-800 mt-1">R$ {dados.valorTotal.toFixed(2)}</p>
-                <p className="text-xs text-gray-400 mt-1">{dados.count} itens cadastrados</p>
+          
+          {excedentes.length > 0 && (
+            <div className="flex-1 min-w-[300px] bg-blue-50 border-l-4 border-blue-500 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <Package className="h-5 w-5 text-blue-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-blue-800">Alerta de Estoque Excedente (Armazenamento Extra)</h3>
+                  <div className="mt-2 text-sm text-blue-700 max-h-[150px] overflow-y-auto pr-2">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {excedentes.map(i => {
+                        const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+                        return (
+                          <li key={i.id}>
+                            <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} (Máximo: {i.estoqueMaximo})
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                </div>
               </div>
-            ))}
-          </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -346,8 +356,7 @@ export default function Dashboard() {
                 </td>
                 <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
                 <td className="px-6 py-4 text-indigo-600 font-bold">
-                  {Math.floor((i.estoqueEstacionario ?? 0) / (i.qtdPacote || 1))} {(i.qtdPacote || 1) > 1 ? 'CX' : 'UN'}
-                  <span className="text-xs text-gray-400 font-normal ml-1">({(i.estoqueEstacionario ?? 0)}{i.unidade})</span>
+                  {formatarQtdJSX((i.estoqueEstacionario ?? 0), i.qtdPacote || 1, i.unidade)}
                 </td>
                 <td className="px-6 py-4 text-gray-600">
                   R$ {(i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ',')} / {i.unidade}
@@ -394,6 +403,8 @@ export default function Dashboard() {
                   <div className="flex flex-wrap gap-2">
                     {(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0) ? (
                       <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
+                    ) : i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo ? (
+                      <span className="px-2 py-1 text-xs font-bold bg-blue-100 text-blue-600 rounded-full">EXCEDENTE</span>
                     ) : (
                       <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-600 rounded-full">OK</span>
                     )}
@@ -425,7 +436,9 @@ export default function Dashboard() {
             <p className="text-sm text-gray-500 text-center mb-6">Apenas Gerentes ou Administradores podem autorizar o descarte de insumos. Digite o PIN.</p>
             
             <input 
-              type="password" 
+              type="password"
+              inputMode="numeric"
+              pattern="[0-9]*"
               maxLength={4}
               autoFocus
               value={pin}
