@@ -145,7 +145,7 @@ export default function TransferenciaManager() {
         showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
         setQuantidades({ ...quantidades, [insumo.id]: 0 });
       } else {
-        showToast(`Erro: Quantidade insuficiente no Estoque Estacionário!`, 'error');
+        showToast(`Erro: Quantidade insuficiente no Estoque Estacionado!`, 'error');
       }
     });
   };
@@ -255,7 +255,7 @@ export default function TransferenciaManager() {
             <ArrowRightLeft className="mr-2 text-indigo-600" size={20} />
             Transferência de Estoque
           </h3>
-        <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionário para o Rotativo. Informe a quantidade exata a transferir.</p>
+        <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionado para o Rotativo. Informe a quantidade exata a transferir.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
           {selecionados.size > 0 && (
@@ -300,7 +300,7 @@ export default function TransferenciaManager() {
                 />
               </div>
               <div className="flex justify-between mt-2 text-sm">
-                <span className="text-gray-500">Estacionário: <span className="font-bold text-indigo-600">{formatarQtdJSX(estEstacionario, insumo.qtdPacote || 1, insumo.unidade)}</span></span>
+                <span className="text-gray-500">Estacionado: <span className="font-bold text-indigo-600">{formatarQtdJSX(estEstacionario, insumo.qtdPacote || 1, insumo.unidade)}</span></span>
                 <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span></span>
               </div>
             </div>

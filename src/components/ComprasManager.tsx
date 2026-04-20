@@ -235,7 +235,7 @@ export default function ComprasManager() {
             <div className="mb-4">
               <h4 className="font-bold text-gray-900 leading-tight">{insumo.nome}</h4>
               <p className="text-xs font-mono text-gray-400">{(insumo as any).sku || 'Sem SKU'}</p>
-              <p className="text-sm text-gray-500">Est. Estacionário: <span className="font-bold">{formatarQtdJSX(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0, insumo.qtdPacote || 1, insumo.unidade)}</span></p>
+              <p className="text-sm text-gray-500">Est. Estacionado: <span className="font-bold">{formatarQtdJSX(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0, insumo.qtdPacote || 1, insumo.unidade)}</span></p>
               <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 {tipoEmb} = {insumo.qtdPacote || 1} {insumo.unidade}</p>
             </div>
             <div className="space-y-2">

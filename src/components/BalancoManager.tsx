@@ -49,7 +49,7 @@ export default function BalancoManager() {
     const novoValor = novosEstoques[key];
     if (novoValor === undefined || novoValor === '') return;
     await set(ref(db, `insumos/${insumo.id}/estoqueEstacionario`), Number(novoValor));
-    showToast(`Estacionário de ${insumo.nome} ajustado para ${novoValor}${insumo.unidade}.`, 'success');
+    showToast(`Estacionado de ${insumo.nome} ajustado para ${novoValor}${insumo.unidade}.`, 'success');
     setNovosEstoques(prev => { const n = {...prev}; delete n[key]; return n; });
   };
 
@@ -112,7 +112,7 @@ export default function BalancoManager() {
   });
 
   const exportarExcel = () => {
-    const headers = ['Insumo', 'Estoque Rotativo', 'Estoque Estacionário', 'Unidade', 'Preco Unitario (R$)', 'Detalhes dos Lotes (Estacionário)'];
+    const headers = ['Insumo', 'Estoque Rotativo', 'Estoque Estacionado', 'Unidade', 'Preco Unitario (R$)', 'Detalhes dos Lotes (Estacionado)'];
     const rows = insumosExibidos.map(i => [
       i.nome,
       i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0,
@@ -202,7 +202,7 @@ export default function BalancoManager() {
               <th className="px-6 py-3">Insumo</th>
               <th className="px-6 py-3">Distribuição por Lotes</th>
               <th className="px-6 py-3">Est. Rotativo (Cozinha)</th>
-              <th className="px-6 py-3">Est. Estacionário</th>
+              <th className="px-6 py-3">Est. Estacionado</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
@@ -290,7 +290,7 @@ export default function BalancoManager() {
                     {!i.lotes && !i.validade && !i.lote ? (
                       <div className="flex items-center space-x-1">
                         <input type="number" value={novosEstoques[`${i.id}|est`] !== undefined ? novosEstoques[`${i.id}|est`] : ''} onChange={(e) => setNovosEstoques({...novosEstoques, [`${i.id}|est`]: e.target.value})} placeholder={String(estacionario)} className="w-16 p-1 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500" />
-                        <button onClick={() => handleAjusteEstacionario(i)} disabled={novosEstoques[`${i.id}|est`] === undefined || novosEstoques[`${i.id}|est`] === ''} className="bg-indigo-100 text-indigo-700 p-1.5 rounded hover:bg-indigo-200 disabled:opacity-50 transition-colors" title="Ajustar Estacionário"><Save size={14}/></button>
+                        <button onClick={() => handleAjusteEstacionario(i)} disabled={novosEstoques[`${i.id}|est`] === undefined || novosEstoques[`${i.id}|est`] === ''} className="bg-indigo-100 text-indigo-700 p-1.5 rounded hover:bg-indigo-200 disabled:opacity-50 transition-colors" title="Ajustar Estacionado"><Save size={14}/></button>
                       </div>
                     ) : (
                       <span className="text-xs text-gray-400">Ajuste via lotes ao lado</span>

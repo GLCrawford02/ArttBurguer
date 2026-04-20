@@ -207,7 +207,7 @@ export default function RelatoriosManager() {
           </div>
           <div>
             <h3 className="text-lg font-bold text-gray-800">{activeTab === 'despesas' ? 'Relatório de Despesas' : activeTab === 'transferencias' ? 'Histórico de Transferências' : 'Histórico de Descartes'}</h3>
-            <p className="text-sm text-gray-500 print:hidden">{activeTab === 'despesas' ? 'Acompanhamento de gastos com reposição de estoque.' : activeTab === 'transferencias' ? 'Registro de movimentações do estoque estacionário para o rotativo.' : 'Registro de descarte de insumos vencidos e autorizações.'}</p>
+            <p className="text-sm text-gray-500 print:hidden">{activeTab === 'despesas' ? 'Acompanhamento de gastos com reposição de estoque.' : activeTab === 'transferencias' ? 'Registro de movimentações do estoque estacionado para o rotativo.' : 'Registro de descarte de insumos vencidos e autorizações.'}</p>
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto print:hidden">

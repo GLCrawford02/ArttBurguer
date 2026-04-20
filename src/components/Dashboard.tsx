@@ -63,7 +63,7 @@ export default function Dashboard() {
     };
   }, []);
 
-  // O alerta de estoque baixo agora considera o Estacionário
+  // O alerta de estoque baixo agora considera o Estacionado
   const baixos = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
   const excedentes = insumos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
 
@@ -271,7 +271,7 @@ export default function Dashboard() {
                         const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
                         return (
                           <li key={i.id}>
-                            <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} no Estacionário (Mínimo: {i.alertaMinimo})
+                            <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} no Estacionado (Mínimo: {i.alertaMinimo})
                           </li>
                         );
                       })}
@@ -340,7 +340,7 @@ export default function Dashboard() {
               <th className="px-6 py-3">Insumo</th>
               <th className="px-6 py-3">Tipo</th>
               <th className="px-6 py-3">Rotativo</th>
-              <th className="px-6 py-3">Estacionário</th>
+              <th className="px-6 py-3">Estacionado</th>
               <th className="px-6 py-3">Preço Unit.</th>
               <th className="px-6 py-3">Validade</th>
               <th className="px-6 py-3">Status</th>
