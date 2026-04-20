@@ -24,6 +24,7 @@ export default function PromocoesManager() {
   const [expandedPromocaoId, setExpandedPromocaoId] = useState<string | null>(null);
   const [tempProdutoId, setTempProdutoId] = useState('');
   const [tempQtd, setTempQtd] = useState(1);
+  const [loading, setLoading] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -54,6 +55,7 @@ export default function PromocoesManager() {
       } else {
         setPromocoes([]);
       }
+      setLoading(false);
     });
 
     return () => {
@@ -309,6 +311,16 @@ export default function PromocoesManager() {
             <input type="text" placeholder="Buscar combo..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm w-full sm:w-64" />
           </div>
         </div>
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pr-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 h-[100px] animate-pulse flex flex-col justify-center gap-3">
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+                <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredPromocoes.map(p => (
             <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 flex flex-col">
@@ -336,6 +348,7 @@ export default function PromocoesManager() {
           ))}
           {filteredPromocoes.length === 0 && (<div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200"><p className="text-gray-400">Nenhuma promoção encontrada.</p></div>)}
         </div>
+        )}
       </div>
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span className="whitespace-pre-line">{toast.message}</span></div>)}
     </div>

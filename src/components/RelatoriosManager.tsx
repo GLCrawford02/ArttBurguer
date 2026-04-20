@@ -23,6 +23,7 @@ export default function RelatoriosManager() {
   const [transferencias, setTransferencias] = useState<TransferenciaLog[]>([]);
   const [descartes, setDescartes] = useState<DescarteLog[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const historicoRef = ref(db, 'historico_compras');
@@ -67,6 +68,7 @@ export default function RelatoriosManager() {
       } else {
         setInsumos([]);
       }
+      setLoading(false);
     });
 
     return () => {
@@ -247,6 +249,18 @@ export default function RelatoriosManager() {
                 <th className="px-6 py-4">Quantidade Transferida</th>
               </tr>
             </thead>
+            {loading ? (
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
+                  </tr>
+                ))}
+              </tbody>
+            ) : (
             <tbody className="divide-y divide-gray-100">
             {transferencias.map(t => {
               const insumo = insumos.find(i => i.id === t.insumoId);
@@ -263,6 +277,7 @@ export default function RelatoriosManager() {
             })}
               {transferencias.length === 0 && <tr><td colSpan={4} className="px-6 py-8 text-center text-gray-400">Nenhuma transferência registrada.</td></tr>}
             </tbody>
+            )}
           </table>
         </div>
       ) : (
@@ -277,6 +292,19 @@ export default function RelatoriosManager() {
                 <th className="px-6 py-4">Quantidade</th>
               </tr>
             </thead>
+            {loading ? (
+              <tbody>
+                {[...Array(5)].map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
+                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
+                  </tr>
+                ))}
+              </tbody>
+            ) : (
             <tbody className="divide-y divide-gray-100">
             {descartes.map(d => {
               const insumo = insumos.find(i => i.id === d.insumoId);
@@ -294,6 +322,7 @@ export default function RelatoriosManager() {
             })}
               {descartes.length === 0 && <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhum descarte registrado.</td></tr>}
             </tbody>
+            )}
           </table>
         </div>
       )}

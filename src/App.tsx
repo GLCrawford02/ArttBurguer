@@ -197,7 +197,7 @@ export default function App() {
           <p className="text-center text-gray-500 mb-8 text-sm">Digite seu PIN para entrar no sistema</p>
           
           <form onSubmit={handleLogin}>
-            <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" />
+            <input type="password" autoComplete="new-password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" />
             {loginError && <p className="text-red-500 text-sm text-center mb-4 font-bold">{loginError}</p>}
             <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg">
               Entrar
@@ -366,7 +366,7 @@ export default function App() {
         </header>
 
         <div className="max-w-6xl mx-auto">
-          {activeTab === 'dashboard' && <Dashboard />}
+          {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
           
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
@@ -427,7 +427,7 @@ export default function App() {
               </div>
               {subTabFinanceiro === 'lancamento_vendas' && <LancamentoVendas />}
               {['pagar', 'receber', 'calendario'].includes(subTabFinanceiro) && (
-                <GestaoFinanceira activeTab={subTabFinanceiro as any} />
+                <GestaoFinanceira activeTab={subTabFinanceiro as any} currentUser={currentUser} />
               )}
               
               {subTabFinanceiro === 'relatorios_gerais' && (
@@ -438,7 +438,7 @@ export default function App() {
                     <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>
                   </div>
                   {subSubTabRelatorios === 'fechamento' && <FechamentoManager />}
-                  {subSubTabRelatorios === 'dashboard_fin' && <GestaoFinanceira activeTab="dashboard_fin" />}
+                  {subSubTabRelatorios === 'dashboard_fin' && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} />}
                   {subSubTabRelatorios === 'movimentacoes' && <RelatoriosManager />}
                 </div>
               )}
@@ -452,7 +452,7 @@ export default function App() {
                   </div>
                   {subSubTabConfiguracoes === 'gerais' && <ConfiguracoesGerais />}
                   {subSubTabConfiguracoes === 'bancos_cartoes' && <BancosCartoes />}
-                  {subSubTabConfiguracoes === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" />}
+                  {subSubTabConfiguracoes === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} />}
                 </div>
               )}
             </div>

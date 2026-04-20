@@ -32,6 +32,7 @@ export default function InsumosManager() {
   const [isGenerating, setIsGenerating] = useState(false);
   // Chave da API da xAI (Grok) - Mantida fixa no código (sistema de uso interno restrito, conforme solicitado)
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
+  const [loading, setLoading] = useState(true);
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -51,6 +52,7 @@ export default function InsumosManager() {
       } else {
         setInsumos([]);
       }
+      setLoading(false);
     });
     
     const tiposRef = ref(db, 'tipos_uso');
@@ -492,6 +494,16 @@ Formato esperado para cada objeto:
           </div>
         </div>
         
+        {loading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pr-2">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-[80px] animate-pulse flex flex-col justify-center gap-3">
+                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+                <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+              </div>
+            ))}
+          </div>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
           {filteredInsumos.map(i => (
             <div key={i.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
@@ -521,6 +533,7 @@ Formato esperado para cada objeto:
             </div>
           )}
         </div>
+        )}
       </div>
 
       {toast && (

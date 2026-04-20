@@ -2,9 +2,9 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing } from 'lucide-react';
 
-export default function Dashboard() {
+export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -14,6 +14,9 @@ export default function Dashboard() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
   const [pendingAction, setPendingAction] = useState<((func: Funcionario) => Promise<void>) | null>(null);
+  const [contasPagar, setContasPagar] = useState<any[]>([]);
+  const [contasReceber, setContasReceber] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -34,6 +37,7 @@ export default function Dashboard() {
       } else {
         setInsumos([]);
       }
+      setLoading(false);
     });
 
     const produtosRef = ref(db, 'produtos');
@@ -56,10 +60,26 @@ export default function Dashboard() {
       }
     });
 
+    const pagarRef = ref(db, 'contas_pagar');
+    const unsubPagar = onValue(pagarRef, (snap) => {
+      const data = snap.val();
+      if (data) setContasPagar(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setContasPagar([]);
+    });
+
+    const receberRef = ref(db, 'contas_receber');
+    const unsubReceber = onValue(receberRef, (snap) => {
+      const data = snap.val();
+      if (data) setContasReceber(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setContasReceber([]);
+    });
+
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubFunc();
+      unsubPagar();
+      unsubReceber();
     };
   }, []);
 
@@ -184,6 +204,32 @@ export default function Dashboard() {
     }
   });
 
+  const hoje = new Date();
+  hoje.setHours(0,0,0,0);
+  const amanha = new Date(hoje);
+  amanha.setDate(amanha.getDate() + 1);
+
+  const isVencendo = (vencimento: string) => {
+    if (!vencimento) return false;
+    const dataVenc = new Date(`${vencimento}T00:00:00`);
+    return dataVenc.getTime() <= amanha.getTime();
+  };
+
+  const formatarStatusVencimento = (vencimento: string) => {
+    if (!vencimento) return '';
+    const dataVenc = new Date(`${vencimento}T00:00:00`);
+    const diffTime = dataVenc.getTime() - hoje.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return `Atrasado (${Math.abs(diffDays)} dias)`;
+    if (diffDays === 0) return 'Vence Hoje';
+    if (diffDays === 1) return 'Vence Amanhã';
+    return '';
+  };
+
+  const lembretesPagar = contasPagar.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
+  const lembretesReceber = contasReceber.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
+
   // Pega os tipos únicos existentes para o select de filtro
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
@@ -233,7 +279,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {(validadeProxima.length > 0 || baixos.length > 0 || excedentes.length > 0) && (
+      {(validadeProxima.length > 0 || baixos.length > 0 || excedentes.length > 0 || (currentUser?.cargo === 'Administrador' && (lembretesPagar.length > 0 || lembretesReceber.length > 0))) && (
         <div className="flex flex-col md:flex-row flex-wrap gap-4">
           {validadeProxima.length > 0 && (
             <div className="flex-1 min-w-[300px] bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
@@ -306,6 +352,33 @@ export default function Dashboard() {
               </div>
             </div>
           )}
+
+          {currentUser?.cargo === 'Administrador' && (lembretesPagar.length > 0 || lembretesReceber.length > 0) && (
+            <div className="flex-1 min-w-[300px] bg-orange-50 border-l-4 border-orange-500 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <BellRing className="h-5 w-5 text-orange-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-orange-800">Lembretes Financeiros</h3>
+                  <div className="mt-2 text-sm text-orange-700 max-h-[150px] overflow-y-auto pr-2">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {lembretesPagar.map(c => (
+                        <li key={c.id}>
+                          <span className="font-bold text-red-600">A Pagar:</span> {c.descricao} - R$ {Number(c.valor).toFixed(2).replace('.', ',')} <span className="font-bold text-orange-800">({formatarStatusVencimento(c.vencimento)})</span>
+                        </li>
+                      ))}
+                      {lembretesReceber.map(c => (
+                        <li key={c.id}>
+                          <span className="font-bold text-blue-600">A Receber:</span> {c.descricao} - R$ {Number(c.valor).toFixed(2).replace('.', ',')} <span className="font-bold text-orange-800">({formatarStatusVencimento(c.vencimento)})</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
@@ -334,89 +407,102 @@ export default function Dashboard() {
           </div>
         </div>
         <div className="max-h-[400px] overflow-y-auto">
-          <table className="w-full text-left border-collapse">
-          <thead className="sticky top-0 z-10 shadow-sm">
-            <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
-              <th className="px-6 py-3">Insumo</th>
-              <th className="px-6 py-3">Tipo</th>
-              <th className="px-6 py-3">Rotativo</th>
-              <th className="px-6 py-3">Estacionado</th>
-              <th className="px-6 py-3">Preço Unit.</th>
-              <th className="px-6 py-3">Validade</th>
-              <th className="px-6 py-3">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-gray-100">
-            {filteredInsumos.map(i => {
-              return (
-              <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
-                <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
-                <td className="px-6 py-4">
-                  {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400 text-xs">-</span>}
-                </td>
-                <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
-                <td className="px-6 py-4 text-indigo-600 font-bold">
-                  {formatarQtdJSX((i.estoqueEstacionario ?? 0), i.qtdPacote || 1, i.unidade)}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  R$ {(i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ',')} / {i.unidade}
-                </td>
-                <td className="px-6 py-4 text-gray-600">
-                  {i.lotes ? (
-                    <div className="space-y-1">
-                      {Object.entries(i.lotes).map(([loteId, l]: [string, any], idx: number) => (
-                        <div key={idx} className={`text-xs flex items-center justify-between border-b border-gray-50 pb-1 ${isLotExpired(l.validade) ? 'text-red-600 font-medium' : ''}`}>
-                          <span>{l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{l.lote && l.lote !== 'N/A' && ` (L: ${l.lote})`}</span>
-                          <div className="flex items-center">
-                            <span className={`font-bold ml-3 ${isLotExpired(l.validade) ? 'text-red-600' : 'text-gray-500'}`}>{l.quantidade}{i.unidade}</span>
-                            {isLotExpired(l.validade) && (
-                              <button 
-                                onClick={() => descartarLote(i.id, loteId, l.quantidade, l.lote)} 
-                                className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" 
-                                title="Descartar Lote Vencido"
-                              >
-                                 <Trash2 size={12}/>
-                              </button>
-                            )}
+          {loading ? (
+            <div className="p-6 space-y-4">
+              {[...Array(6)].map((_, i) => (
+                <div key={i} className="flex gap-4 w-full">
+                  <div className="h-10 bg-gray-100 rounded-lg w-1/3 animate-pulse"></div>
+                  <div className="h-10 bg-gray-100 rounded-lg w-1/6 animate-pulse"></div>
+                  <div className="h-10 bg-gray-100 rounded-lg w-1/6 animate-pulse"></div>
+                  <div className="h-10 bg-gray-100 rounded-lg w-1/4 animate-pulse"></div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <table className="w-full text-left border-collapse">
+            <thead className="sticky top-0 z-10 shadow-sm">
+              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
+                <th className="px-6 py-3">Insumo</th>
+                <th className="px-6 py-3">Tipo</th>
+                <th className="px-6 py-3">Rotativo</th>
+                <th className="px-6 py-3">Estacionado</th>
+                <th className="px-6 py-3">Preço Unit.</th>
+                <th className="px-6 py-3">Validade</th>
+                <th className="px-6 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filteredInsumos.map(i => {
+                return (
+                <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
+                  <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>
+                  <td className="px-6 py-4">
+                    {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400 text-xs">-</span>}
+                  </td>
+                  <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
+                  <td className="px-6 py-4 text-indigo-600 font-bold">
+                    {formatarQtdJSX((i.estoqueEstacionario ?? 0), i.qtdPacote || 1, i.unidade)}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    R$ {(i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ',')} / {i.unidade}
+                  </td>
+                  <td className="px-6 py-4 text-gray-600">
+                    {i.lotes ? (
+                      <div className="space-y-1">
+                        {Object.entries(i.lotes).map(([loteId, l]: [string, any], idx: number) => (
+                          <div key={idx} className={`text-xs flex items-center justify-between border-b border-gray-50 pb-1 ${isLotExpired(l.validade) ? 'text-red-600 font-medium' : ''}`}>
+                            <span>{l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{l.lote && l.lote !== 'N/A' && ` (L: ${l.lote})`}</span>
+                            <div className="flex items-center">
+                              <span className={`font-bold ml-3 ${isLotExpired(l.validade) ? 'text-red-600' : 'text-gray-500'}`}>{l.quantidade}{i.unidade}</span>
+                              {isLotExpired(l.validade) && (
+                                <button 
+                                  onClick={() => descartarLote(i.id, loteId, l.quantidade, l.lote)} 
+                                  className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" 
+                                  title="Descartar Lote Vencido"
+                                >
+                                   <Trash2 size={12}/>
+                                </button>
+                              )}
+                            </div>
                           </div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="flex items-center justify-between">
-                      <span className={isLotExpired((i as any).validade) ? 'text-red-600 font-medium' : ''}>
-                        {(i as any).validade ? new Date(`${(i as any).validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
-                      </span>
-                      {isLotExpired((i as any).validade) && (
-                        <button
-                          onClick={() => descartarLote(i.id, 'legado', (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), (i as any).lote)}
-                          className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" 
-                          title="Descartar Lote Vencido"
-                        >
-                           <Trash2 size={12}/>
-                        </button>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between">
+                        <span className={isLotExpired((i as any).validade) ? 'text-red-600 font-medium' : ''}>
+                          {(i as any).validade ? new Date(`${(i as any).validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}
+                        </span>
+                        {isLotExpired((i as any).validade) && (
+                          <button
+                            onClick={() => descartarLote(i.id, 'legado', (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), (i as any).lote)}
+                            className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" 
+                            title="Descartar Lote Vencido"
+                          >
+                             <Trash2 size={12}/>
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex flex-wrap gap-2">
+                      {(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0) ? (
+                        <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
+                      ) : i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo ? (
+                        <span className="px-2 py-1 text-xs font-bold bg-blue-100 text-blue-600 rounded-full">EXCEDENTE</span>
+                      ) : (
+                        <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-600 rounded-full">OK</span>
+                      )}
+                      {isVencido(i) && (
+                        <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-800 rounded-full">VENCIDO</span>
                       )}
                     </div>
-                  )}
-                </td>
-                <td className="px-6 py-4">
-                  <div className="flex flex-wrap gap-2">
-                    {(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0) ? (
-                      <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
-                    ) : i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo ? (
-                      <span className="px-2 py-1 text-xs font-bold bg-blue-100 text-blue-600 rounded-full">EXCEDENTE</span>
-                    ) : (
-                      <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-600 rounded-full">OK</span>
-                    )}
-                    {isVencido(i) && (
-                      <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-800 rounded-full">VENCIDO</span>
-                    )}
-                  </div>
-                </td>
-              </tr>
-            )})}
-          </tbody>
-        </table>
+                  </td>
+                </tr>
+              )})}
+            </tbody>
+          </table>
+          )}
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, runTransaction, push, set } from 'firebase/database';
+import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
 import { ShoppingCart, Plus, Search, CheckCircle, MessageCircle } from 'lucide-react';
@@ -17,6 +17,7 @@ export default function ComprasManager() {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
   const [pendingInsumo, setPendingInsumo] = useState<Insumo | null>(null);
+  const [loading, setLoading] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -32,6 +33,7 @@ export default function ComprasManager() {
       } else {
         setInsumos([]);
       }
+      setLoading(false);
     });
 
     const funcRef = ref(db, 'funcionarios');
@@ -58,9 +60,24 @@ export default function ComprasManager() {
     return `${dia}${mes}${ano}`;
   };
 
+  const toggleValidadeIndefinida = async (insumoId: string, atual: boolean) => {
+    try {
+      await update(ref(db, `insumos/${insumoId}`), { validadeIndefinida: !atual });
+    } catch (error) {
+      showToast('Erro ao atualizar opção de validade.', 'error');
+    }
+  };
+
   const registrarCompra = async (insumo: Insumo, isConfirmedAdmin = false) => {
     const qtdVolumes = quantidades[insumo.id];
     if (!qtdVolumes || qtdVolumes <= 0) return;
+
+    const isIndefinida = (insumo as any).validadeIndefinida;
+    const validade = isIndefinida ? '' : (validades[insumo.id] || '');
+    if (!validade && !isIndefinida) {
+      showToast('A data de validade é obrigatória para registrar a compra.', 'error');
+      return;
+    }
 
     const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1); // Multiplica os volumes pela Qtd na Embalagem
     const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
@@ -73,7 +90,6 @@ export default function ComprasManager() {
     }
 
     const lote = lotes[insumo.id] || gerarLoteData();
-    const validade = validades[insumo.id] || '';
 
     const insumoRef = ref(db, `insumos/${insumo.id}`);
     const result = await runTransaction(insumoRef, (currentData) => {
@@ -227,6 +243,17 @@ export default function ComprasManager() {
         </div>
       </div>
 
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pr-2">
+          {[...Array(6)].map((_, i) => (
+            <div key={i} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 h-[180px] animate-pulse flex flex-col justify-between">
+              <div className="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
+              <div className="h-3 bg-gray-200 rounded w-1/3 mb-4"></div>
+              <div className="h-10 bg-gray-200 rounded w-full mt-auto"></div>
+            </div>
+          ))}
+        </div>
+      ) : (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
         {filteredInsumos.map(insumo => {
           const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
@@ -240,19 +267,36 @@ export default function ComprasManager() {
             </div>
             <div className="space-y-2">
               <div className="grid grid-cols-2 gap-2">
-                <input
-                  type="text"
-                  placeholder={`Lote (padrão: ${gerarLoteData()})`}
-                  value={lotes[insumo.id] || ''}
-                  onChange={(e) => setLotes({ ...lotes, [insumo.id]: e.target.value })}
-                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                <input
-                  type="date"
-                  value={validades[insumo.id] || ''}
-                  onChange={(e) => setValidades({ ...validades, [insumo.id]: e.target.value })}
-                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
+                <div>
+                  <input
+                    type="text"
+                    placeholder={`Lote (padrão: ${gerarLoteData()})`}
+                    value={lotes[insumo.id] || ''}
+                    onChange={(e) => setLotes({ ...lotes, [insumo.id]: e.target.value })}
+                    className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                  />
+                </div>
+                <div>
+                  <input
+                    type="date"
+                    value={validades[insumo.id] || ''}
+                    onChange={(e) => setValidades({ ...validades, [insumo.id]: e.target.value })}
+                    disabled={(insumo as any).validadeIndefinida}
+                    className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm ${(insumo as any).validadeIndefinida ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : !validades[insumo.id] && quantidades[insumo.id] ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
+                    title={(insumo as any).validadeIndefinida ? 'Validade Indefinida' : 'Data de Validade (Obrigatória)'}
+                  />
+                  <div className="mt-1 flex justify-end pr-1">
+                    <label className="flex items-center text-[10px] text-gray-500 cursor-pointer hover:text-gray-700 font-medium">
+                      <input
+                        type="checkbox"
+                        checked={(insumo as any).validadeIndefinida || false}
+                        onChange={() => toggleValidadeIndefinida(insumo.id, (insumo as any).validadeIndefinida || false)}
+                        className="mr-1.5 w-3 h-3 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
+                      />
+                      Validade Indefinida
+                    </label>
+                  </div>
+                </div>
               </div>
               <div className="flex space-x-2">
                 <input
@@ -275,6 +319,7 @@ export default function ComprasManager() {
           </div>
         )})}
       </div>
+      )}
 
       {toast && (
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>

@@ -21,6 +21,7 @@ export default function ProdutosManager() {
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
+  const [loading, setLoading] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -54,6 +55,7 @@ export default function ProdutosManager() {
       } else {
         setProdutos([]);
       }
+      setLoading(false);
     });
 
     return () => {
@@ -704,6 +706,7 @@ Formato esperado:
             </div>
           )}
         </div>
+        )}
       </div>
 
       {toast && (
