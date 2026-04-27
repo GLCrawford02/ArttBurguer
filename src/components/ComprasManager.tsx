@@ -138,9 +138,13 @@ export default function ComprasManager() {
   };
 
   const handlePinSubmit = async () => {
-    const admin = funcionarios.find(f => f.pin === pin && f.cargo === 'Administrador');
+    const admin = funcionarios.find(f => {
+      if (f.pin !== pin) return false;
+      const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
+      return cargos.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c));
+    });
     if (!admin) {
-      showToast('PIN inválido ou funcionário não é Administrador!', 'error');
+      showToast('PIN inválido ou autorização negada!', 'error');
       return;
     }
     setShowPinModal(false);
@@ -331,8 +335,8 @@ export default function ComprasManager() {
       {showPinModal && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
-            <h3 className="text-xl font-bold text-gray-800 text-center mb-2">Autorização de Administrador</h3>
-            <p className="text-sm text-gray-500 text-center mb-6">Esta compra excederá o estoque máximo do insumo. Digite o PIN de um Administrador para liberar.</p>
+            <h3 className="text-xl font-bold text-gray-800 text-center mb-2">Autorização Necessária</h3>
+            <p className="text-sm text-gray-500 text-center mb-6">Esta compra excederá o estoque máximo. Digite o PIN de um Administrador ou Gerente para liberar.</p>
             
             <input 
               type="password"

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
-import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2, X } from 'lucide-react';
 
 export default function ProdutosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -22,6 +22,7 @@ export default function ProdutosManager() {
   const [isGenerating, setIsGenerating] = useState(false);
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -188,6 +189,7 @@ export default function ProdutosManager() {
       setCriarDuplo(false);
   
       showToast(editId ? 'Produto atualizado com sucesso!' : 'Produto salvo com sucesso!', 'success');
+      setShowForm(false);
     } catch (error: any) {
       console.error(error);
       showToast('Erro ao salvar produto: ' + error.message, 'error');
@@ -288,6 +290,7 @@ Formato esperado:
       showToast(`Sucesso! ${adicionados} cadastrados e ${atualizados} atualizados pela IA.`, 'success');
       setAiPrompt('');
       setCadastroMode('manual');
+      setShowForm(false);
     } catch (error: any) {
       showToast('Erro ao processar com IA: ' + error.message, 'error');
       console.error(error);
@@ -303,6 +306,7 @@ Formato esperado:
     setPrecoVenda(String((produto as any).precoVenda || ''));
     setIngredientesSelecionados(produto.ingredientes || []);
     setCriarDuplo(false);
+    setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -422,20 +426,32 @@ Formato esperado:
   };
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 animate-in fade-in duration-300">
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-gray-800">Base de Produtos</h2>
+        <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
+          <Plus size={20} className="mr-2" /> Novo Produto
+        </button>
+      </div>
+
       {/* Cadastro de Ficha Técnica */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
+      {showForm && (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6 animate-in slide-in-from-top-4 duration-300">
         <div className="flex justify-between items-center mb-2">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             <Calculator className="mr-2 text-blue-600" size={20} />
             {editId ? 'Editar Produto' : 'Novo Produto'}
           </h3>
-          {!editId && (
-            <div className="flex bg-gray-100 p-1 rounded-lg">
-              <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
-              <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {!editId && (
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
+                <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
+              </div>
+            )}
+            <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full p-1 transition-colors"><X size={20} /></button>
+          </div>
         </div>
         
         {cadastroMode === 'manual' || editId ? (
@@ -579,14 +595,12 @@ Formato esperado:
               <p className="text-2xl font-bold text-green-600">R$ {custoTotalFicha.toFixed(2)}</p>
             </div>
             <div className="flex gap-2">
-              {editId && (
                 <button
-                  onClick={handleCancelEdit}
+                onClick={() => { handleCancelEdit(); setShowForm(false); }}
                   className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm"
                 >
                   Cancelar
                 </button>
-              )}
               <button
                 onClick={salvarProduto}
                 disabled={!nomeProduto || ingredientesSelecionados.length === 0}
@@ -630,6 +644,7 @@ Formato esperado:
           </div>
         )}
       </div>
+    )}
 
       {/* Lista de Produtos e Venda */}
       <div className="space-y-6">

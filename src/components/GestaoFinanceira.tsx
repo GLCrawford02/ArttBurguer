@@ -18,6 +18,7 @@ interface ContaPagar {
   tipo: 'Fixa' | 'Variável';
   fornecedorId: string;
   recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual';
+  fimRecorrencia?: string;
 }
 
 interface ContaReceber {
@@ -27,6 +28,7 @@ interface ContaReceber {
   vencimento: string;
   status: 'Pendente' | 'Recebido';
   recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual';
+  fimRecorrencia?: string;
 }
 
 interface Agendamento {
@@ -35,6 +37,8 @@ interface Agendamento {
   data: string;
   horario: string;
   descricao: string;
+  recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual';
+  fimRecorrencia?: string;
 }
 
 export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab: 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario', currentUser?: any }) {
@@ -55,6 +59,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [tipoPagar, setTipoPagar] = useState<'Fixa' | 'Variável'>('Variável');
   const [fornecedorId, setFornecedorId] = useState('');
   const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
+  const [fimRecorrencia, setFimRecorrencia] = useState('');
 
   const [nomeForn, setNomeForn] = useState('');
   const [telForn, setTelefoneForn] = useState('');
@@ -66,6 +71,9 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [descAg, setDescAg] = useState('');
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [recorrenciaAg, setRecorrenciaAg] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
+  const [fimRecorrenciaAg, setFimRecorrenciaAg] = useState('');
+  const [subTabCalendario, setSubTabCalendario] = useState<'calendario' | 'pagar' | 'receber'>('calendario');
 
   useEffect(() => {
     const fornRef = ref(db, 'fornecedores');
@@ -113,10 +121,12 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     setTipoPagar('Variável'); setFornecedorId('');
     setNomeForn(''); setTelefoneForn('');
     setRecorrencia('Nenhuma');
+    setFimRecorrencia('');
     setTituloAg(''); setDataAg(''); setHoraAg(''); setDescAg('');
+    setRecorrenciaAg('Nenhuma'); setFimRecorrenciaAg('');
   };
 
-  useEffect(() => { resetForms(); }, [activeTab]);
+  useEffect(() => { resetForms(); }, [activeTab, subTabCalendario]);
 
   // ================= Funções CRUD =================
   const salvarFornecedor = async () => {
@@ -129,7 +139,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   const salvarContaPagar = async () => {
     if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
-    const data = { descricao, valor: Number(valor), vencimento, status: statusPagar, tipo: tipoPagar, fornecedorId, recorrencia };
+    const data = { descricao, valor: Number(valor), vencimento, status: statusPagar, tipo: tipoPagar, fornecedorId, recorrencia, fimRecorrencia };
     if (editId) await update(ref(db, `contas_pagar/${editId}`), data);
     else await set(push(ref(db, 'contas_pagar')), data);
     showToast(editId ? 'Conta atualizada!' : 'Conta a pagar registrada!');
@@ -138,7 +148,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   const salvarContaReceber = async () => {
     if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
-    const data = { descricao, valor: Number(valor), vencimento, status: statusReceber, recorrencia };
+    const data = { descricao, valor: Number(valor), vencimento, status: statusReceber, recorrencia, fimRecorrencia };
     if (editId) await update(ref(db, `contas_receber/${editId}`), data);
     else await set(push(ref(db, 'contas_receber')), data);
     showToast(editId ? 'Conta atualizada!' : 'Conta a receber registrada!');
@@ -147,10 +157,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   const salvarAgendamento = async () => {
     if (!tituloAg || !dataAg) return showToast('Título e Data são obrigatórios!', 'error');
-    await set(push(ref(db, 'agendamentos')), {
-      titulo: tituloAg, data: dataAg, horario: horaAg, descricao: descAg
-    });
-    showToast('Agendamento registrado!');
+    const data = { titulo: tituloAg, data: dataAg, horario: horaAg, descricao: descAg, recorrencia: recorrenciaAg, fimRecorrencia: fimRecorrenciaAg };
+    if (editId) {
+      await update(ref(db, `agendamentos/${editId}`), data);
+      showToast('Agendamento atualizado!');
+    } else {
+      await set(push(ref(db, 'agendamentos')), data);
+      showToast('Agendamento registrado!');
+    }
     resetForms();
   };
 
@@ -182,10 +196,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       );
   
       if (!nextExists) {
-        const novaConta = { ...conta, status: 'Pendente', vencimento: nextVencimento };
-        delete novaConta.id;
-        await set(push(ref(db, `contas_${tipo}`)), novaConta);
-        showToast(`Próxima recorrência gerada para ${formatarData(nextVencimento)}`, 'success');
+        if (conta.fimRecorrencia && nextVencimento > conta.fimRecorrencia) {
+          showToast(`Parcela final paga! Recorrência concluída.`, 'success');
+        } else {
+          const novaConta = { ...conta, status: 'Pendente', vencimento: nextVencimento };
+          delete novaConta.id;
+          await set(push(ref(db, `contas_${tipo}`)), novaConta);
+          showToast(`Próxima recorrência gerada para ${formatarData(nextVencimento)}`, 'success');
+        }
       }
     }
   };
@@ -248,6 +266,12 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
         <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Conta' : `Nova Conta a ${tipoConta === 'pagar' ? 'Pagar' : 'Receber'}`}</h3>
+        
+        {(() => {
+          const isAdminOrDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono'));
+          
+          return (
+            <>
         <input type="text" placeholder={`Descrição (Ex: ${tipoConta === 'pagar' ? 'Conta de Luz' : 'Venda Ifood'})`} value={descricao} onChange={e=>setDescricao(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
         <div className="relative w-full">
           <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
@@ -277,18 +301,29 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
             <option value="Recebido">Recebido</option>
           </select>
         )}
-        {currentUser?.cargo === 'Administrador' && (
-          <div className="relative">
-            <select value={recorrencia} onChange={e=>setRecorrencia(e.target.value as any)} className={`w-full p-2 pl-8 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}>
-              <option value="Nenhuma">Sem Recorrência</option>
-              <option value="Diária">Recorrência Diária</option>
-              <option value="Semanal">Recorrência Semanal</option>
-              <option value="Mensal">Recorrência Mensal</option>
-              <option value="Anual">Recorrência Anual</option>
-            </select>
-            <Repeat size={16} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500" />
+              {isAdminOrDono && (
+          <div className="grid grid-cols-2 gap-2">
+            <div className="relative">
+              <select value={recorrencia} onChange={e=>setRecorrencia(e.target.value as any)} className={`w-full p-2 pl-8 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}>
+                <option value="Nenhuma">Sem Recorrência</option>
+                <option value="Diária">Recorrência Diária</option>
+                <option value="Semanal">Recorrência Semanal</option>
+                <option value="Mensal">Recorrência Mensal</option>
+                <option value="Anual">Recorrência Anual</option>
+              </select>
+              <Repeat size={16} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500" />
+            </div>
+            {recorrencia !== 'Nenhuma' && (
+              <div className="relative">
+                <label className="absolute -top-2 left-2 bg-white px-1 text-[10px] font-bold text-gray-500">Parar Em:</label>
+                <input type="date" value={fimRecorrencia} onChange={e=>setFimRecorrencia(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
+              </div>
+            )}
           </div>
         )}
+            </>
+          );
+        })()}
         <div className="flex gap-2">
           <button onClick={tipoConta === 'pagar' ? salvarContaPagar : salvarContaReceber} className={`flex-1 text-white p-2 rounded-lg font-bold transition-colors ${tipoConta === 'pagar' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar</button>
           {editId && <button onClick={resetForms} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
@@ -322,14 +357,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
            <tbody className="divide-y divide-gray-50 text-sm">
              {(tipoConta === 'pagar' ? contasPagar : contasReceber).sort((a,b)=>a.vencimento.localeCompare(b.vencimento)).map((c: any) => (
                <tr key={c.id} className="hover:bg-gray-50">
-                 <td className="p-4 font-medium text-gray-800">{c.descricao} {c.recorrencia && c.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full" title={`Recorrência ${c.recorrencia}`}><Repeat size={10} className="inline mr-1"/>{c.recorrencia}</span>} {tipoConta === 'pagar' && <span className="block text-xs text-gray-400">{c.tipo} {c.fornecedorId ? `| ${fornecedores.find(f=>f.id===c.fornecedorId)?.nome}` : ''}</span>}</td>
+                 <td className="p-4 font-medium text-gray-800">{c.descricao} {c.recorrencia && c.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{c.recorrencia}{c.fimRecorrencia ? ` até ${formatarData(c.fimRecorrencia)}` : ''}</span>} {tipoConta === 'pagar' && <span className="block text-xs text-gray-400">{c.tipo} {c.fornecedorId ? `| ${fornecedores.find(f=>f.id===c.fornecedorId)?.nome}` : ''}</span>}</td>
                  <td className={`p-4 font-bold ${tipoConta === 'pagar' ? 'text-red-600' : 'text-blue-600'}`}>{formatarMoeda(c.valor)}</td>
                  <td className={`p-4 ${c.vencimento < hoje && c.status === 'Pendente' ? 'text-red-500 font-bold' : 'text-gray-600'}`}>{formatarData(c.vencimento)}</td>
                  <td className="p-4">
                    <button onClick={()=>alternarStatus(tipoConta, c.id, c.status.includes('P') ? (tipoConta === 'pagar' ? 'Pago' : 'Recebido') : 'Pendente')} className={`px-2 py-1 rounded-full text-xs font-bold ${!c.status.includes('Pendente') ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{c.status}</button>
                  </td>
                  <td className="p-4 text-right flex justify-end space-x-2">
-                   <button onClick={()=>{setEditId(c.id); setDescricao(c.descricao); setValor(String(c.valor)); setVencimento(c.vencimento); setRecorrencia(c.recorrencia || 'Nenhuma'); if(tipoConta === 'pagar'){setTipoPagar(c.tipo); setStatusPagar(c.status); setFornecedorId(c.fornecedorId||'');}else{setStatusReceber(c.status);} }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
+                   <button onClick={()=>{setEditId(c.id); setDescricao(c.descricao); setValor(String(c.valor)); setVencimento(c.vencimento); setRecorrencia(c.recorrencia || 'Nenhuma'); setFimRecorrencia(c.fimRecorrencia || ''); if(tipoConta === 'pagar'){setTipoPagar(c.tipo); setStatusPagar(c.status); setFornecedorId(c.fornecedorId||'');}else{setStatusReceber(c.status);} }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
                    <button onClick={()=>excluir(`contas_${tipoConta}/${c.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
                  </td>
                </tr>
@@ -401,10 +436,34 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
     const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
+    const checkRecorrenciaAgendamento = (ag: Agendamento, dateStr: string) => {
+      if (!ag.recorrencia || ag.recorrencia === 'Nenhuma') {
+        return ag.data === dateStr;
+      }
+      if (dateStr < ag.data) return false;
+      if (ag.fimRecorrencia && dateStr > ag.fimRecorrencia) return false;
+
+      const d1 = new Date(ag.data + 'T12:00:00');
+      const d2 = new Date(dateStr + 'T12:00:00');
+
+      if (ag.recorrencia === 'Diária') return true;
+      if (ag.recorrencia === 'Semanal') {
+        const diff = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+        return diff % 7 === 0;
+      }
+      if (ag.recorrencia === 'Mensal') {
+        return d1.getDate() === d2.getDate();
+      }
+      if (ag.recorrencia === 'Anual') {
+        return d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth();
+      }
+      return false;
+    };
+
     const eventosDoDia = (dateStr: string) => {
       const p = contasPagar.filter(c => c.vencimento === dateStr);
       const r = contasReceber.filter(c => c.vencimento === dateStr);
-      const a = agendamentos.filter(c => c.data === dateStr);
+      const a = agendamentos.filter(c => checkRecorrenciaAgendamento(c, dateStr));
       return { p, r, a };
     };
 
@@ -477,12 +536,15 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                   <div key={ag.id} className="flex justify-between items-center p-3 bg-purple-50 border border-purple-100 rounded-lg">
                     <div className="flex items-center"><Clock size={16} className="text-purple-500 mr-2 min-w-4"/>
                       <div>
-                        <span className="font-bold text-gray-800 text-sm">{ag.titulo}</span>
+                        <span className="font-bold text-gray-800 text-sm">{ag.titulo} {ag.recorrencia && ag.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{ag.recorrencia}{ag.fimRecorrencia ? ` até ${formatarData(ag.fimRecorrencia)}` : ''}</span>}</span>
                         {ag.horario && <span className="text-xs font-bold text-purple-600 ml-2 bg-purple-100 px-1.5 py-0.5 rounded">{ag.horario}</span>}
                         {ag.descricao && <p className="text-xs text-gray-600 mt-1">{ag.descricao}</p>}
                       </div>
                     </div>
-                    <button onClick={() => excluir(`agendamentos/${ag.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100"><Trash2 size={16}/></button>
+                    <div className="flex space-x-2">
+                      <button onClick={() => { setEditId(ag.id); setTituloAg(ag.titulo); setDataAg(ag.data); setHoraAg(ag.horario || ''); setDescAg(ag.descricao || ''); setRecorrenciaAg(ag.recorrencia || 'Nenhuma'); setFimRecorrenciaAg(ag.fimRecorrencia || ''); }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100"><Pencil size={16}/></button>
+                      <button onClick={() => excluir(`agendamentos/${ag.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100"><Trash2 size={16}/></button>
+                    </div>
                   </div>
                 ))}
                 {selectedEvents.p.length === 0 && selectedEvents.r.length === 0 && selectedEvents.a.length === 0 && (
@@ -494,14 +556,37 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
         </div>
 
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4 sticky top-6">
-           <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center"><Plus size={18} className="mr-2 text-purple-500"/> Novo Agendamento</h3>
+           <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
+             {editId ? <Pencil size={18} className="mr-2 text-purple-500"/> : <Plus size={18} className="mr-2 text-purple-500"/>} {editId ? 'Editar Agendamento' : 'Novo Agendamento'}
+           </h3>
            <input type="text" placeholder="Título (Ex: Reunião Fornecedor)" value={tituloAg} onChange={e=>setTituloAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
            <div className="grid grid-cols-2 gap-2">
              <input type="date" value={dataAg} onChange={e=>setDataAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
              <input type="time" value={horaAg} onChange={e=>setHoraAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
            </div>
+           <div className="grid grid-cols-2 gap-2 mt-2">
+              <div className="relative">
+                <select value={recorrenciaAg} onChange={e=>setRecorrenciaAg(e.target.value as any)} className="w-full p-2 pl-8 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm">
+                  <option value="Nenhuma">Sem Recorrência</option>
+                  <option value="Diária">Recorrência Diária</option>
+                  <option value="Semanal">Recorrência Semanal</option>
+                  <option value="Mensal">Recorrência Mensal</option>
+                  <option value="Anual">Recorrência Anual</option>
+                </select>
+                <Repeat size={16} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500" />
+              </div>
+              {recorrenciaAg !== 'Nenhuma' && (
+                <div className="relative">
+                  <label className="absolute -top-2 left-2 bg-white px-1 text-[10px] font-bold text-gray-500">Parar Em:</label>
+                  <input type="date" value={fimRecorrenciaAg} onChange={e=>setFimRecorrenciaAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
+                </div>
+              )}
+           </div>
            <textarea placeholder="Descrição ou observações..." value={descAg} onChange={e=>setDescAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 resize-none h-24 text-sm"></textarea>
-           <button onClick={salvarAgendamento} className="w-full bg-purple-600 text-white p-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors text-sm shadow-sm">Salvar Agendamento</button>
+           <div className="flex gap-2">
+             <button onClick={salvarAgendamento} className="flex-1 bg-purple-600 text-white p-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors text-sm shadow-sm">{editId ? 'Atualizar' : 'Salvar Agendamento'}</button>
+             {editId && <button onClick={resetForms} className="p-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 text-sm shadow-sm">Cancelar</button>}
+           </div>
         </div>
       </div>
     );
@@ -510,10 +595,20 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   return (
     <div className="animate-in fade-in duration-300">
       {activeTab === 'dashboard_fin' && renderDashboard()}
-      {activeTab === 'pagar' && renderFormularioContas('pagar')}
-      {activeTab === 'receber' && renderFormularioContas('receber')}
       {activeTab === 'fornecedores' && renderFornecedores()}
-      {activeTab === 'calendario' && renderCalendario()}
+      
+      {activeTab === 'calendario' && (
+        <div className="space-y-6">
+          <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
+            <button onClick={() => setSubTabCalendario('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visão Mensal</button>
+            <button onClick={() => setSubTabCalendario('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
+            <button onClick={() => setSubTabCalendario('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
+          </div>
+          {subTabCalendario === 'calendario' && renderCalendario()}
+          {subTabCalendario === 'pagar' && renderFormularioContas('pagar')}
+          {subTabCalendario === 'receber' && renderFormularioContas('receber')}
+        </div>
+      )}
 
       {toast && (
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>

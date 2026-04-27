@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing, X, Download } from 'lucide-react';
 
 export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -16,7 +16,10 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [pendingAction, setPendingAction] = useState<((func: Funcionario) => Promise<void>) | null>(null);
   const [contasPagar, setContasPagar] = useState<any[]>([]);
   const [contasReceber, setContasReceber] = useState<any[]>([]);
+  const [agendamentos, setAgendamentos] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeModal, setActiveModal] = useState<'insumos' | 'produtos' | 'baixos' | 'excedentes' | 'vencimentos' | null>(null);
+  const [modalSearchTerm, setModalSearchTerm] = useState('');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -74,12 +77,20 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       else setContasReceber([]);
     });
 
+    const agendRef = ref(db, 'agendamentos');
+    const unsubAgend = onValue(agendRef, (snap) => {
+      const data = snap.val();
+      if (data) setAgendamentos(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setAgendamentos([]);
+    });
+
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubFunc();
       unsubPagar();
       unsubReceber();
+      unsubAgend();
     };
   }, []);
 
@@ -117,7 +128,10 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       showToast('PIN inválido!', 'error');
       return;
     }
-    if (func.cargo !== 'Administrador' && func.cargo !== 'Gerente') {
+    const isAdminOrGerente = Array.isArray(func.cargo)
+      ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono'].includes(func.cargo as string);
+    if (!isAdminOrGerente) {
       showToast('Autorização negada! Requer Gerente ou Administrador.', 'error');
       return;
     }
@@ -204,6 +218,12 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     }
   });
 
+  validadeProxima.sort((a, b) => {
+    const valA = a.loteSpec?.validade ? new Date(`${a.loteSpec.validade}T00:00:00`).getTime() : 0;
+    const valB = b.loteSpec?.validade ? new Date(`${b.loteSpec.validade}T00:00:00`).getTime() : 0;
+    return valA - valB;
+  });
+
   const hoje = new Date();
   hoje.setHours(0,0,0,0);
   const amanha = new Date(hoje);
@@ -243,44 +263,172 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
   };
 
+  const exportarModalCSV = () => {
+    if (!activeModal) return;
+
+    let baseData: any[] = [];
+    let filename = 'exportacao';
+    if (activeModal === 'insumos') { baseData = insumos; filename = 'todos_insumos'; }
+    else if (activeModal === 'produtos') { baseData = produtos; filename = 'todos_produtos'; }
+    else if (activeModal === 'baixos') { baseData = baixos; filename = 'estoque_baixo'; }
+    else if (activeModal === 'excedentes') { baseData = excedentes; filename = 'estoque_excedente'; }
+    else if (activeModal === 'vencimentos') { baseData = validadeProxima; filename = 'vencimentos'; }
+
+    const filtered = baseData.filter(item => {
+      const nome = (item.nome || '').toLowerCase();
+      const sku = ((item as any).sku || '').toLowerCase();
+      const term = modalSearchTerm.toLowerCase();
+      return nome.includes(term) || sku.includes(term);
+    });
+
+    if (filtered.length === 0) {
+      showToast('Não há itens para exportar.', 'error');
+      return;
+    }
+
+    let headers: string[] = [];
+    let rows: any[] = [];
+
+    if (activeModal === 'produtos') {
+      headers = ['Nome do Produto', 'SKU', 'Categoria'];
+      rows = filtered.map(item => [item.nome, (item as any).sku || '-', item.categoria || 'Outros']);
+    } else if (activeModal === 'vencimentos') {
+      headers = ['Nome do Insumo', 'SKU', 'Lote', 'Validade', 'Quantidade em Estoque'];
+      rows = filtered.map(item => [item.nome, (item as any).sku || '-', item.loteSpec?.lote || 'N/A', item.loteSpec?.validade ? new Date(`${item.loteSpec.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-', `${item.loteSpec?.quantidade} ${item.unidade}`]);
+    } else {
+      headers = ['Nome do Insumo', 'SKU', 'Estoque Total', 'Alerta/Limite'];
+      rows = filtered.map(item => {
+         const est = item.estoqueEstacionario ?? item.estoqueAtual ?? 0;
+         let minMax = '-';
+         if (activeModal === 'baixos') minMax = `Mínimo: ${item.alertaMinimo}`;
+         else if (activeModal === 'excedentes') minMax = `Máximo: ${item.estoqueMaximo}`;
+         
+         let estStr = `${est} ${item.unidade}`;
+         if (item.qtdPacote && item.qtdPacote > 1) { const vols = Math.floor(est / item.qtdPacote); const resto = est % item.qtdPacote; if (vols > 0) estStr = `${vols} Vol.${resto > 0 ? ` e ${resto} ${item.unidade}` : ''} (${est} ${item.unidade})`; }
+         return [item.nome, (item as any).sku || '-', estStr, minMax];
+      });
+    }
+
+    const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `${filename}_${new Date().toLocaleDateString('pt-BR').replace(/\//g, '-')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Exportação concluída!', 'success');
+  };
+
+  const checkRecorrenciaAgendamento = (ag: any, dateStr: string) => {
+    if (!ag.recorrencia || ag.recorrencia === 'Nenhuma') return ag.data === dateStr;
+    if (dateStr < ag.data) return false;
+    if (ag.fimRecorrencia && dateStr > ag.fimRecorrencia) return false;
+
+    const d1 = new Date(ag.data + 'T12:00:00');
+    const d2 = new Date(dateStr + 'T12:00:00');
+
+    if (ag.recorrencia === 'Diária') return true;
+    if (ag.recorrencia === 'Semanal') {
+      const diff = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
+      return diff % 7 === 0;
+    }
+    if (ag.recorrencia === 'Mensal') return d1.getDate() === d2.getDate();
+    if (ag.recorrencia === 'Anual') return d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth();
+    return false;
+  };
+
+  const hojeDateStr = new Date().toISOString().split('T')[0];
+  const agendaHoje = agendamentos.filter(a => checkRecorrenciaAgendamento(a, hojeDateStr)).sort((a, b) => (a.horario || '23:59').localeCompare(b.horario || '23:59'));
+  
+  const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono');
+  const isAdminOrDono = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') 
+      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono'
+  );
+
   return (
     <div className="space-y-6">
       <h2 className="text-2xl font-bold text-gray-800">Visão Geral</h2>
       
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div onClick={() => setActiveModal('insumos')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:border-blue-500 transition-all">
           <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
             <Package size={24} />
           </div>
           <div>
-            <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Total Insumos</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Total Insumos</p>
             <p className="text-2xl font-bold">{insumos.length}</p>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
+        <div onClick={() => setActiveModal('produtos')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:border-purple-500 transition-all">
           <div className="p-3 bg-purple-100 rounded-lg text-purple-600">
             <ShoppingBag size={24} />
           </div>
           <div>
-            <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Total Produtos</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Total Produtos</p>
             <p className="text-2xl font-bold text-purple-600">{produtos.length}</p>
           </div>
         </div>
 
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4">
+        <div onClick={() => setActiveModal('baixos')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:border-red-500 transition-all">
           <div className="p-3 bg-red-100 rounded-lg text-red-600">
             <AlertTriangle size={24} />
           </div>
           <div>
-            <p className="text-sm text-gray-500 font-medium uppercase tracking-wider">Estoque Baixo</p>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Estoque Baixo</p>
             <p className="text-2xl font-bold text-red-600">{baixos.length}</p>
+          </div>
+        </div>
+
+        <div onClick={() => setActiveModal('excedentes')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:border-blue-500 transition-all">
+          <div className="p-3 bg-blue-100 rounded-lg text-blue-600">
+            <Package size={24} />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Est. Excedente</p>
+            <p className="text-2xl font-bold text-blue-600">{excedentes.length}</p>
+          </div>
+        </div>
+
+        <div onClick={() => setActiveModal('vencimentos')} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex items-center space-x-4 cursor-pointer hover:border-orange-500 transition-all">
+          <div className="p-3 bg-orange-100 rounded-lg text-orange-600">
+            <CalendarClock size={24} />
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Vencimentos</p>
+            <p className="text-2xl font-bold text-orange-600">{validadeProxima.length}</p>
           </div>
         </div>
       </div>
 
-      {(validadeProxima.length > 0 || baixos.length > 0 || excedentes.length > 0 || (currentUser?.cargo === 'Administrador' && (lembretesPagar.length > 0 || lembretesReceber.length > 0))) && (
+      {(isDono && agendaHoje.length > 0 || validadeProxima.length > 0 || baixos.length > 0 || excedentes.length > 0 || (isDono && (lembretesPagar.length > 0 || lembretesReceber.length > 0))) && (
         <div className="flex flex-col md:flex-row flex-wrap gap-4">
+          {isDono && agendaHoje.length > 0 && (
+            <div className="flex-1 min-w-[300px] bg-purple-50 border-l-4 border-purple-500 p-4 rounded-r-lg">
+              <div className="flex">
+                <div className="flex-shrink-0">
+                  <CalendarClock className="h-5 w-5 text-purple-500" />
+                </div>
+                <div className="ml-3">
+                  <h3 className="text-sm font-medium text-purple-800">Sua Agenda de Hoje</h3>
+                  <div className="mt-2 text-sm text-purple-700 max-h-[150px] overflow-y-auto pr-2">
+                    <ul className="list-disc pl-5 space-y-1">
+                      {agendaHoje.map((ag: any) => (
+                        <li key={ag.id}>
+                          <span className="font-bold">{ag.titulo}</span> {ag.horario && `- ${ag.horario}`}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
           {validadeProxima.length > 0 && (
             <div className="flex-1 min-w-[300px] bg-red-50 border-l-4 border-red-500 p-4 rounded-r-lg">
               <div className="flex">
@@ -353,7 +501,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
             </div>
           )}
 
-          {currentUser?.cargo === 'Administrador' && (lembretesPagar.length > 0 || lembretesReceber.length > 0) && (
+          {isDono && (lembretesPagar.length > 0 || lembretesReceber.length > 0) && (
             <div className="flex-1 min-w-[300px] bg-orange-50 border-l-4 border-orange-500 p-4 rounded-r-lg">
               <div className="flex">
                 <div className="flex-shrink-0">
@@ -540,6 +688,106 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
               <button onClick={handlePinSubmit} disabled={pin.length !== 4} className="flex-1 p-3 text-white bg-red-600 rounded-xl font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">
                 Confirmar
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => { setActiveModal(null); setModalSearchTerm(''); }}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-4xl flex flex-col max-h-[90vh]" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center p-6 border-b border-gray-100">
+              <h3 className="text-xl font-bold text-gray-800">
+                {activeModal === 'insumos' && 'Todos os Insumos'}
+                {activeModal === 'produtos' && 'Todos os Produtos'}
+                {activeModal === 'baixos' && 'Estoque Baixo (Reposição Necessária)'}
+                {activeModal === 'excedentes' && 'Estoque Excedente'}
+                {activeModal === 'vencimentos' && 'Próximos do Vencimento'}
+              </h3>
+              <button onClick={() => { setActiveModal(null); setModalSearchTerm(''); }} className="text-gray-400 hover:text-gray-600">
+                <X size={24} />
+              </button>
+            </div>
+            <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row gap-4 items-center justify-between">
+              <div className="relative w-full">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <input
+                  type="text"
+                  placeholder="Buscar por nome ou SKU..."
+                  value={modalSearchTerm}
+                  onChange={(e) => setModalSearchTerm(e.target.value)}
+                  className="w-full pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
+                />
+              </div>
+              <button onClick={exportarModalCSV} className="flex items-center justify-center w-full sm:w-auto bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors whitespace-nowrap text-sm shadow-sm">
+                <Download size={16} className="mr-2" /> Exportar Excel
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {(() => {
+                let baseData: any[] = [];
+                if (activeModal === 'insumos') baseData = insumos;
+                else if (activeModal === 'produtos') baseData = produtos;
+                else if (activeModal === 'baixos') baseData = baixos;
+                else if (activeModal === 'excedentes') baseData = excedentes;
+                else if (activeModal === 'vencimentos') baseData = validadeProxima;
+
+                const filtered = baseData.filter(item => {
+                  const nome = (item.nome || '').toLowerCase();
+                  const sku = ((item as any).sku || '').toLowerCase();
+                  const term = modalSearchTerm.toLowerCase();
+                  return nome.includes(term) || sku.includes(term);
+                });
+
+                if (filtered.length === 0) {
+                  return <div className="p-8 text-center text-gray-500">Nenhum item encontrado.</div>;
+                }
+
+                return (
+                  <table className="w-full text-left border-collapse text-sm">
+                    <thead className="bg-gray-50 sticky top-0 shadow-sm z-10">
+                      <tr>
+                        <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Item</th>
+                        <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">SKU</th>
+                        {activeModal === 'produtos' ? (
+                          <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Categoria</th>
+                        ) : activeModal === 'vencimentos' ? (
+                          <>
+                            <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Lote</th>
+                            <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Validade</th>
+                            <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Qtd.</th>
+                          </>
+                        ) : (
+                          <th className="px-4 py-3 text-gray-500 font-bold uppercase text-xs tracking-wider">Estoque</th>
+                        )}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {filtered.map((item, idx) => (
+                        <tr key={item.id + (item.loteSpec ? idx : '')} className="hover:bg-gray-50">
+                          <td className="px-4 py-3 font-bold text-gray-800">{item.nome}</td>
+                          <td className="px-4 py-3 text-gray-500 font-mono text-xs">{(item as any).sku || '-'}</td>
+                          {activeModal === 'produtos' ? (
+                            <td className="px-4 py-3 text-gray-600">{item.categoria || 'Outros'}</td>
+                          ) : activeModal === 'vencimentos' ? (
+                            <>
+                              <td className="px-4 py-3 text-gray-600">{item.loteSpec?.lote || 'N/A'}</td>
+                              <td className="px-4 py-3 font-bold text-red-600">{item.loteSpec?.validade ? new Date(`${item.loteSpec.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}</td>
+                              <td className="px-4 py-3 text-gray-600">{item.loteSpec?.quantidade} {item.unidade}</td>
+                            </>
+                          ) : (
+                            <td className="px-4 py-3 text-gray-600">
+                              {formatarQtdJSX(item.estoqueEstacionario ?? item.estoqueAtual ?? 0, item.qtdPacote || 1, item.unidade)}
+                              {activeModal === 'baixos' && <span className="ml-2 text-xs text-red-500 font-bold">(Mín: {item.alertaMinimo})</span>}
+                              {activeModal === 'excedentes' && <span className="ml-2 text-xs text-blue-500 font-bold">(Máx: {item.estoqueMaximo})</span>}
+                            </td>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
             </div>
           </div>
         </div>

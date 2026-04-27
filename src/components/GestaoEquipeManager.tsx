@@ -1,0 +1,215 @@
+import { useState, useEffect } from 'react';
+import { ref, onValue, set, push, remove, update } from 'firebase/database';
+import { db } from '../firebase';
+import { Funcionario } from '../types';
+import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save } from 'lucide-react';
+
+export default function GestaoEquipeManager() {
+  const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [gestaoData, setGestaoData] = useState<Record<string, any>>({});
+  const [selectedFuncId, setSelectedFuncId] = useState<string | null>(null);
+  
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [aiResponse, setAiResponse] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
+
+  const [encargos, setEncargos] = useState('');
+  const [novaFaltaData, setNovaFaltaData] = useState('');
+  const [novaFaltaMotivo, setNovaFaltaMotivo] = useState('');
+  const [novoFeedbackData, setNovoFeedbackData] = useState('');
+  const [novoFeedbackTexto, setNovoFeedbackTexto] = useState('');
+
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
+
+  useEffect(() => {
+    const funcRef = ref(db, 'funcionarios');
+    const unsubFunc = onValue(funcRef, snap => {
+      if (snap.val()) {
+        const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
+        setFuncionarios(list);
+      } else setFuncionarios([]);
+    });
+
+    const gestaoRef = ref(db, 'gestao_equipe');
+    const unsubGestao = onValue(gestaoRef, snap => {
+      if (snap.val()) setGestaoData(snap.val());
+      else setGestaoData({});
+    });
+
+    return () => { unsubFunc(); unsubGestao(); };
+  }, []);
+
+  useEffect(() => {
+    if (selectedFuncId) {
+      const data = gestaoData[selectedFuncId] || {};
+      setEncargos(data.encargos || '');
+    }
+  }, [selectedFuncId, gestaoData]);
+
+  const salvarEncargos = async () => {
+    if (!selectedFuncId) return;
+    await update(ref(db, `gestao_equipe/${selectedFuncId}`), { encargos });
+    showToast('Encargos e funções atualizados!', 'success');
+  };
+
+  const addFalta = async () => {
+    if (!selectedFuncId || !novaFaltaData || !novaFaltaMotivo) return;
+    await set(push(ref(db, `gestao_equipe/${selectedFuncId}/faltas`)), {
+      data: novaFaltaData,
+      motivo: novaFaltaMotivo,
+      timestamp: Date.now()
+    });
+    setNovaFaltaData('');
+    setNovaFaltaMotivo('');
+    showToast('Falta registrada.', 'success');
+  };
+
+  const addFeedback = async () => {
+    if (!selectedFuncId || !novoFeedbackData || !novoFeedbackTexto) return;
+    await set(push(ref(db, `gestao_equipe/${selectedFuncId}/feedbacks`)), {
+      data: novoFeedbackData,
+      texto: novoFeedbackTexto,
+      timestamp: Date.now()
+    });
+    setNovoFeedbackData('');
+    setNovoFeedbackTexto('');
+    showToast('Feedback registrado.', 'success');
+  };
+
+  const removeFalta = async (faltaId: string) => {
+    if (confirm('Deseja remover o registro desta falta?')) {
+      await remove(ref(db, `gestao_equipe/${selectedFuncId}/faltas/${faltaId}`));
+    }
+  };
+
+  const removeFeedback = async (feedbackId: string) => {
+    if (confirm('Deseja remover este feedback?')) {
+      await remove(ref(db, `gestao_equipe/${selectedFuncId}/feedbacks/${feedbackId}`));
+    }
+  };
+
+  const handleAI = async () => {
+    if (!aiPrompt.trim()) return;
+    setIsGenerating(true);
+    setAiResponse('');
+
+    // Monta o contexto da equipe atual
+    const teamContext = funcionarios.filter(f => {
+      const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
+      // Só esconde se a pessoa for EXCLUSIVAMENTE Admin ou Gerente (sem cargos operacionais)
+      return (f as any).ativo !== false && !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono');
+    }).map(f => {
+      const g = gestaoData[f.id] || {};
+      const cargosStr = Array.isArray(f.cargo) ? f.cargo.join(', ') : (f.cargo || 'Não definido');
+      return `- ${f.nome} (Cargos: ${cargosStr}) | Funções/Encargos: ${g.encargos || 'Não especificadas'}`;
+    }).join('\n');
+
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${grokKey}` },
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um gestor especialista em recursos humanos e operações de hamburguerias. O administrador relatará um problema operacional na equipe (ex: funcionário faltou, grande demanda, necessidade de realocação). Sugira uma solução prática e imediata focada na operação do restaurante, distribuindo tarefas baseando-se no perfil da equipe ativa atual informada abaixo. Não invente funcionários. Seja direto, prático e divida a solução em passos claros.\n\nEquipe Atual:\n${teamContext}`
+            },
+            { role: 'user', content: aiPrompt }
+          ]
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error?.message || 'Erro na IA');
+      setAiResponse(data.choices?.[0]?.message?.content || 'Sem resposta');
+    } catch (error: any) {
+      showToast('Erro ao consultar a IA: ' + error.message, 'error');
+    } finally {
+      setIsGenerating(false);
+    }
+  };
+
+  const selectedFunc = funcionarios.find(f => f.id === selectedFuncId);
+  const selectedFuncData = gestaoData[selectedFuncId || ''] || {};
+  
+  const faltas = selectedFuncData.faltas ? Object.entries(selectedFuncData.faltas).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
+  const feedbacks = selectedFuncData.feedbacks ? Object.entries(selectedFuncData.feedbacks).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
+
+  const funcionariosGerenciaveis = funcionarios.filter(f => {
+    const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
+    return !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono');
+  });
+
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
+      
+      {/* Coluna Esquerda: Gestão Individual */}
+      <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><UserCircle className="mr-2 text-blue-600" size={24}/> Perfis da Equipe</h3>
+        
+        <div className="flex overflow-x-auto gap-2 pb-3 mb-2 border-b border-gray-100">
+          {funcionariosGerenciaveis.map(f => (
+            <button key={f.id} onClick={() => setSelectedFuncId(f.id)} className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm transition-colors border ${(f as any).ativo === false ? 'opacity-60' : ''} ${selectedFuncId === f.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+              {f.nome} {(f as any).ativo === false && '(Inativo)'}
+            </button>
+          ))}
+        </div>
+        
+        {selectedFuncId && selectedFunc ? (
+          <div className="mt-6 space-y-6">
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <h4 className="font-bold text-gray-700 flex items-center mb-3"><Briefcase className="mr-2 text-blue-500" size={18}/> Funções e Encargos</h4>
+              <p className="text-xs text-gray-500 mb-2">Descreva as responsabilidades exatas de {selectedFunc.nome} para que a IA possa mapear as tarefas.</p>
+              <textarea value={encargos} onChange={e => setEncargos(e.target.value)} placeholder="Ex: Fica na chapa durante a noite, responsável por limpar o freezer, etc." className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm min-h-[100px] resize-y bg-white" />
+              <div className="flex justify-end mt-2"><button onClick={salvarEncargos} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"><Save size={16} className="mr-2"/> Salvar Encargos</button></div>
+            </div>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
+                <h4 className="font-bold text-gray-700 flex items-center mb-4"><Calendar className="mr-2 text-orange-500" size={18}/> Faltas</h4>
+                <div className="flex flex-col gap-2 mb-4"><input type="date" value={novaFaltaData} onChange={e => setNovaFaltaData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white" /><div className="flex gap-2"><input type="text" value={novaFaltaMotivo} onChange={e => setNovaFaltaMotivo(e.target.value)} placeholder="Motivo..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white" /><button onClick={addFalta} className="bg-orange-100 text-orange-600 px-3 py-2 rounded-lg font-bold hover:bg-orange-200 transition-colors flex items-center justify-center"><Plus size={16}/></button></div></div>
+                <div className="space-y-2 flex-1 max-h-[200px] overflow-y-auto pr-1">
+                  {faltas.map(f => (<div key={f.id} className="flex justify-between items-start bg-white p-3 rounded-lg border border-gray-200 text-sm"><div><span className="font-bold text-gray-800">{f.data.split('-').reverse().join('/')}</span><p className="text-gray-500 mt-0.5 text-xs">{f.motivo}</p></div><button onClick={() => removeFalta(f.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={14}/></button></div>))}
+                  {faltas.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhuma falta registrada.</p>}
+                </div>
+              </div>
+              
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
+                <h4 className="font-bold text-gray-700 flex items-center mb-4"><MessageSquare className="mr-2 text-green-500" size={18}/> Feedbacks</h4>
+                <div className="flex flex-col gap-2 mb-4"><input type="date" value={novoFeedbackData} onChange={e => setNovoFeedbackData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white" /><div className="flex gap-2"><input type="text" value={novoFeedbackTexto} onChange={e => setNovoFeedbackTexto(e.target.value)} placeholder="Anotação..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm bg-white" /><button onClick={addFeedback} className="bg-green-100 text-green-600 px-3 py-2 rounded-lg font-bold hover:bg-green-200 transition-colors flex items-center justify-center"><Plus size={16}/></button></div></div>
+                <div className="space-y-2 flex-1 max-h-[200px] overflow-y-auto pr-1">
+                  {feedbacks.map(f => (<div key={f.id} className="flex justify-between items-start bg-white p-3 rounded-lg border border-gray-200 text-sm"><div><span className="font-bold text-gray-800">{f.data.split('-').reverse().join('/')}</span><p className="text-gray-500 mt-0.5 text-xs">{f.texto}</p></div><button onClick={() => removeFeedback(f.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={14}/></button></div>))}
+                  {feedbacks.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhum feedback registrado.</p>}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-8 text-center text-gray-400 py-12 border-2 border-dashed border-gray-200 rounded-xl"><p>Selecione um funcionário acima para gerenciar os dados.</p></div>
+        )}
+      </div>
+
+      {/* Coluna Direita: IA */}
+      <div className="lg:col-span-5 bg-gradient-to-br from-gray-900 to-indigo-950 p-6 rounded-xl shadow-lg border border-gray-800 text-white flex flex-col h-full">
+        <h3 className="text-xl font-bold mb-2 flex items-center"><Bot className="mr-2 text-indigo-400"/> Gestor IA</h3>
+        <p className="text-gray-400 text-sm mb-6">A IA analisa as funções que você cadastrou para cada membro da equipe. Relate uma ausência, pico de movimento ou demissão, e veja uma sugestão tática imediata de cobertura.</p>
+        
+        <textarea value={aiPrompt} onChange={e => setAiPrompt(e.target.value)} placeholder="Ex: O João que fica na chapa ligou dizendo que está passando mal e não vem hoje. A casa costuma ficar cheia de sexta. Como reorganizo a operação?" className="w-full p-4 bg-white/5 border border-indigo-500/30 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-h-[140px] resize-y text-white placeholder-gray-500 mb-4 font-mono leading-relaxed" />
+        <button onClick={handleAI} disabled={isGenerating || !aiPrompt.trim()} className="w-full bg-indigo-600 hover:bg-indigo-500 text-white px-4 py-3.5 rounded-lg font-bold transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
+          {isGenerating ? <><Loader2 size={18} className="animate-spin mr-2"/> Analisando Equipe...</> : <><Sparkles size={18} className="mr-2"/> Solicitar Solução da IA</>}
+        </button>
+        
+        {aiResponse && (<div className="mt-6 flex-1 bg-black/30 border border-indigo-500/20 p-5 rounded-lg overflow-y-auto"><h4 className="font-bold text-indigo-300 mb-3 text-xs uppercase tracking-widest border-b border-indigo-500/20 pb-2">Estratégia Operacional</h4><div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{aiResponse}</div></div>)}
+      </div>
+
+      {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
+    </div>
+  );
+}

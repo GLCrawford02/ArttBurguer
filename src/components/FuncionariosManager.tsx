@@ -11,7 +11,7 @@ export default function FuncionariosManager() {
   const [editId, setEditId] = useState<string | null>(null);
   const [historicoFuncionarioId, setHistoricoFuncionarioId] = useState<string | null>(null);
   
-  const [formData, setFormData] = useState({ nome: '', pin: '', cargo: 'Atendente', ativo: true });
+  const [formData, setFormData] = useState<{nome: string, pin: string, cargo: string[], ativo: boolean, telefone: string}>({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '' });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -51,14 +51,22 @@ export default function FuncionariosManager() {
     const unsubCargos = onValue(cargosRef, (snap) => {
       const data = snap.val();
       if (data) {
-        setCargos(Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome })));
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome }));
+        if (!list.some(c => c.nome === 'Dono')) {
+          push(ref(db, 'cargos'), { nome: 'Dono' });
+        }
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCargos(list);
       } else {
-        setCargos([
+        const defaultCargos = [
+          { id: 'dono', nome: 'Dono' },
           { id: 'admin', nome: 'Administrador' },
           { id: 'gerente', nome: 'Gerente' },
           { id: 'cozinheiro', nome: 'Cozinheiro' },
           { id: 'atendente', nome: 'Atendente' }
-        ]);
+        ];
+        defaultCargos.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCargos(defaultCargos);
       }
     });
 
@@ -69,10 +77,16 @@ export default function FuncionariosManager() {
     };
   }, []);
 
+  const formatPhone = (val: string) => val.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4,5})(\d{4})$/, '$1-$2').substring(0, 15);
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (formData.pin.length !== 4 || !/^\d+$/.test(formData.pin)) {
       showToast('O PIN deve conter exatamente 4 números.', 'error');
+      return;
+    }
+    if (formData.cargo.length === 0) {
+      showToast('Selecione pelo menos um cargo.', 'error');
       return;
     }
 
@@ -84,12 +98,13 @@ export default function FuncionariosManager() {
       await set(push(ref(db, 'funcionarios')), formData);
       showToast('Funcionário cadastrado!', 'success');
     }
-    setFormData({ nome: '', pin: '', cargo: 'Atendente', ativo: true });
+    setFormData({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '' });
   };
 
   const handleEdit = (f: Funcionario) => {
     setEditId(f.id);
-    setFormData({ nome: f.nome, pin: f.pin, cargo: f.cargo || 'Atendente', ativo: (f as any).ativo !== false });
+    const cargosArr = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
+    setFormData({ nome: f.nome, pin: f.pin, cargo: cargosArr, ativo: (f as any).ativo !== false, telefone: (f as any).telefone || '' });
   };
 
   const toggleAtivo = async (f: Funcionario) => {
@@ -104,6 +119,16 @@ export default function FuncionariosManager() {
       await remove(ref(db, `funcionarios/${id}`));
       showToast('Funcionário excluído!', 'success');
     }
+  };
+
+  const getCargoColor = (cargo: string) => {
+    const c = cargo.toLowerCase();
+    if (c === 'dono') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+    if (c === 'administrador') return 'bg-purple-100 text-purple-700 border-purple-200';
+    if (c === 'gerente') return 'bg-orange-100 text-orange-700 border-orange-200';
+    if (c.includes('entregador') || c.includes('motoboy')) return 'bg-green-100 text-green-700 border-green-200';
+    if (c.includes('cozinheiro') || c.includes('chapa')) return 'bg-red-100 text-red-700 border-red-200';
+    return 'bg-blue-50 text-blue-600 border-blue-100';
   };
 
   const funcHistorico = transferencias.filter(t => t.funcionarioId === historicoFuncionarioId);
@@ -131,12 +156,33 @@ export default function FuncionariosManager() {
                 <input type="text" required value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: João Silva" />
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Cargo</label>
-                <select value={formData.cargo} onChange={e => setFormData({...formData, cargo: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
-                  {cargos.map(c => (
-                    <option key={c.id} value={c.nome}>{c.nome}</option>
-                  ))}
-                </select>
+                <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cargos</label>
+                <div className="flex flex-wrap gap-2 border border-gray-200 p-3 rounded-lg bg-white max-h-48 overflow-y-auto">
+                  {cargos.map(c => {
+                    const isSelected = formData.cargo.includes(c.nome);
+                    return (
+                      <button
+                        key={c.id}
+                        type="button"
+                        onClick={() => {
+                          if (!isSelected) setFormData({...formData, cargo: [...formData.cargo, c.nome]});
+                          else setFormData({...formData, cargo: formData.cargo.filter(cargo => cargo !== c.nome)});
+                        }}
+                        className={`px-3 py-1.5 rounded-lg text-sm font-bold border transition-colors flex items-center ${
+                          isSelected 
+                            ? 'bg-blue-100 text-blue-700 border-blue-200 hover:bg-red-50 hover:text-red-600 hover:border-red-200' 
+                            : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100 hover:text-gray-800'
+                        }`}
+                      >
+                        <span className="mr-1 text-lg leading-none font-black">{isSelected ? '-' : '+'}</span> {c.nome}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp {formData.cargo.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy')) ? '(Obrigatório para Rota)' : '(Opcional)'}</label>
+                <input type="text" value={formData.telefone} onChange={e => setFormData({...formData, telefone: formatPhone(e.target.value)})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="(00) 00000-0000" />
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">PIN (4 dígitos)</label>
@@ -153,7 +199,7 @@ export default function FuncionariosManager() {
                   <Save size={18} className="mr-2" /> Salvar
                 </button>
                 {editId && (
-                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: 'Atendente', ativo: true});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
+                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: ['Atendente'], ativo: true, telefone: ''});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
                     <X size={20} />
                   </button>
                 )}
@@ -171,8 +217,12 @@ export default function FuncionariosManager() {
                   <div>
                     <div className="flex items-center space-x-2">
                       <p className={`font-bold ${(f as any).ativo === false ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{f.nome}</p>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${f.cargo === 'Administrador' ? 'bg-orange-100 text-orange-700' : 'bg-gray-100 text-gray-600'}`}>{f.cargo || 'Atendente'}</span>
                       {(f as any).ativo === false && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-red-100 text-red-600">Inativo</span>}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mt-1.5">
+                      {(Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente']).map(c => (
+                        <span key={c} className={`text-[10px] font-bold px-2.5 py-1 rounded-md uppercase border shadow-sm ${getCargoColor(c)}`}>{c}</span>
+                      ))}
                     </div>
                     <p className="text-xs text-gray-500 font-mono">PIN: ****</p>
                   </div>

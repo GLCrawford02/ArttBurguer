@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X } from 'lucide-react';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -33,6 +33,7 @@ export default function InsumosManager() {
   // Chave da API da xAI (Grok) - Mantida fixa no código (sistema de uso interno restrito, conforme solicitado)
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -165,6 +166,7 @@ export default function InsumosManager() {
     setEstoqueMaximo('');
     setEstoqueAtual('');
     setTipoUso('');
+    setShowForm(false);
   };
 
   const handleCadastroIA = async () => {
@@ -273,6 +275,7 @@ Formato esperado para cada objeto:
       showToast(`Sucesso! ${adicionados} cadastrados e ${atualizados} atualizados pela IA.`, 'success');
       setAiPrompt('');
       setCadastroMode('manual');
+      setShowForm(false);
     } catch (error: any) {
       showToast('Erro ao processar com IA: ' + error.message, 'error');
       console.error(error);
@@ -292,6 +295,7 @@ Formato esperado para cada objeto:
     setAlertaMinimo(String(insumo.alertaMinimo || ''));
     setEstoqueMaximo(insumo.estoqueMaximo ? String(insumo.estoqueMaximo) : '');
     setTipoUso((insumo as any).tipoUso || '');
+    setShowForm(true);
   };
 
   const handleCancelEdit = () => {
@@ -306,6 +310,7 @@ Formato esperado para cada objeto:
     setEstoqueMaximo('');
     setEstoqueAtual('');
     setTipoUso('');
+    setShowForm(false);
   };
 
   const handleExcluir = async (id: string) => {
@@ -322,19 +327,31 @@ Formato esperado para cada objeto:
   });
 
   return (
-    <div className="space-y-8">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
+    <div className="space-y-6 animate-in fade-in duration-300">
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-gray-800">Base de Insumos</h2>
+        <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center">
+          <Plus size={20} className="mr-2" /> Novo Insumo
+        </button>
+      </div>
+      
+      {showForm && (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6 animate-in slide-in-from-top-4 duration-300">
         <div className="flex justify-between items-center mb-2">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             <Package className="mr-2 text-green-600" size={20} />
-            {editId ? 'Editar Insumo' : 'Cadastro de Insumos'}
+            {editId ? 'Editar Insumo' : 'Novo Insumo'}
           </h3>
-          {!editId && (
-            <div className="flex bg-gray-100 p-1 rounded-lg">
-              <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
-              <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
-            </div>
-          )}
+          <div className="flex items-center gap-2">
+            {!editId && (
+              <div className="flex bg-gray-100 p-1 rounded-lg">
+                <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-green-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
+                <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
+              </div>
+            )}
+            <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full p-1 transition-colors"><X size={20} /></button>
+          </div>
         </div>
         
         {cadastroMode === 'manual' || editId ? (
@@ -431,14 +448,12 @@ Formato esperado para cada objeto:
             </div>
 
             <div className="pt-4 border-t flex gap-2">
+              <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">
+                Cancelar
+              </button>
               <button onClick={handleSalvar} className="flex-1 bg-green-600 text-white p-3 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm">
                 {editId ? 'Atualizar Insumo' : 'Salvar Novo Insumo'}
               </button>
-              {editId && (
-                <button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">
-                  Cancelar
-                </button>
-              )}
             </div>
           </div>
         ) : (
@@ -474,10 +489,10 @@ Formato esperado para cada objeto:
           </div>
         )}
       </div>
+      )}
 
-      <div className="space-y-6">
+      <div className="space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
-          <h3 className="text-lg font-bold text-gray-800">Insumos Cadastrados</h3>
           <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <select 
               value={filtroTipoUso} 

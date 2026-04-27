@@ -27,6 +27,8 @@ export default function PermissoesManager() {
     { id: 'relatorios', nome: 'Relatórios Financeiros' },
     { id: 'funcionarios', nome: 'Equipe e Funcionários' },
     { id: 'configuracoes', nome: 'Configurações Gerais' },
+    { id: 'clientes', nome: 'Cadastro de Clientes' },
+    { id: 'despacho', nome: 'Despacho e Rotas (Logística)' },
   ];
   
 
@@ -44,9 +46,15 @@ export default function PermissoesManager() {
     const unsubCargos = onValue(cargosRef, (snap) => {
       const data = snap.val();
       if (data) {
-        setCargos(Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome })));
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome }));
+        if (!list.some(c => c.nome === 'Dono')) {
+          push(ref(db, 'cargos'), { nome: 'Dono' });
+        }
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCargos(list);
       } else {
-        const defaultCargos = ['Administrador', 'Gerente', 'Cozinheiro', 'Atendente'];
+        const defaultCargos = ['Dono', 'Administrador', 'Gerente', 'Cozinheiro', 'Atendente'];
+        defaultCargos.sort((a, b) => a.localeCompare(b));
         defaultCargos.forEach(c => push(ref(db, 'cargos'), { nome: c }));
       }
     });
@@ -66,7 +74,7 @@ export default function PermissoesManager() {
   };
 
   const handleDeleteCargo = async (id: string, nome: string) => {
-    if (nome === 'Administrador' || nome === 'Gerente') {
+    if (nome === 'Administrador' || nome === 'Gerente' || nome === 'Dono') {
       showToast('Cargos base não podem ser excluídos.', 'error');
       return;
     }
@@ -78,7 +86,7 @@ export default function PermissoesManager() {
   };
 
   const handleToggle = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
-    if (selectedCargo === 'Administrador') return; // Admin não pode ter restrições
+    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono') return; // Bases não têm restrições
 
     setPermissoes(prev => {
       const newState = JSON.parse(JSON.stringify(prev)); // Copia profunda para não mutar estado
@@ -116,7 +124,7 @@ export default function PermissoesManager() {
   };
 
   const getPerm = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
-    if (selectedCargo === 'Administrador') return true;
+    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono') return true;
     return permissoes[selectedCargo]?.[moduloId]?.[acao] || false;
   };
 
@@ -162,7 +170,7 @@ export default function PermissoesManager() {
               >
                 {c.nome}
               </button>
-              {c.nome !== 'Administrador' && c.nome !== 'Gerente' && (
+              {c.nome !== 'Administrador' && c.nome !== 'Gerente' && c.nome !== 'Dono' && (
                 <button 
                   onClick={() => handleDeleteCargo(c.id, c.nome)}
                   className={`p-2 mr-2 rounded-lg transition-colors flex-shrink-0 ${selectedCargo === c.nome ? 'text-white hover:bg-indigo-700' : 'text-red-500 hover:bg-red-50'}`}
@@ -180,9 +188,9 @@ export default function PermissoesManager() {
         <div className="flex-1 p-6">
           <div className="mb-6">
             <h4 className="text-xl font-bold text-gray-800">Acessos para: <span className="text-indigo-600">{selectedCargo}</span></h4>
-            {selectedCargo === 'Administrador' && (
+            {(selectedCargo === 'Administrador' || selectedCargo === 'Dono') && (
               <p className="text-sm text-orange-600 font-bold mt-2 bg-orange-50 p-3 rounded-lg border border-orange-100">
-                O cargo de Administrador possui acesso total (Leitura, Edição e Exclusão) a todos os módulos por padrão. Não é possível restringi-lo.
+                Este cargo base possui acesso total (Leitura, Edição e Exclusão) a todos os módulos por padrão. Não é possível restringi-lo.
               </p>
             )}
           </div>
@@ -201,9 +209,9 @@ export default function PermissoesManager() {
                 {modulos.map(m => (
                   <tr key={m.id} className="hover:bg-gray-50 transition-colors">
                     <td className="py-4 px-6 font-bold text-gray-800">{m.nome}</td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar')} disabled={selectedCargo === 'Administrador'} onChange={() => handleToggle(m.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar')} disabled={selectedCargo === 'Administrador'} onChange={() => handleToggle(m.id, 'editar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar')} disabled={selectedCargo === 'Administrador'} onChange={() => handleToggle(m.id, 'apagar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono'} onChange={() => handleToggle(m.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono'} onChange={() => handleToggle(m.id, 'editar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono'} onChange={() => handleToggle(m.id, 'apagar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
                   </tr>
                 ))}
               </tbody>

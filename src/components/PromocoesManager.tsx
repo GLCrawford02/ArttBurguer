@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao, ItemCombo, IngredienteReceita } from '../types';
-import { Tag, Trash2, Search, CheckCircle, AlertTriangle, Pencil, ChevronDown, ChevronUp } from 'lucide-react';
+import { Tag, Trash2, Search, CheckCircle, AlertTriangle, Pencil, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
 
 export default function PromocoesManager() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -25,6 +25,7 @@ export default function PromocoesManager() {
   const [tempProdutoId, setTempProdutoId] = useState('');
   const [tempQtd, setTempQtd] = useState(1);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -152,6 +153,7 @@ export default function PromocoesManager() {
       setDataFim('');
       setHorarioInicio('');
       setHorarioFim('');
+      setShowForm(false);
     } catch (error: any) {
       showToast('Erro ao salvar: ' + error.message, 'error');
     }
@@ -166,6 +168,7 @@ export default function PromocoesManager() {
     setDataFim(promo.dataFim || '');
     setHorarioInicio(promo.horarioInicio || '');
     setHorarioFim(promo.horarioFim || '');
+    setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -178,6 +181,7 @@ export default function PromocoesManager() {
     setDataFim('');
     setHorarioInicio('');
     setHorarioFim('');
+    setShowForm(false);
   };
 
   const excluirPromocao = async (id: string) => {
@@ -190,13 +194,25 @@ export default function PromocoesManager() {
   const filteredPromocoes = promocoes.filter(p => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
   return (
-    <div className="space-y-8">
+    <div className="space-y-6 animate-in fade-in duration-300">
+
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h2 className="text-2xl font-bold text-gray-800">Base de Promoções</h2>
+        <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-purple-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm flex items-center">
+          <Plus size={20} className="mr-2" /> Nova Promoção
+        </button>
+      </div>
+
       {/* Cadastro de Promoção */}
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center">
-          <Tag className="mr-2 text-purple-600" size={20} />
-          {editId ? 'Editar Promoção / Combo' : 'Nova Promoção / Combo'}
-        </h3>
+      {showForm && (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-6 animate-in slide-in-from-top-4 duration-300">
+        <div className="flex justify-between items-center">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center">
+            <Tag className="mr-2 text-purple-600" size={20} />
+            {editId ? 'Editar Promoção / Combo' : 'Nova Promoção / Combo'}
+          </h3>
+          <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full p-1 transition-colors"><X size={20} /></button>
+        </div>
         
         <div className="space-y-6">
           
@@ -293,7 +309,7 @@ export default function PromocoesManager() {
               <p className="text-2xl font-bold text-red-500">R$ {custoTotalCombo.toFixed(2)}</p>
             </div>
             <div className="flex gap-2">
-              {editId && (<button onClick={handleCancelEdit} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>)}
+              <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="bg-gray-200 text-gray-700 px-4 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>
               <button onClick={salvarPromocao} disabled={!nomePromocao || itensSelecionados.length === 0} className="bg-purple-600 text-white px-6 py-3 rounded-lg font-bold hover:bg-purple-700 disabled:opacity-50 transition-colors shadow-sm">
                 {editId ? 'Atualizar Combo' : 'Salvar Novo Combo'}
               </button>
@@ -301,6 +317,7 @@ export default function PromocoesManager() {
           </div>
         </div>
       </div>
+      )}
 
       {/* Lista de Promoções */}
       <div className="space-y-6">
