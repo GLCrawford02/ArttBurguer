@@ -339,15 +339,15 @@ export default function ComprasManager() {
             <p className="text-sm text-gray-500 text-center mb-6">Esta compra excederá o estoque máximo. Digite o PIN de um Administrador ou Gerente para liberar.</p>
             
             <input 
-              type="password"
-              inputMode="numeric"
-              pattern="[0-9]*"
+              type="tel"
+              autoComplete="off"
               maxLength={4}
               autoFocus
               value={pin}
               onChange={(e) => setPin(e.target.value.replace(/\D/g, ''))}
               className="w-full text-center text-3xl tracking-[1em] font-mono p-4 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all mb-6"
               placeholder="****"
+              style={{ WebkitTextSecurity: 'disc' } as any}
             />
             
             <div className="flex space-x-3">

@@ -215,7 +215,7 @@ export default function App() {
           <p className="text-center text-gray-500 mb-8 text-sm">Digite seu PIN para entrar no sistema</p>
           
           <form onSubmit={handleLogin}>
-            <input type="password" autoComplete="new-password" inputMode="numeric" pattern="[0-9]*" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" />
+            <input type="tel" autoComplete="off" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
             {loginError && <p className="text-red-500 text-sm text-center mb-4 font-bold">{loginError}</p>}
             <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg">
               Entrar

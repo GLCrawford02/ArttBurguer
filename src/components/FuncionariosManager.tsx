@@ -186,7 +186,7 @@ export default function FuncionariosManager() {
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">PIN (4 dígitos)</label>
-                <input type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} required value={formData.pin} onChange={e => setFormData({...formData, pin: e.target.value.replace(/\D/g, '')})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-center tracking-widest text-lg font-mono" placeholder="****" />
+                <input type="tel" autoComplete="off" maxLength={4} required value={formData.pin} onChange={e => setFormData({...formData, pin: e.target.value.replace(/\D/g, '')})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-center tracking-widest text-lg font-mono" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
               </div>
               <div className="pt-2">
                 <label className="flex items-center space-x-2 cursor-pointer">
