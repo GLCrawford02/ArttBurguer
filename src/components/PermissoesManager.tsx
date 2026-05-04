@@ -29,6 +29,7 @@ export default function PermissoesManager() {
     { id: 'configuracoes', nome: 'Configurações Gerais' },
     { id: 'clientes', nome: 'Cadastro de Clientes' },
     { id: 'despacho', nome: 'Despacho e Rotas (Logística)' },
+    { id: 'tarefas', nome: 'Tarefas e Delegações' },
   ];
   
 

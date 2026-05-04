@@ -7,8 +7,9 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
+import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
 import TransferenciaManager from './components/TransferenciaManager';
 import GestaoFinanceira from './components/GestaoFinanceira';
@@ -26,7 +27,7 @@ import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'produtos' | 'promocoes' | 'fornecedores'>('insumos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
@@ -56,7 +57,7 @@ export default function App() {
 
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as any;
-      if (['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes'].includes(hash)) {
+      if (['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'].includes(hash)) {
         setActiveTab(hash as any);
       }
       setIsMobileMenuOpen(false);
@@ -106,7 +107,7 @@ export default function App() {
     });
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes') => {
+  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -121,7 +122,7 @@ export default function App() {
   const getAllowedTabs = () => {
     if (!currentUser) return [];
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes'];
+    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'];
 
     const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
     
@@ -138,6 +139,7 @@ export default function App() {
     if (hasPerm('relatorios')) allowed.push('financeiro');
     if (hasPerm('funcionarios')) allowed.push('funcionarios');
     if (hasPerm('configuracoes')) allowed.push('configuracoes');
+    if (hasPerm('tarefas')) allowed.push('tarefas');
     return allowed;
   };
 
@@ -318,6 +320,18 @@ export default function App() {
           </button>
           )}
 
+          {allowedTabs.includes('tarefas') && (
+          <button
+            onClick={() => handleTabChange('tarefas')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'tarefas' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <CheckSquare size={20} />
+            <span>Tarefas</span>
+          </button>
+          )}
+
           {allowedTabs.includes('producao') && (
           <button
             onClick={() => handleTabChange('producao')}
@@ -423,6 +437,8 @@ export default function App() {
         <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
           
+          {activeTab === 'tarefas' && <TarefasManager />}
+          
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
@@ -477,7 +493,7 @@ export default function App() {
                   </>
                 )}
               </div>
-              {subTabFuncionarios === 'equipe' && <FuncionariosManager />}
+              {subTabFuncionarios === 'equipe' && <FuncionariosManager currentUser={currentUser} />}
               {subTabFuncionarios === 'gestao' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager />}
               {subTabFuncionarios === 'permissoes' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <PermissoesManager />}
             </div>
