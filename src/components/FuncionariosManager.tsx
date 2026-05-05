@@ -18,7 +18,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
-
+      
   useEffect(() => {
     let isFirstLoad = true;
     const funcRef = ref(db, 'funcionarios');
@@ -77,7 +77,12 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     };
   }, []);
 
-  const formatPhone = (val: string) => val.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4,5})(\d{4})$/, '$1-$2').substring(0, 15);
+  const formatPhone = (val: string) => {
+    let v = val.replace(/\D/g, '').substring(0, 10);
+    if (v.length > 2) v = `(${v.substring(0, 2)}) ${v.substring(2)}`;
+    if (v.length > 9) v = `${v.substring(0, 9)}-${v.substring(9)}`;
+    return v;
+  };
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -192,8 +197,8 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                 </div>
               </div>
               <div>
-                <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp {formData.cargo.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy')) ? '(Obrigatório para Rota)' : '(Opcional)'}</label>
-                <input type="text" value={formData.telefone} onChange={e => setFormData({...formData, telefone: formatPhone(e.target.value)})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="(00) 00000-0000" />
+                <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp (DDD + 8 Dígitos, sem o 9 extra) {formData.cargo.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy')) ? '(Obrigatório)' : '(Opcional)'}</label>
+                <input type="text" maxLength={14} value={formData.telefone} onChange={e => setFormData({...formData, telefone: formatPhone(e.target.value)})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="(00) 0000-0000" />
               </div>
               <div>
                 <label className="text-xs font-bold text-gray-500 uppercase">PIN (4 dígitos)</label>

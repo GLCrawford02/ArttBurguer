@@ -37,11 +37,22 @@ export default function App() {
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes' | 'despacho'>('clientes');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
-  const [currentUser, setCurrentUser] = useState<Funcionario | null>(null);
+  const [currentUser, setCurrentUser] = useState<Funcionario | null>(() => {
+    const saved = sessionStorage.getItem('arttburger_session');
+    return saved ? JSON.parse(saved) : null;
+  });
   const [pinInput, setPinInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
-  const [tempoLogout, setTempoLogout] = useState(5);
+
+  // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
+  useEffect(() => {
+    if (currentUser) {
+      sessionStorage.setItem('arttburger_session', JSON.stringify(currentUser));
+    } else {
+      sessionStorage.removeItem('arttburger_session');
+    }
+  }, [currentUser]);
 
   useEffect(() => {
     document.title = 'ArttBurger';
@@ -96,14 +107,6 @@ export default function App() {
     return onValue(permRef, (snap) => {
       if (snap.val()) setPermissoes(snap.val());
       else setPermissoes({});
-    });
-  }, []);
-
-  useEffect(() => {
-    const confRef = ref(db, 'configuracoes/gerais/tempoLogout');
-    return onValue(confRef, (snap) => {
-      const val = snap.val();
-      if (val) setTempoLogout(Number(val));
     });
   }, []);
 
@@ -167,13 +170,18 @@ export default function App() {
 
     const resetTimer = () => {
       if (timeoutId) clearTimeout(timeoutId);
-      const timeMs = tempoLogout * 60 * 1000;
+      const timeMs = 3 * 60 * 1000; // 3 minutos fixos cravados no código
       timeoutId = setTimeout(() => {
         setCurrentUser(null);
       }, timeMs);
     };
 
-    if (currentUser && currentUser.cargo !== 'Administrador' && currentUser.cargo !== 'Gerente') {
+    const isExempt = currentUser && (() => {
+      const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
+      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono'].includes(c));
+    })();
+
+    if (currentUser && !isExempt) {
       resetTimer();
       window.addEventListener('mousemove', resetTimer);
       window.addEventListener('keydown', resetTimer);
@@ -188,7 +196,7 @@ export default function App() {
       window.removeEventListener('click', resetTimer);
       window.removeEventListener('touchstart', resetTimer);
     };
-  }, [currentUser, tempoLogout]);
+  }, [currentUser]);
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();

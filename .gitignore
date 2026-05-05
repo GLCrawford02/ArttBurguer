@@ -6,3 +6,8 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# Bot do WhatsApp (Ignorar apenas o cache/sessão para não dar erro de permissão no Git)
+arttburger-bot/.wwebjs_auth/
+arttburger-bot/.wwebjs_cache/
+arttburger-bot/node_modules/

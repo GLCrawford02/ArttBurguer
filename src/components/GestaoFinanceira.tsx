@@ -46,6 +46,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [funcionarios, setFuncionarios] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -60,6 +61,10 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [fornecedorId, setFornecedorId] = useState('');
   const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
   const [fimRecorrencia, setFimRecorrencia] = useState('');
+
+  const [gerarLembrete, setGerarLembrete] = useState(false);
+  const [responsavelLembrete, setResponsavelLembrete] = useState('');
+  const [horaLembrete, setHoraLembrete] = useState('08:00');
 
   const [nomeForn, setNomeForn] = useState('');
   const [telForn, setTelefoneForn] = useState('');
@@ -80,6 +85,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const pagarRef = ref(db, 'contas_pagar');
     const receberRef = ref(db, 'contas_receber');
     const agendRef = ref(db, 'agendamentos');
+    const funcRef = ref(db, 'funcionarios');
 
     const unsubF = onValue(fornRef, (snapshot) => {
       const data = snapshot.val();
@@ -106,7 +112,13 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       setLoading(false);
     });
 
-    return () => { unsubF(); unsubP(); unsubR(); unsubA(); };
+    const unsubFunc = onValue(funcRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setFuncionarios(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setFuncionarios([]);
+    });
+
+    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); };
   }, []);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -122,6 +134,9 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     setNomeForn(''); setTelefoneForn('');
     setRecorrencia('Nenhuma');
     setFimRecorrencia('');
+    setGerarLembrete(false);
+    setResponsavelLembrete('');
+    setHoraLembrete('08:00');
     setTituloAg(''); setDataAg(''); setHoraAg(''); setDescAg('');
     setRecorrenciaAg('Nenhuma'); setFimRecorrenciaAg('');
   };
@@ -139,19 +154,59 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   const salvarContaPagar = async () => {
     if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
+    if (gerarLembrete && !responsavelLembrete) return showToast('Selecione quem receberá o lembrete no WhatsApp!', 'error');
     const data = { descricao, valor: Number(valor), vencimento, status: statusPagar, tipo: tipoPagar, fornecedorId, recorrencia, fimRecorrencia };
-    if (editId) await update(ref(db, `contas_pagar/${editId}`), data);
-    else await set(push(ref(db, 'contas_pagar')), data);
-    showToast(editId ? 'Conta atualizada!' : 'Conta a pagar registrada!');
+    if (editId) {
+      await update(ref(db, `contas_pagar/${editId}`), data);
+      showToast('Conta atualizada!');
+    } else {
+      await set(push(ref(db, 'contas_pagar')), data);
+      if (gerarLembrete) {
+        await set(push(ref(db, 'tarefas')), {
+          titulo: `Pagar Conta: ${descricao}`,
+          descricao: `Vencimento programado para hoje. Valor: R$ ${Number(valor).toFixed(2).replace('.', ',')}`,
+          responsaveisIds: [responsavelLembrete],
+          dataAgendada: vencimento,
+          horaAgendada: horaLembrete,
+          prioridade: 'Alta',
+          categoria: 'Financeiro',
+          recorrencia: recorrencia,
+          status: 'pendente',
+          notificadoWhatsApp: false,
+          timestamp: Date.now()
+        });
+      }
+      showToast('Conta a pagar registrada!');
+    }
     resetForms();
   };
 
   const salvarContaReceber = async () => {
     if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
+    if (gerarLembrete && !responsavelLembrete) return showToast('Selecione quem receberá o lembrete no WhatsApp!', 'error');
     const data = { descricao, valor: Number(valor), vencimento, status: statusReceber, recorrencia, fimRecorrencia };
-    if (editId) await update(ref(db, `contas_receber/${editId}`), data);
-    else await set(push(ref(db, 'contas_receber')), data);
-    showToast(editId ? 'Conta atualizada!' : 'Conta a receber registrada!');
+    if (editId) {
+      await update(ref(db, `contas_receber/${editId}`), data);
+      showToast('Conta atualizada!');
+    } else {
+      await set(push(ref(db, 'contas_receber')), data);
+      if (gerarLembrete) {
+        await set(push(ref(db, 'tarefas')), {
+          titulo: `Receber Conta: ${descricao}`,
+          descricao: `Vencimento programado para hoje. Valor: R$ ${Number(valor).toFixed(2).replace('.', ',')}`,
+          responsaveisIds: [responsavelLembrete],
+          dataAgendada: vencimento,
+          horaAgendada: horaLembrete,
+          prioridade: 'Alta',
+          categoria: 'Financeiro',
+          recorrencia: recorrencia,
+          status: 'pendente',
+          notificadoWhatsApp: false,
+          timestamp: Date.now()
+        });
+      }
+      showToast('Conta a receber registrada!');
+    }
     resetForms();
   };
 
@@ -317,6 +372,31 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
               <div className="relative">
                 <label className="absolute -top-2 left-2 bg-white px-1 text-[10px] font-bold text-gray-500">Parar Em:</label>
                 <input type="date" value={fimRecorrencia} onChange={e=>setFimRecorrencia(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
+              </div>
+            )}
+          </div>
+        )}
+        
+        {!editId && (
+          <div className="pt-4 border-t border-gray-100 space-y-3 mt-4">
+            <label className="flex items-center space-x-2 cursor-pointer w-fit">
+              <input type="checkbox" checked={gerarLembrete} onChange={e => setGerarLembrete(e.target.checked)} className={`rounded focus:ring-2 w-4 h-4 cursor-pointer ${tipoConta === 'pagar' ? 'text-red-600 focus:ring-red-500' : 'text-blue-600 focus:ring-blue-500'}`} />
+              <span className="text-sm font-bold text-gray-700">Automação Robô: Criar tarefa com lembrete no WhatsApp</span>
+            </label>
+            
+            {gerarLembrete && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50 p-4 rounded-lg border border-gray-200 animate-in fade-in">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase flex items-center">Responsável pelo Lembrete</label>
+                  <select value={responsavelLembrete} onChange={e=>setResponsavelLembrete(e.target.value)} className={`w-full p-2 mt-1 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'} text-sm bg-white`}>
+                    <option value="">Selecione...</option>
+                    {funcionarios.map((f: any) => <option key={f.id} value={f.id}>{f.nome} - {Array.isArray(f.cargo) ? f.cargo[0] : f.cargo}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase flex items-center">Horário do Disparo</label>
+                  <input type="time" value={horaLembrete} onChange={e=>setHoraLembrete(e.target.value)} className={`w-full p-2 mt-1 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'} text-sm bg-white`} />
+                </div>
               </div>
             )}
           </div>
