@@ -41,7 +41,8 @@ export default function RelatoriosManager() {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
-        list.sort((a, b) => b.timestamp - a.timestamp); // Mais recentes primeiro
+        list.sort((a, b) => b.timestamp - a.timestamp);
+        list.sort((a, b) => b.timestamp - a.timestamp);
         setTransferencias(list);
       } else {
         setTransferencias([]);
@@ -82,23 +83,23 @@ export default function RelatoriosManager() {
   const calcularGastos = () => {
     const agora = new Date();
     const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
-    const inicioSemana = inicioHoje - (7 * 24 * 60 * 60 * 1000); // Últimos 7 dias
-    const inicioQuinzena = inicioHoje - (15 * 24 * 60 * 60 * 1000); // Últimos 15 dias
-    const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).getTime(); // Dia 1 do mês atual
+    const inicioSemana = inicioHoje - (7 * 24 * 60 * 60 * 1000);
+    const inicioQuinzena = inicioHoje - (15 * 24 * 60 * 60 * 1000);
+    const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).getTime();
 
     let gastos = { diario: 0, semanal: 0, quinzenal: 0, mensal: 0, fimDeSemana: 0 };
 
     historico.forEach(log => {
       const logDate = new Date(log.timestamp);
       const logTime = log.timestamp;
-      const diaSemana = logDate.getDay(); // 0 = Domingo, 6 = Sábado
+      const diaSemana = logDate.getDay();
 
       if (logTime >= inicioHoje) gastos.diario += log.custoTotal;
       if (logTime >= inicioSemana) gastos.semanal += log.custoTotal;
       if (logTime >= inicioQuinzena) gastos.quinzenal += log.custoTotal;
       if (logTime >= inicioMes) gastos.mensal += log.custoTotal;
       
-      // Calcula o gasto dos finais de semana (Sáb e Dom) dentro do mês atual
+
       if (logTime >= inicioMes && (diaSemana === 0 || diaSemana === 6)) {
         gastos.fimDeSemana += log.custoTotal;
       }
@@ -159,7 +160,7 @@ export default function RelatoriosManager() {
     window.print();
   };
 
-  // Calcula o valor financeiro total de todos os insumos estocados
+
   const valorEstoque = insumos.reduce((acc, i) => {
     const totalQtd = (i.estoqueEstacionario ?? 0) + (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
     const custoUnitario = i.precoPacote / (i.qtdPacote || 1);
@@ -188,7 +189,7 @@ export default function RelatoriosManager() {
     );
   };
 
-  // Função inteligente para exibir caixas e unidades restantes
+
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
     const vols = Math.floor(qtd / pacote);

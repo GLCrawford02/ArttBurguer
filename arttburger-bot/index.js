@@ -12,14 +12,13 @@ admin.initializeApp({
 
 const db = admin.database();
 
-// 2. Inicializar o Cliente do WhatsApp
+
 const client = new Client({
     // LocalAuth salva a sua sessão. Você só escaneia o QR Code na primeira vez!
-    authStrategy: new LocalAuth() 
+    authStrategy: new LocalAuth()
 });
 
 client.on('qr', (qr) => {
-    // Exibe o QR Code no terminal de comando
     qrcode.generate(qr, { small: true });
     console.log('🤖 Escaneie o QR Code acima com o WhatsApp da Hamburgueria.');
 });
@@ -31,19 +30,19 @@ client.on('ready', () => {
 
 client.initialize();
 
-// 3. Lógica de Checagem Automática (Roda a cada 1 minuto)
+
 function iniciarChecagemTarefas() {
     console.log('⏳ Iniciando monitoramento de tarefas...');
-    
-    // 60000 milissegundos = 1 minuto
+
+
     setInterval(async () => {
         try {
             const agora = new Date();
-            // Pega data (YYYY-MM-DD) e hora (HH:MM) atuais de forma local
+
             const hojeStr = agora.getFullYear() + '-' + String(agora.getMonth() + 1).padStart(2, '0') + '-' + String(agora.getDate()).padStart(2, '0');
             const horaAtualStr = String(agora.getHours()).padStart(2, '0') + ':' + String(agora.getMinutes()).padStart(2, '0');
 
-            // Busca as tarefas e funcionários do banco
+
             const tarefasSnap = await db.ref('tarefas').once('value');
             const tarefas = tarefasSnap.val();
             if (!tarefas) return;
@@ -52,21 +51,21 @@ function iniciarChecagemTarefas() {
             const funcionarios = funcionariosSnap.val() || {};
 
             for (const [id, tarefa] of Object.entries(tarefas)) {
-                // Se a tarefa tá pendente e AINDA NÃO FOI notificada
+
                 if (tarefa.status === 'pendente' && !tarefa.notificadoWhatsApp) {
                     const dataTarefa = tarefa.dataAgendada;
                     const horaTarefa = tarefa.horaAgendada;
 
-                    // Verifica se a data é hoje (ou antes) e a hora já deu
+
                     if (dataTarefa < hojeStr || (dataTarefa === hojeStr && horaTarefa <= horaAtualStr)) {
                         
                         const funcionario = funcionarios[tarefa.responsavelId];
-                        
+
                         if (funcionario && funcionario.telefone) {
-                            // Limpa o telefone deixando só números
+
                             let telefoneLimpo = funcionario.telefone.replace(/\D/g, '');
                             
-                            // Formata o telefone (Adiciona 55 se não tiver)
+
                             let numeroMovel = telefoneLimpo;
                             if (!numeroMovel.startsWith('55')) {
                                 numeroMovel = '55' + numeroMovel;
@@ -77,18 +76,19 @@ function iniciarChecagemTarefas() {
                             console.log(`📤 Tentando enviar mensagem para ${funcionario.nome} (${numeroMovel})...`);
                             
                             try {
-                                // Valida se o número possui WhatsApp ativo
+
                                 let numberId = await client.getNumberId(numeroMovel);
 
-                                // Tratamento para o problema do 9º dígito no Brasil
+
+
                                 if (!numberId && numeroMovel.startsWith('55') && numeroMovel.length === 13) {
-                                    // Remove o 9 após o DDD (ex: 55 38 9 9999-9999 vira 55 38 9999-9999)
+
                                     const numeroSemNove = numeroMovel.substring(0, 4) + numeroMovel.substring(5);
                                     numberId = await client.getNumberId(numeroSemNove);
                                 }
 
                                 if (numberId) {
-                                    // Envia a mensagem usando o ID exato validado pela API
+
                                     await client.sendMessage(numberId._serialized, mensagem);
                                     console.log(`✅ Tarefa "${tarefa.titulo}" notificada com sucesso.`);
                                 } else {
@@ -98,8 +98,7 @@ function iniciarChecagemTarefas() {
                                 console.error(`❌ Erro interno do WhatsApp ao notificar ${funcionario.nome}:`, sendError.message);
                                 console.log(`💡 DICA: Envie um "Oi" do celular da hamburgueria para este funcionário uma única vez para o WhatsApp criar a rota!`);
                             }
-                            
-                            // Marca a tarefa como notificada independente de erro para não travar o loop
+
                             await db.ref(`tarefas/${id}`).update({ notificadoWhatsApp: true });
                         }
                     }

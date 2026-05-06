@@ -50,7 +50,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Estados dos Formulários
+
   const [editId, setEditId] = useState<string | null>(null);
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('');
@@ -69,7 +69,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [nomeForn, setNomeForn] = useState('');
   const [telForn, setTelefoneForn] = useState('');
 
-  // Estados do Calendário e Agendamentos
+
   const [tituloAg, setTituloAg] = useState('');
   const [dataAg, setDataAg] = useState('');
   const [horaAg, setHoraAg] = useState('');
@@ -143,7 +143,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   useEffect(() => { resetForms(); }, [activeTab, subTabCalendario]);
 
-  // ================= Funções CRUD =================
+
   const salvarFornecedor = async () => {
     if (!nomeForn) return showToast('Nome é obrigatório', 'error');
     if (editId) await update(ref(db, `fornecedores/${editId}`), { nome: nomeForn, telefone: telForn });
@@ -226,7 +226,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const alternarStatus = async (tipo: 'pagar' | 'receber', id: string, novoStatus: string) => {
     await update(ref(db, `contas_${tipo}/${id}`), { status: novoStatus });
 
-    // Processar Recorrência Automática
+
     const lista = tipo === 'pagar' ? contasPagar : contasReceber;
     const conta = lista.find(c => c.id === id);
     
@@ -267,12 +267,12 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     if (confirm('Tem certeza que deseja excluir este registro?')) await remove(ref(db, caminho));
   };
 
-  // ================= Helpers =================
+
   const formatarMoeda = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
   const formatarData = (d: string) => { const [ano, mes, dia] = d.split('-'); return `${dia}/${mes}/${ano}`; };
   const hoje = new Date().toISOString().split('T')[0];
 
-  // ================= Renders (Visualizações) =================
+
   const renderDashboard = () => {
     const pagarPendente = contasPagar.filter(c => c.status === 'Pendente').reduce((acc, c) => acc + c.valor, 0);
     const pagarPago = contasPagar.filter(c => c.status === 'Pago').reduce((acc, c) => acc + c.valor, 0);

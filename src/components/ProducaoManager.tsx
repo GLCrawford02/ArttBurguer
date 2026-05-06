@@ -21,7 +21,7 @@ export default function ProducaoManager() {
   };
 
   useEffect(() => {
-    const interval = setInterval(() => setCurrentTime(Date.now()), 60000); // Atualiza a cada 1 min
+    const interval = setInterval(() => setCurrentTime(Date.now()), 60000);
     return () => clearInterval(interval);
   }, []);
 
@@ -71,10 +71,10 @@ export default function ProducaoManager() {
   }, []);
 
   const registrarProducao = async (produto: Produto | Promocao | any) => {
-    const multiplicador = quantidades[produto.id] || 1; // Padrão é 1 se não preenchido
+    const multiplicador = quantidades[produto.id] || 1;
     if (multiplicador <= 0) return;
 
-    // 1. Verificar se há estoque suficiente de TODOS os ingredientes
+
     const checks = (produto.ingredientes || []).map((ing: any) => {
       const insumo = insumos.find(i => i.id === ing.insumoId);
       const qtdNecessaria = ing.quantidade * multiplicador;
@@ -92,7 +92,7 @@ export default function ProducaoManager() {
       return;
     }
 
-    // 2. Realizar o abatimento no estoque de forma segura (Transaction)
+
     for (const ing of (produto.ingredientes || [])) {
       const insumoRef = ref(db, `insumos/${ing.insumoId}`);
       const qtdNecessaria = ing.quantidade * multiplicador;
@@ -105,13 +105,12 @@ export default function ProducaoManager() {
     }
 
     showToast(`Produção de ${multiplicador}x ${produto.nome} registrada com sucesso!\nO estoque foi atualizado.`, 'success');
-    setQuantidades({ ...quantidades, [produto.id]: 1 }); // Reseta o input
+    setQuantidades({ ...quantidades, [produto.id]: 1 });
   };
 
   const checkPromocaoValida = (promo: Promocao) => {
     const now = new Date();
-    
-    // Checa limite de datas
+
     if (promo.dataInicio) {
       const start = new Date(`${promo.dataInicio}T00:00:00`);
       if (now < start) return false;
@@ -121,7 +120,7 @@ export default function ProducaoManager() {
       if (now > end) return false;
     }
 
-    // Checa limite de horário, inclusive os que viram a noite
+
     if (promo.horarioInicio || promo.horarioFim) {
       const currentMinutes = now.getHours() * 60 + now.getMinutes();
       let startMinutes = 0;
@@ -145,7 +144,7 @@ export default function ProducaoManager() {
 
   const handleFinalizarPedido = async (pedido: any) => {
     try {
-      // Realiza a baixa do estoque baseando-se nos itens do pedido
+
       for (const item of pedido.itens) {
         const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
         if (!prod) continue;

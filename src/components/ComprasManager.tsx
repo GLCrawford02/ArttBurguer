@@ -79,7 +79,7 @@ export default function ComprasManager() {
       return;
     }
 
-    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1); // Multiplica os volumes pela Qtd na Embalagem
+    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1);
     const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
 
     if (insumo.estoqueMaximo && novoEstoque > insumo.estoqueMaximo && !isConfirmedAdmin) {
@@ -110,14 +110,13 @@ export default function ComprasManager() {
     });
 
     if (result.committed) {
-      // Salvar no histórico de compras financeiro
       const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'Unidade';
       const custoTotalCompra = qtdVolumes * (insumo.precoPacote || 0);
       const historicoRef = push(ref(db, 'historico_compras'));
       await set(historicoRef, {
         insumoId: insumo.id,
         nome: insumo.nome,
-        qtdPacotes: qtdVolumes, // Mantido para compatibilidade
+        qtdPacotes: qtdVolumes,
         qtdEmbalagens: qtdVolumes,
         tipoEmbalagem: tipoEmb,
         qtdUnidadesAdicionadas: qtdAdicionar,
@@ -129,7 +128,7 @@ export default function ComprasManager() {
       });
       
       showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdVolumes} ${(insumo.qtdPacote || 1) > 1 ? 'Volume(s)' : 'UN'} = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
-      setQuantidades({ ...quantidades, [insumo.id]: 0 }); // Limpa o campo
+      setQuantidades({ ...quantidades, [insumo.id]: 0 });
       setLotes({ ...lotes, [insumo.id]: '' });
       setValidades({ ...validades, [insumo.id]: '' });
     } else {
@@ -199,7 +198,7 @@ export default function ComprasManager() {
     return matchSearch && matchTipo;
   });
 
-  // Função inteligente para exibir caixas e unidades restantes
+
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
     const vols = Math.floor(qtd / pacote);

@@ -110,8 +110,6 @@ export default function PromocoesManager() {
       showToast('Já existe uma promoção ou combo com este nome.', 'error');
       return;
     }
-
-    // Achata (combina) todas as fichas técnicas dos produtos do combo
     const mapIngredientes: Record<string, number> = {};
     itensSelecionados.forEach(item => {
       const p = produtos.find(prod => prod.id === item.produtoId);
@@ -215,8 +213,6 @@ export default function PromocoesManager() {
         </div>
         
         <div className="space-y-6">
-          
-          {/* Informações Principais */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Informações Principais</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -240,8 +236,6 @@ export default function PromocoesManager() {
               </div>
             </div>
           </div>
-
-          {/* Período de Validade */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Período de Validade (Opcional)</h4>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
@@ -263,8 +257,6 @@ export default function PromocoesManager() {
               </div>
             </div>
           </div>
-
-          {/* Composição do Combo */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Composição do Combo</h4>
             <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">

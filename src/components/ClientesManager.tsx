@@ -29,7 +29,7 @@ export default function ClientesManager() {
   const [expandedClienteId, setExpandedClienteId] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
 
-  // Form States
+
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
   const [cpf, setCpf] = useState('');
@@ -67,7 +67,7 @@ export default function ClientesManager() {
     return () => unsub();
   }, []);
 
-  // Máscaras e formatação
+
   const formatCPF = (val: string) => val.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
   const formatPhone = (val: string) => val.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4,5})(\d{4})$/, '$1-$2').substring(0, 15);
   const formatCEP = (val: string) => val.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2').substring(0, 9);
@@ -87,7 +87,7 @@ export default function ClientesManager() {
           setBairro(data.bairro || '');
           setCidade(data.localidade || '');
           setUf(data.uf || '');
-          // Foca automaticamente no número após achar o endereço
+
           document.getElementById('numero_end')?.focus();
         } else {
           showToast('CEP não encontrado.', 'error');
@@ -200,7 +200,7 @@ export default function ClientesManager() {
         </div>
         
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Dados Pessoais */}
+
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Dados Pessoais</h4>
             <div className="space-y-1">
@@ -219,7 +219,7 @@ export default function ClientesManager() {
             </div>
           </div>
 
-          {/* Endereço e Rota */}
+
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2 flex items-center">
               <MapPin size={16} className="mr-1 text-indigo-500"/> Endereço de Entrega
@@ -263,7 +263,7 @@ export default function ClientesManager() {
             </div>
           </div>
 
-          {/* Observações */}
+
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4 lg:col-span-2">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Observações (Cadastro / Entrega)</h4>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -312,7 +312,7 @@ export default function ClientesManager() {
                 </div>
               </div>
               
-              {/* Perfil de Pedidos (Expansível) */}
+
               <div className="bg-gray-50 border-t border-gray-100">
                 <button onClick={() => setExpandedClienteId(expandedClienteId === c.id ? null : c.id)} className="w-full p-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 transition-colors flex justify-center items-center">
                   Perfil do Cliente {expandedClienteId === c.id ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>}

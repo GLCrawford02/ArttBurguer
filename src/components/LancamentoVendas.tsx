@@ -13,7 +13,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [promocoes, setPromocoes] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
 
-  // States PDV (Frente de Caixa Real)
+
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
   const [mesaSelecionada, setMesaSelecionada] = useState<number | null>(null);
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
@@ -27,7 +27,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [pdvCliente, setPdvCliente] = useState<any | null>(null);
   const [pdvTipoPedido, setPdvTipoPedido] = useState<'Balcão' | 'Entrega' | 'Mesa'>('Balcão');
 
-  // States Conferência (Admin/Financeiro Simulador)
+
   const [showConfModal, setShowConfModal] = useState(false);
   const [confCarrinho, setConfCarrinho] = useState<Record<string, { nome: string, preco: number, qtd: number }>>({});
   const [confPagamentos, setConfPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
@@ -101,7 +101,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     ...taxas
   ];
 
-  // --- PDV LOGIC ---
+
   const totalPdv = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
   const pagoPdv = pdvPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
   const restantePdv = totalPdv - pagoPdv;
@@ -111,7 +111,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     else if (totalPdv === 0) setPdvPagamentos([{ taxaId: pdvPagamentos[0]?.taxaId || '', valor: 0 }]);
   }, [totalPdv]);
 
-  // --- CONFERENCIA LOGIC ---
+
   const totalConf = Object.values(confCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
   const pagoConf = confPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
   const restanteConf = totalConf - pagoConf;
@@ -127,7 +127,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       const newQtd = current.qtd + delta;
       if (newQtd <= 0) { const { [id]: _, ...rest } = prev; return rest; }
       let newEnviado = current.enviadoCozinha || 0;
-      if (newQtd < newEnviado) newEnviado = newQtd; // Limita o enviado se o usuário remover um item
+      if (newQtd < newEnviado) newEnviado = newQtd;
       return { ...prev, [id]: { ...current, qtd: newQtd, enviadoCozinha: newEnviado } };
     });
   };
@@ -176,7 +176,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const handleSalvarMesa = async () => {
     if (Object.keys(pdvCarrinho).length === 0) {
       await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
-      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`)); // Limpa o cache antigo
+      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
     } else {
       const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa');
@@ -184,7 +184,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
         carrinho: novoCarrinho,
         timestamp: Date.now()
       });
-      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`)); // Limpa o cache antigo
+      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Pedido salvo na Mesa ${mesaSelecionada}!`, 'success');
     }
     setPdvView('mapa');
@@ -280,7 +280,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
 
     const lancamentosHoje = lancamentos.filter(l => l.timestamp >= inicioHoje).sort((a, b) => b.timestamp - a.timestamp);
-    // O Sistema reflete as vendas computadas pelo Frente de Caixa PDV
+
     const vendasHoje = vendasPdv.filter(v => v.timestamp >= inicioHoje);
 
     const totalLancado = lancamentosHoje.reduce((acc, l) => acc + l.valor, 0);

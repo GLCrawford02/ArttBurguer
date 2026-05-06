@@ -15,7 +15,7 @@ export default function PermissoesManager() {
     setTimeout(() => setToast(null), 3000);
   };
 
-  // Lista de todos os módulos do sistema
+
   const modulos = [
     { id: 'insumos', nome: 'Insumos' },
     { id: 'produtos', nome: 'Produtos e Combos' },
@@ -87,10 +87,10 @@ export default function PermissoesManager() {
   };
 
   const handleToggle = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
-    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono') return; // Bases não têm restrições
+    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono') return;
 
     setPermissoes(prev => {
-      const newState = JSON.parse(JSON.stringify(prev)); // Copia profunda para não mutar estado
+      const newState = JSON.parse(JSON.stringify(prev));
       
       if (!newState[selectedCargo]) newState[selectedCargo] = {};
       if (!newState[selectedCargo][moduloId]) {
@@ -100,12 +100,9 @@ export default function PermissoesManager() {
       const currentVal = newState[selectedCargo][moduloId][acao];
       newState[selectedCargo][moduloId][acao] = !currentVal;
 
-      // Regras de negócio automáticas:
-      // 1. Se permitir editar ou apagar, deve obrigatoriamente permitir visualizar
       if (!currentVal && (acao === 'editar' || acao === 'apagar')) {
         newState[selectedCargo][moduloId].visualizar = true;
       }
-      // 2. Se remover visualizar, deve obrigatoriamente remover editar e apagar
       if (currentVal && acao === 'visualizar') {
         newState[selectedCargo][moduloId].editar = false;
         newState[selectedCargo][moduloId].apagar = false;

@@ -9,10 +9,14 @@ export default function ProdutosManager() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [nomeProduto, setNomeProduto] = useState('');
-  const [categoria, setCategoria] = useState('Hambúrguer');
+  const [categoria, setCategoria] = useState('');
   const [precoVenda, setPrecoVenda] = useState<string>('');
   const [ingredientesSelecionados, setIngredientesSelecionados] = useState<IngredienteReceita[]>([]);
   
+  const [categoriasDb, setCategoriasDb] = useState<{id: string, nome: string}[]>([]);
+  const [showCategoriasModal, setShowCategoriasModal] = useState(false);
+  const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
+
   const [criarDuplo, setCriarDuplo] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [editId, setEditId] = useState<string | null>(null);
@@ -28,8 +32,6 @@ export default function ProdutosManager() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
   };
-
-  // Para adicionar ingrediente à ficha técnica
   const [expandedProdutoId, setExpandedProdutoId] = useState<string | null>(null);
   const [tempInsumoId, setTempInsumoId] = useState('');
   const [tempQtd, setTempQtd] = useState(0);
@@ -37,12 +39,13 @@ export default function ProdutosManager() {
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
     const produtosRef = ref(db, 'produtos');
+    const categoriasRef = ref(db, 'categorias_produtos');
 
     const unsubInsumos = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
-          list.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); // Ordena Insumos de A a Z
+          list.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
         setInsumos(list);
       }
     });
@@ -51,7 +54,7 @@ export default function ProdutosManager() {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
-          list.sort((a, b) => (a.nome || '').localeCompare(b.nome || '')); // Ordena Produtos de A a Z
+          list.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
         setProdutos(list);
       } else {
         setProdutos([]);
@@ -59,9 +62,19 @@ export default function ProdutosManager() {
       setLoading(false);
     });
 
+    const unsubCategorias = onValue(categoriasRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setCategoriasDb(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setCategoriasDb([]);
+      }
+    });
+
     return () => {
       unsubInsumos();
       unsubProdutos();
+      unsubCategorias();
     };
   }, []);
 
@@ -87,6 +100,18 @@ export default function ProdutosManager() {
 
   const removeIngrediente = (index: number) => {
     setIngredientesSelecionados(ingredientesSelecionados.filter((_, i) => i !== index));
+  };
+
+  const handleAddCategoria = async () => {
+    if (!novaCategoriaForm.trim()) return;
+    await set(push(ref(db, 'categorias_produtos')), { nome: novaCategoriaForm.trim() });
+    setNovaCategoriaForm('');
+  };
+
+  const handleDeleteCategoria = async (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
+      await remove(ref(db, `categorias_produtos/${id}`));
+    }
   };
 
   const salvarProduto = async () => {
@@ -127,7 +152,6 @@ export default function ProdutosManager() {
         });
         setEditId(null);
       } else if (criarDuplo) {
-        // Função para buscar o ID do insumo pelo nome ignorando maiúsculas/minúsculas e espaços
         const getIdPorNome = (nomeBuscado: string) => 
           insumos.find(i => (i.nome || '').trim().toLowerCase() === (nomeBuscado || '').trim().toLowerCase())?.id;
         
@@ -146,8 +170,6 @@ export default function ProdutosManager() {
           { nome: 'Sache Maionese', qtd: 1 },
           { nome: 'Guardanapo', qtd: 1 }
         ];
-  
-        // Constrói a lista de ingredientes mesclando a receita base com as embalagens
         const buildIngredientes = (extras: {nome: string, qtd: number}[]) => {
           const novos = ingredientesSelecionados.map(ing => ({ ...ing }));
           extras.forEach(extra => {
@@ -183,7 +205,7 @@ export default function ProdutosManager() {
       }
   
       setNomeProduto('');
-      setCategoria('Hambúrguer');
+      setCategoria('');
       setPrecoVenda('');
       setIngredientesSelecionados([]);
       setCriarDuplo(false);
@@ -313,7 +335,7 @@ Formato esperado:
   const handleCancelEdit = () => {
     setEditId(null);
     setNomeProduto('');
-    setCategoria('Hambúrguer');
+    setCategoria('');
     setPrecoVenda('');
     setIngredientesSelecionados([]);
   };
@@ -471,17 +493,17 @@ Formato esperado:
                 />
               </div>
               <div className="space-y-1 sm:col-span-3">
-                <label className="text-xs font-bold text-gray-500 uppercase">Categoria</label>
+                <div className="flex justify-between items-end">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Categoria</label>
+                  <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 uppercase leading-none pb-0.5">Gerenciar</button>
+                </div>
                 <select
                   value={categoria}
                   onChange={e => setCategoria(e.target.value)}
                   className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
                 >
-                  <option value="Hambúrguer">Hambúrguer</option>
-                  <option value="Porção">Porção</option>
-                  <option value="Bebida">Bebida</option>
-                  <option value="Sobremesa">Sobremesa</option>
-                  <option value="Outros">Outros</option>
+                  <option value="">Selecione...</option>
+                  {categoriasDb.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
                 </select>
               </div>
               <div className="space-y-1 sm:col-span-3">
@@ -527,8 +549,6 @@ Formato esperado:
               </div>
             )}
           </div>
-
-          {/* Ficha Técnica */}
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Composição (Ficha Técnica)</h4>
             
@@ -738,6 +758,30 @@ Formato esperado:
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}
           <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
+
+      {showCategoriasModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Categorias de Produtos</h3>
+              <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="flex space-x-2">
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Ex: Combos, Bebidas..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+              <button onClick={handleAddCategoria} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors text-sm">Adicionar</button>
+            </div>
+            <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+              {categoriasDb.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                  <span className="text-sm font-medium text-gray-700">{c.nome}</span>
+                  <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                </div>
+              ))}
+              {categoriasDb.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhuma categoria cadastrada.</p>}
+            </div>
+          </div>
         </div>
       )}
     </div>

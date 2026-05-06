@@ -23,7 +23,7 @@ export default function BalancoManager() {
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
-        list.sort((a, b) => a.nome.localeCompare(b.nome)); // Ordena de A a Z
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
         setInsumos(list);
       } else {
         setInsumos([]);
@@ -67,7 +67,7 @@ export default function BalancoManager() {
           currentData.lotes[loteId].quantidade = novoValor;
           currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) - oldQtd + novoValor);
           
-          if (novoValor === 0) delete currentData.lotes[loteId]; // Remove lote se zerar
+          if (novoValor === 0) delete currentData.lotes[loteId];
         } else if (isLegacy) {
           currentData.estoqueEstacionario = novoValor;
           if (novoValor === 0) {
@@ -136,7 +136,7 @@ export default function BalancoManager() {
     document.body.removeChild(link);
   };
 
-  // Função inteligente para exibir caixas e unidades restantes
+
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
     const vols = Math.floor(qtd / pacote);

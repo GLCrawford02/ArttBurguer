@@ -101,7 +101,7 @@ export default function TransferenciaManager() {
             currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
             currentData.estoqueRotativo = estRotativo + unitsToTransfer;
 
-            // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
+
             if (currentData.lotes) {
               let qtdRestante = unitsToTransfer;
               const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
@@ -116,7 +116,7 @@ export default function TransferenciaManager() {
                 if (qtdRestante <= 0) break;
                 if (l.quantidade <= qtdRestante) {
                   qtdRestante -= l.quantidade;
-                  delete currentData.lotes[l.id]; // Lote esgotado, remove
+                  delete currentData.lotes[l.id];
                 } else {
                   currentData.lotes[l.id].quantidade -= qtdRestante;
                   qtdRestante = 0;
@@ -135,9 +135,9 @@ export default function TransferenciaManager() {
       if (result.committed) {
         const transRef = ref(db, 'historico_transferencias');
         await set(push(transRef), {
-          insumoId: insumo.id, // ID do insumo
-          nomeInsumo: insumo.nome, // Nome do insumo
-          quantidade: unitsToTransfer, // Quantidade REAL de UNIDADES transferidas
+          insumoId: insumo.id,
+          nomeInsumo: insumo.nome,
+          quantidade: unitsToTransfer,
           funcionarioId: func.id,
           funcionarioNome: func.nome,
           timestamp: Date.now()
@@ -172,7 +172,7 @@ export default function TransferenciaManager() {
               currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
               currentData.estoqueRotativo = estRotativo + unitsToTransfer;
 
-              // Abater dos lotes usando FIFO (vence primeiro, sai primeiro)
+
               if (currentData.lotes) {
                 let qtdRestante = unitsToTransfer;
                 const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
@@ -187,7 +187,7 @@ export default function TransferenciaManager() {
                   if (qtdRestante <= 0) break;
                   if (l.quantidade <= qtdRestante) {
                     qtdRestante -= l.quantidade;
-                    delete currentData.lotes[l.id]; // Lote esgotado, remove
+                    delete currentData.lotes[l.id];
                   } else {
                     currentData.lotes[l.id].quantidade -= qtdRestante;
                     qtdRestante = 0;
@@ -237,7 +237,7 @@ export default function TransferenciaManager() {
     return matchSearch && matchTipo;
   });
 
-  // Função inteligente para exibir caixas e unidades restantes
+
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
     const vols = Math.floor(qtd / pacote);

@@ -9,7 +9,7 @@ export default function InsumosManager() {
   const [searchTerm, setSearchTerm] = useState('');
   
   const [editId, setEditId] = useState<string | null>(null);
-  // Form state
+
   const [nome, setNome] = useState('');
   const [sku, setSku] = useState('');
   const [unidade, setUnidade] = useState('g');
@@ -22,7 +22,7 @@ export default function InsumosManager() {
   const [tipoUso, setTipoUso] = useState('');
 
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
-  // Tipos de uso customizáveis
+
   const [tiposUsoDb, setTiposUsoDb] = useState<{id: string, nome: string}[]>([]);
   const [showTiposModal, setShowTiposModal] = useState(false);
   const [novoTipoForm, setNovoTipoForm] = useState('');
@@ -30,7 +30,7 @@ export default function InsumosManager() {
   const [cadastroMode, setCadastroMode] = useState<'manual' | 'ia'>('manual');
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
-  // Chave da API da xAI (Grok) - Mantida fixa no código (sistema de uso interno restrito, conforme solicitado)
+
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -155,7 +155,7 @@ export default function InsumosManager() {
       showToast('Insumo salvo com sucesso!', 'success');
     }
 
-    // Reset form
+
     setNome('');
     setSku('');
     setUnidade('g');
@@ -357,7 +357,7 @@ Formato esperado para cada objeto:
         {cadastroMode === 'manual' || editId ? (
           <div className="space-y-6">
             
-            {/* Informações Principais */}
+
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
               <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Informações Principais</h4>
               <div className="grid grid-cols-1 sm:grid-cols-12 gap-4">
@@ -382,7 +382,7 @@ Formato esperado para cada objeto:
               </div>
             </div>
 
-            {/* Compra e Medida */}
+
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
               <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Compra e Medida</h4>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -419,7 +419,7 @@ Formato esperado para cada objeto:
               </div>
             </div>
 
-            {/* Controle de Estoque */}
+
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
               <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Controle de Estoque</h4>
               <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">

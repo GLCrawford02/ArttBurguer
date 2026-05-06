@@ -8,8 +8,8 @@ export interface Tarefa {
   id: string;
   titulo: string;
   descricao: string;
-  responsavelId?: string; // Legado
-  responsaveisIds?: string[]; // Novo modelo múltiplo
+  responsavelId?: string;
+  responsaveisIds?: string[];
   dataAgendada: string;
   horaAgendada: string;
   status: 'pendente' | 'concluida';
@@ -45,21 +45,21 @@ export default function TarefasManager() {
   };
 
   useEffect(() => {
-    // Buscar Funcionários
+
     const funcRef = ref(db, 'funcionarios');
     const unsubFunc = onValue(funcRef, (snap) => {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
-        setFuncionarios(list.filter(f => f.ativo !== false)); // Apenas ativos
+        setFuncionarios(list.filter(f => f.ativo !== false));
       }
     });
 
-    // Buscar Tarefas
+
     const tarefasRef = ref(db, 'tarefas');
     const unsubTarefas = onValue(tarefasRef, (snap) => {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
-        // Ordenar por data e hora mais próxima
+
         list.sort((a, b) => {
           const dateA = new Date(`${a.dataAgendada || '1970-01-01'}T${a.horaAgendada || '00:00'}`);
           const dateB = new Date(`${b.dataAgendada || '1970-01-01'}T${b.horaAgendada || '00:00'}`);
@@ -91,7 +91,7 @@ export default function TarefasManager() {
         categoria,
         recorrencia,
         status: 'pendente',
-        notificadoWhatsApp: false, // Preparação para a API do Zap
+        notificadoWhatsApp: false,
         timestamp: Date.now()
       });
       
@@ -108,9 +108,9 @@ export default function TarefasManager() {
     const novoStatus = tarefa.status === 'pendente' ? 'concluida' : 'pendente';
     await update(ref(db, `tarefas/${tarefa.id}`), { status: novoStatus });
     
-    // Lógica de Recorrência
+
     if (novoStatus === 'concluida' && tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma') {
-      const d = new Date(`${tarefa.dataAgendada}T12:00:00`); // 12h para evitar fuso horário
+      const d = new Date(`${tarefa.dataAgendada}T12:00:00`);
       if (tarefa.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
       else if (tarefa.recorrencia === 'Semanal') d.setDate(d.getDate() + 7);
       

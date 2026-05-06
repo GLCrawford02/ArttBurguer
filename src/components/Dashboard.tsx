@@ -35,7 +35,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
           id,
           ...val,
         }));
-        list.sort((a, b) => a.nome.localeCompare(b.nome)); // Ordena de A a Z
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
         setInsumos(list);
       } else {
         setInsumos([]);
@@ -94,7 +94,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     };
   }, []);
 
-  // O alerta de estoque baixo agora considera o Estacionado
+
   const baixos = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
   const excedentes = insumos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
 
@@ -250,10 +250,10 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const lembretesPagar = contasPagar.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
   const lembretesReceber = contasReceber.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
 
-  // Pega os tipos únicos existentes para o select de filtro
+
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
-  // Função inteligente para exibir caixas e unidades restantes
+
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
     const vols = Math.floor(qtd / pacote);

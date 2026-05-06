@@ -98,11 +98,8 @@ export default function GestaoEquipeManager() {
     if (!aiPrompt.trim()) return;
     setIsGenerating(true);
     setAiResponse('');
-
-    // Monta o contexto da equipe atual
     const teamContext = funcionarios.filter(f => {
       const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-      // Só esconde se a pessoa for EXCLUSIVAMENTE Admin ou Gerente (sem cargos operacionais)
       return (f as any).ativo !== false && !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono');
     }).map(f => {
       const g = gestaoData[f.id] || {};
@@ -149,8 +146,6 @@ export default function GestaoEquipeManager() {
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
-      
-      {/* Coluna Esquerda: Gestão Individual */}
       <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><UserCircle className="mr-2 text-blue-600" size={24}/> Perfis da Equipe</h3>
         
@@ -195,8 +190,6 @@ export default function GestaoEquipeManager() {
           <div className="mt-8 text-center text-gray-400 py-12 border-2 border-dashed border-gray-200 rounded-xl"><p>Selecione um funcionário acima para gerenciar os dados.</p></div>
         )}
       </div>
-
-      {/* Coluna Direita: IA */}
       <div className="lg:col-span-5 bg-gradient-to-br from-gray-900 to-indigo-950 p-6 rounded-xl shadow-lg border border-gray-800 text-white flex flex-col h-full">
         <h3 className="text-xl font-bold mb-2 flex items-center"><Bot className="mr-2 text-indigo-400"/> Gestor IA</h3>
         <p className="text-gray-400 text-sm mb-6">A IA analisa as funções que você cadastrou para cada membro da equipe. Relate uma ausência, pico de movimento ou demissão, e veja uma sugestão tática imediata de cobertura.</p>

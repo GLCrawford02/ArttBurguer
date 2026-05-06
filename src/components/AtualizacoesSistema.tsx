@@ -3,7 +3,20 @@ import { Rocket, Star, CheckCircle, Flame, Map } from 'lucide-react';
 export default function AtualizacoesSistema() {
   const updates = [
     {
-      versao: '1.1.5',
+      versao: '1.1.7',
+      data: 'Lançamento Recente',
+      titulo: 'Categorias Dinâmicas e IA para Produtos',
+      descricao: 'Mais flexibilidade no cadastro de produtos e um assistente inteligente para agilizar seu trabalho.',
+      features: [
+        'Categorias de produtos agora são totalmente personalizáveis (adicionar, editar, excluir).',
+        'Assistente de IA para cadastro de produtos: descreva o produto e a IA preenche os detalhes.',
+        'Melhorias na interface de usuário para gerenciamento de categorias e tipos de insumos.',
+        'Otimização de performance no carregamento de listas de produtos e insumos.'
+      ],
+      icon: <Star className="text-yellow-500" size={20} />
+    },
+    {
+      versao: '1.1.6',
       data: 'Versão Atual',
       titulo: 'Integração PDV & Cozinha e Mapa de Mesas',
       descricao: 'Uma revolução na forma de atender seus clientes e produzir os lanches.',
@@ -16,7 +29,7 @@ export default function AtualizacoesSistema() {
       icon: <Flame className="text-orange-500" size={20} />
     },
     {
-      versao: '1.1.4',
+      versao: '1.1.5',
       data: 'Atualização Anterior',
       titulo: 'Logística & Gestão de Equipe com IA',
       descricao: 'Controle total das entregas e inteligência artificial para o RH.',
@@ -29,7 +42,7 @@ export default function AtualizacoesSistema() {
       icon: <Map className="text-indigo-500" size={20} />
     },
     {
-      versao: '1.1.3',
+      versao: '1.1.4',
       data: 'Base Sólida',
       titulo: 'Financeiro, Calendário & Permissões',
       descricao: 'Seu dinheiro e segurança controlados em um só lugar.',
@@ -39,7 +52,7 @@ export default function AtualizacoesSistema() {
         'Contas a pagar e receber com recursos de "Recorrência" inteligente.',
         'Diferenciação clara entre Administrador, Gerente, Cozinheiro, Entregador e Atendente.'
       ],
-      icon: <Star className="text-yellow-500" size={20} />
+      icon: <Flame className="text-orange-500" size={20} />
     }
   ];
 

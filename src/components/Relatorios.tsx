@@ -28,12 +28,12 @@ export default function Relatorios() {
 
     const consolidar = () => {
       const lista = [...rawMovimentacoes, ...rawDescartes];
-      // Ordena da mais recente para a mais antiga
+
       lista.sort((a, b) => b.timestamp - a.timestamp);
       setMovimentacoes(lista);
     };
 
-    // Escuta entradas e saídas normais
+
     const movRef = ref(db, 'movimentacoes');
     const unsubMov = onValue(movRef, (snapshot) => {
       const data = snapshot.val();
@@ -43,7 +43,7 @@ export default function Relatorios() {
       consolidar();
     });
 
-    // Escuta os descartes que já são gerados pelo Dashboard
+
     const descarteRef = ref(db, 'historico_descartes');
     const unsubDescarte = onValue(descarteRef, (snapshot) => {
       const data = snapshot.val();
@@ -63,7 +63,7 @@ export default function Relatorios() {
     };
   }, []);
 
-  // Lógica de Filtros
+
   const movimentacoesFiltradas = movimentacoes.filter(m => {
     const matchTipo = filtroTipo === 'todos' || m.tipo === filtroTipo;
     const matchBusca = m.nomeInsumo?.toLowerCase().includes(buscaPesquisa.toLowerCase()) || 

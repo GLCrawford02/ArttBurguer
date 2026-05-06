@@ -67,7 +67,7 @@ export default function DespachoManager() {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
         const pendentes = list.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Pendente');
-        pendentes.sort((a, b) => a.timestamp - b.timestamp); // Mais antigos primeiro (Fila)
+        pendentes.sort((a, b) => a.timestamp - b.timestamp);
         setPedidosPendente(pendentes);
       } else setPedidosPendente([]);
     });
