@@ -85,22 +85,18 @@ client.on('message', async (msg) => {
         }
     }
 
-    // Se não for funcionário, bloqueia silenciosamente e avisa o Admin
     if (!funcionarioId) {
         console.log(`🚫 Mensagem ignorada: O número ${numeroRemetente} tentou usar o bot, mas não é um funcionário cadastrado.`);
         return;
     }
 
-    // Mantemos o ping para testes
     if (textoLimpo === 'ping') {
         await msg.reply(`pong! 🍔 Olá ${funcionarioNome.split(' ')[0]}, o bot do ArttBurger está te escutando!`);
         return;
     }
 
-    // Lógica para Baixa de Tarefas via WhatsApp
     if (textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok') {
         try {
-            // 2. Buscar tarefas pendentes deste funcionário
             const tarefasSnap = await db.ref('tarefas').once('value');
             const tarefas = tarefasSnap.val() || {};
             let tarefaParaBaixar = null;
@@ -112,17 +108,15 @@ client.on('message', async (msg) => {
                     if (responsaveis.includes(funcionarioId)) {
                         tarefaParaBaixar = tar;
                         idDaTarefa = id;
-                        break; // Pega a primeira que encontrar
+                        break; 
                     }
                 }
             }
 
             if (tarefaParaBaixar) {
-                // 3. Marca como concluída
                 await db.ref(`tarefas/${idDaTarefa}`).update({ status: 'concluida' });
                 await msg.reply(`✅ Excelente, ${funcionarioNome.split(' ')[0]}!\nA tarefa *"${tarefaParaBaixar.titulo}"* foi marcada como concluída!`);
 
-                // 4. Se a tarefa for repetitiva, criamos a próxima (Para não quebrar a arquitetura)
                 if (tarefaParaBaixar.recorrencia && tarefaParaBaixar.recorrencia !== 'Nenhuma') {
                     const d = new Date(`${tarefaParaBaixar.dataAgendada}T12:00:00`);
                     if (tarefaParaBaixar.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
@@ -289,6 +283,11 @@ function iniciarChecagemTarefas() {
                         if (!numberId && itemMsg.telefone.startsWith('55') && itemMsg.telefone.length === 13) {
                             const numeroSemNove = itemMsg.telefone.substring(0, 4) + itemMsg.telefone.substring(5);
                             numberId = await client.getNumberId(numeroSemNove);
+                        }
+                        // Tratamento inverso (Novo): Se o número foi cadastrado sem o 9, o robô coloca sozinho
+                        else if (!numberId && itemMsg.telefone.startsWith('55') && itemMsg.telefone.length === 12) {
+                            const numeroComNove = itemMsg.telefone.substring(0, 4) + '9' + itemMsg.telefone.substring(4);
+                            numberId = await client.getNumberId(numeroComNove);
                         }
                         if (numberId) {
                             await client.sendMessage(numberId._serialized, itemMsg.mensagem);
