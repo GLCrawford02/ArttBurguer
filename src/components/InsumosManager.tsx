@@ -13,7 +13,7 @@ export default function InsumosManager() {
   const [nome, setNome] = useState('');
   const [sku, setSku] = useState('');
   const [unidade, setUnidade] = useState('g');
-  const [precoPacote, setPrecoPacote] = useState('');
+  const [precoPacote, setPrecoPacote] = useState('0');
   const [qtdPacote, setQtdPacote] = useState('1');
   const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
   const [alertaMinimo, setAlertaMinimo] = useState('');
@@ -98,7 +98,6 @@ export default function InsumosManager() {
     const missingFields = [];
     if (!nome) missingFields.push('Nome do Insumo');
     if (!unidade) missingFields.push('Unidade de Medida');
-    if (!precoPacote) missingFields.push('Preço (Embalagem)');
     if (!qtdPacote) missingFields.push('Qtd. na Embalagem');
     if (!alertaMinimo) missingFields.push('Estoque Mínimo');
 
@@ -159,7 +158,7 @@ export default function InsumosManager() {
     setNome('');
     setSku('');
     setUnidade('g');
-    setPrecoPacote('');
+    setPrecoPacote('0');
     setQtdPacote('1');
     setDiasAvisoValidade('7');
     setAlertaMinimo('');
@@ -190,7 +189,7 @@ export default function InsumosManager() {
             {
               role: 'system',
               content: `Você é um assistente de cadastro de estoque. Extraia os insumos do texto do usuário, onde cada linha representa um insumo com os valores separados por vírgula na seguinte ordem:
-Nome, SKU, Preço Compra (Embalagem), Qtd na embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso.
+Nome, SKU, Preço Médio (Embalagem), Qtd na embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso.
 Não inclua crases, formatação markdown ou texto adicional, apenas o array JSON.
 Formato esperado para cada objeto:
 [{
@@ -303,7 +302,7 @@ Formato esperado para cada objeto:
     setNome('');
     setSku('');
     setUnidade('g');
-    setPrecoPacote('');
+    setPrecoPacote('0');
     setQtdPacote('1');
     setDiasAvisoValidade('7');
     setAlertaMinimo('');
@@ -400,14 +399,15 @@ Formato esperado para cada objeto:
                   </select>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase">Preço (Embalagem)</label>
+              <label className="text-xs font-bold text-gray-500 uppercase">Preço Médio (Embalagem)</label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
                     <input 
                       type="text" 
                       value={precoPacote === '' ? '' : Number(precoPacote).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} 
-                      onChange={e => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; setPrecoPacote(val); }} 
-                      className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" 
+                      disabled
+                      title="O preço é calculado automaticamente pelas entradas de compras."
+                      className="w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none bg-gray-100 text-gray-500 cursor-not-allowed font-medium" 
                       placeholder="0,00" 
                     />
                   </div>
@@ -467,7 +467,7 @@ Formato esperado para cada objeto:
               
               <div className="bg-white p-3 rounded border border-purple-100 shadow-sm text-xs text-gray-600">
                 <p className="font-bold text-purple-800 mb-1">Ordem de preenchimento (separado por vírgula):</p>
-                <p>Nome, SKU, Preço Compra (Embalagem), Qtd na Embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso</p>
+            <p>Nome, SKU, Preço Médio (Embalagem), Qtd na Embalagem, Unidade de Medida, Estoque mínimo, Estoque máximo, Estoque atual, Tipo de uso</p>
                 <p className="font-mono text-purple-600 mt-2 bg-purple-50 p-1.5 rounded">Exemplo: Carne, CAR25, 150.00, 5, kg, 10, 50, 20, Matéria prima</p>
               </div>
 

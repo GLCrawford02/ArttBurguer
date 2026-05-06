@@ -171,7 +171,7 @@ export default function DespachoManager() {
     }
   };
 
-  const enviarWhatsApp = (d: Despacho) => {
+  const enviarWhatsApp = async (d: Despacho) => {
     const motoboy = funcionarios.find(f => f.id === d.motoboyId);
     const telefoneRaw = (motoboy as any)?.telefone;
     if (!telefoneRaw) {
@@ -185,7 +185,18 @@ export default function DespachoManager() {
     }
     let mensagem = `*Nova Rota de Entrega!*\n\n`;
     d.paradas.forEach((p, idx) => { mensagem += `*Parada ${idx + 1}:* ${p.clienteNome}\n📍 ${p.endereco}${p.observacaoEntregador ? `\n⚠️ Obs: ${p.observacaoEntregador}` : ''}\n\n`; });
-    window.open(`https://wa.me/55${telefoneStr}?text=${encodeURIComponent(mensagem)}`, '_blank');
+    
+    try {
+      await set(push(ref(db, 'fila_mensagens')), {
+        telefone: `55${telefoneStr}`,
+        mensagem: mensagem,
+        status: 'pendente',
+        timestamp: Date.now()
+      });
+      showToast('O robô está enviando a rota para o motoboy!', 'success');
+    } catch (error) {
+      showToast('Erro ao enviar rota pelo robô.', 'error');
+    }
   };
 
   const filteredPedidos = searchTerm ? pedidosPendente.filter(p => (p.clienteNome || '').toLowerCase().includes(searchTerm.toLowerCase())) : pedidosPendente;

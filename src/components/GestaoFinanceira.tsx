@@ -114,8 +114,17 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
     const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setFuncionarios(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setFuncionarios([]);
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => {
+          const cargoA = Array.isArray(a.cargo) ? a.cargo[0] || 'Atendente' : a.cargo || 'Atendente';
+          const cargoB = Array.isArray(b.cargo) ? b.cargo[0] || 'Atendente' : b.cargo || 'Atendente';
+          const cargoCompare = cargoA.localeCompare(cargoB);
+          if (cargoCompare !== 0) return cargoCompare;
+          return (a.nome || '').localeCompare(b.nome || '');
+        });
+        setFuncionarios(list);
+      } else setFuncionarios([]);
     });
 
     return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); };

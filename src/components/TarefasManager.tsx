@@ -2,22 +2,31 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { CheckSquare, Calendar, Clock, User, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users } from 'lucide-react';
+import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle } from 'lucide-react';
 
 export interface Tarefa {
   id: string;
   titulo: string;
   descricao: string;
-  responsavelId?: string;
-  responsaveisIds?: string[];
+  url?: string;
+  responsavelId?: string; // Legado
+  responsaveisIds?: string[]; // Novo modelo múltiplo
   dataAgendada: string;
   horaAgendada: string;
+  urgente?: boolean;
   status: 'pendente' | 'concluida';
   timestamp: number;
   notificadoWhatsApp?: boolean;
-  prioridade?: 'Baixa' | 'Média' | 'Alta';
+  notificadoAntecipado?: boolean;
+  prioridade?: 'Nenhuma' | 'Baixa' | 'Média' | 'Alta';
+  sinalizado?: boolean;
   categoria?: string;
-  recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal';
+  recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Quinzenal' | 'Mensal' | 'Anual' | 'Personalizado';
+  recorrenciaCustomValor?: number;
+  recorrenciaCustomUnidade?: 'dia' | 'semana' | 'mes' | 'ano';
+  terminarRepeticao?: 'nunca' | 'em_data';
+  dataFimRepeticao?: string;
+  lembreteAntecipado?: number; // minutos
 }
 
 export default function TarefasManager() {
@@ -28,13 +37,21 @@ export default function TarefasManager() {
   
   const [titulo, setTitulo] = useState('');
   const [descricao, setDescricao] = useState('');
+  const [url, setUrl] = useState('');
   const [dataAgendada, setDataAgendada] = useState('');
   const [horaAgendada, setHoraAgendada] = useState('');
+  const [urgente, setUrgente] = useState(false);
   const [responsaveisIds, setResponsaveisIds] = useState<string[]>([]);
-  const [prioridade, setPrioridade] = useState<'Baixa' | 'Média' | 'Alta'>('Média');
+  const [prioridade, setPrioridade] = useState<'Nenhuma' | 'Baixa' | 'Média' | 'Alta'>('Nenhuma');
+  const [sinalizado, setSinalizado] = useState(false);
   const [categoria, setCategoria] = useState('Limpeza');
   const [isNovaCategoria, setIsNovaCategoria] = useState(false);
-  const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal'>('Nenhuma');
+  const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Quinzenal' | 'Mensal' | 'Anual' | 'Personalizado'>('Nenhuma');
+  const [recorrenciaCustomValor, setRecorrenciaCustomValor] = useState(1);
+  const [recorrenciaCustomUnidade, setRecorrenciaCustomUnidade] = useState<'dia' | 'semana' | 'mes' | 'ano'>('dia');
+  const [terminarRepeticao, setTerminarRepeticao] = useState<'nunca' | 'em_data'>('nunca');
+  const [dataFimRepeticao, setDataFimRepeticao] = useState('');
+  const [lembreteAntecipado, setLembreteAntecipado] = useState<number>(0);
   
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -45,21 +62,25 @@ export default function TarefasManager() {
   };
 
   useEffect(() => {
-
     const funcRef = ref(db, 'funcionarios');
     const unsubFunc = onValue(funcRef, (snap) => {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
-        setFuncionarios(list.filter(f => f.ativo !== false));
+        list.sort((a, b) => {
+          const cargoA = Array.isArray(a.cargo) ? a.cargo[0] || 'Atendente' : a.cargo || 'Atendente';
+          const cargoB = Array.isArray(b.cargo) ? b.cargo[0] || 'Atendente' : b.cargo || 'Atendente';
+          const cargoCompare = cargoA.localeCompare(cargoB);
+          if (cargoCompare !== 0) return cargoCompare;
+          return (a.nome || '').localeCompare(b.nome || '');
+        });
+        setFuncionarios(list.filter(f => f.ativo !== false)); // Apenas ativos
       }
     });
-
 
     const tarefasRef = ref(db, 'tarefas');
     const unsubTarefas = onValue(tarefasRef, (snap) => {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
-
         list.sort((a, b) => {
           const dateA = new Date(`${a.dataAgendada || '1970-01-01'}T${a.horaAgendada || '00:00'}`);
           const dateB = new Date(`${b.dataAgendada || '1970-01-01'}T${b.horaAgendada || '00:00'}`);
@@ -75,8 +96,8 @@ export default function TarefasManager() {
   }, []);
 
   const salvarTarefa = async () => {
-    if (!titulo || responsaveisIds.length === 0 || !dataAgendada || !horaAgendada) {
-      showToast('Preencha título, selecione pelo menos um responsável, data e hora.', 'error');
+    if (!titulo || responsaveisIds.length === 0) {
+      showToast('Preencha título e selecione pelo menos um responsável.', 'error');
       return;
     }
 
@@ -84,20 +105,32 @@ export default function TarefasManager() {
       await set(push(ref(db, 'tarefas')), {
         titulo,
         descricao,
+        url,
         responsaveisIds,
+        responsavelId: responsaveisIds[0] || null, // Fallback para não quebrar o script legado de WhatsApp
         dataAgendada,
         horaAgendada,
+        urgente,
         prioridade,
+        sinalizado,
         categoria,
         recorrencia,
+        recorrenciaCustomValor,
+        recorrenciaCustomUnidade,
+        terminarRepeticao,
+        dataFimRepeticao,
+        lembreteAntecipado,
         status: 'pendente',
-        notificadoWhatsApp: false,
+        notificadoWhatsApp: false, // Preparação para a API do Zap
+        notificadoAntecipado: false,
         timestamp: Date.now()
       });
       
       showToast('Tarefa delegada com sucesso!', 'success');
-      setTitulo(''); setDescricao(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
-      setCategoria('Limpeza'); setIsNovaCategoria(false);
+      setTitulo(''); setDescricao(''); setUrl(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
+      setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza'); setIsNovaCategoria(false);
+      setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
+      setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
       setShowForm(false);
     } catch (error: any) {
       showToast('Erro ao salvar: ' + error.message, 'error');
@@ -108,23 +141,43 @@ export default function TarefasManager() {
     const novoStatus = tarefa.status === 'pendente' ? 'concluida' : 'pendente';
     await update(ref(db, `tarefas/${tarefa.id}`), { status: novoStatus });
     
-
+    // Lógica de Recorrência
     if (novoStatus === 'concluida' && tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma') {
-      const d = new Date(`${tarefa.dataAgendada}T12:00:00`);
+      const d = new Date(`${tarefa.dataAgendada}T12:00:00`); // 12h para evitar fuso horário
+      
       if (tarefa.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
       else if (tarefa.recorrencia === 'Semanal') d.setDate(d.getDate() + 7);
+      else if (tarefa.recorrencia === 'Quinzenal') d.setDate(d.getDate() + 14);
+      else if (tarefa.recorrencia === 'Mensal') d.setMonth(d.getMonth() + 1);
+      else if (tarefa.recorrencia === 'Anual') d.setFullYear(d.getFullYear() + 1);
+      else if (tarefa.recorrencia === 'Personalizado') {
+        const v = tarefa.recorrenciaCustomValor || 1;
+        const u = tarefa.recorrenciaCustomUnidade || 'dia';
+        if (u === 'dia') d.setDate(d.getDate() + v);
+        else if (u === 'semana') d.setDate(d.getDate() + (v * 7));
+        else if (u === 'mes') d.setMonth(d.getMonth() + v);
+        else if (u === 'ano') d.setFullYear(d.getFullYear() + v);
+      }
       
       const nextDateStr = d.toISOString().split('T')[0];
       
-      const novaTarefa = { ...tarefa };
-      delete (novaTarefa as any).id;
-      novaTarefa.status = 'pendente';
-      novaTarefa.dataAgendada = nextDateStr;
-      novaTarefa.notificadoWhatsApp = false;
-      novaTarefa.timestamp = Date.now();
-      
-      await set(push(ref(db, 'tarefas')), novaTarefa);
-      showToast(`Próxima recorrência agendada automaticamente para ${nextDateStr.split('-').reverse().join('/')}`, 'success');
+      let recreate = true;
+      if (tarefa.terminarRepeticao === 'em_data' && tarefa.dataFimRepeticao) {
+        if (nextDateStr > tarefa.dataFimRepeticao) recreate = false;
+      }
+
+      if (recreate) {
+        const novaTarefa = { ...tarefa };
+        delete (novaTarefa as any).id;
+        novaTarefa.status = 'pendente';
+        novaTarefa.dataAgendada = nextDateStr;
+        novaTarefa.notificadoWhatsApp = false;
+        novaTarefa.notificadoAntecipado = false;
+        novaTarefa.timestamp = Date.now();
+        
+        await set(push(ref(db, 'tarefas')), novaTarefa);
+        showToast(`Próxima recorrência agendada automaticamente para ${nextDateStr.split('-').reverse().join('/')}`, 'success');
+      }
     }
   };
 
@@ -175,83 +228,142 @@ export default function TarefasManager() {
       </div>
 
       {showForm && (
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4 animate-in slide-in-from-top-4">
-          <h3 className="text-lg font-bold text-gray-800 border-b border-gray-100 pb-2 mb-4">Nova Delegação</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">Título da Tarefa</label>
-              <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" placeholder="Ex: Limpar a coifa e chapa" />
-            </div>
-            
-            <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Users size={14} className="mr-1"/> Responsáveis</label>
-              <div className="max-h-32 overflow-y-auto border border-gray-200 rounded-lg p-2 bg-gray-50 space-y-1">
-                {funcionarios.map(f => (
-                  <label key={f.id} className="flex items-center space-x-2 cursor-pointer p-1 hover:bg-gray-100 rounded">
-                    <input type="checkbox" checked={responsaveisIds.includes(f.id)} onChange={e => {
-                      if (e.target.checked) setResponsaveisIds([...responsaveisIds, f.id]);
-                      else setResponsaveisIds(responsaveisIds.filter(id => id !== f.id));
-                    }} className="rounded text-blue-600 focus:ring-blue-500" />
-                    <span className="text-sm text-gray-700">{f.nome} <span className="text-xs text-gray-400">({Array.isArray(f.cargo) ? f.cargo[0] : f.cargo})</span></span>
-                  </label>
-                ))}
-              </div>
-            </div>
+        <div className="bg-gray-100 p-4 sm:p-6 rounded-2xl shadow-inner space-y-6 animate-in slide-in-from-top-4">
+          
+          {/* 1. Cartão Principal: Titulo, Notas, URL */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 divide-y divide-gray-100 overflow-hidden">
+            <input type="text" value={titulo} onChange={e => setTitulo(e.target.value)} className="w-full p-3 outline-none font-bold text-gray-800 placeholder-gray-400" placeholder="Título" autoFocus />
+            <textarea value={descricao} onChange={e => setDescricao(e.target.value)} className="w-full p-3 outline-none text-gray-600 text-sm placeholder-gray-400 min-h-[80px] resize-none" placeholder="Notas" />
+            <input type="text" value={url} onChange={e => setUrl(e.target.value)} className="w-full p-3 outline-none text-blue-500 text-sm placeholder-gray-400" placeholder="URL" />
+          </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Calendar size={14} className="mr-1"/> Data</label>
-                <input type="date" value={dataAgendada} onChange={e => setDataAgendada(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Clock size={14} className="mr-1"/> Hora Limite</label>
-                <input type="time" value={horaAgendada} onChange={e => setHoraAgendada(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:col-span-2">
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Flag size={14} className="mr-1"/> Prioridade</label>
-                <select value={prioridade} onChange={e => setPrioridade(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
-                  <option value="Baixa">🟢 Baixa</option><option value="Média">🟡 Média</option><option value="Alta">🔴 Alta</option>
-                </select>
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Tags size={14} className="mr-1"/> Categoria</label>
-                {isNovaCategoria ? (
-                  <div className="flex">
-                    <input autoFocus type="text" value={categoria} onChange={e => setCategoria(e.target.value)} placeholder="Nome da categoria..." className="w-full p-2 border border-gray-200 rounded-l-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white" />
-                    <button onClick={() => { setIsNovaCategoria(false); setCategoria('Limpeza'); }} className="bg-gray-100 hover:bg-gray-200 border border-l-0 border-gray-200 rounded-r-lg px-2 text-gray-500 transition-colors" title="Cancelar">
-                      <X size={16} />
-                    </button>
-                  </div>
-                ) : (
-                  <select value={categoria} onChange={e => {
-                    if (e.target.value === 'NOVA_CATEGORIA') { setIsNovaCategoria(true); setCategoria(''); } 
-                    else { setCategoria(e.target.value); }
-                  }} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
-                    {Array.from(new Set(['Limpeza', 'Auditoria', 'Produção', 'Outros', ...tarefas.map(t => t.categoria).filter(Boolean)])).map(c => (
-                      <option key={c as string} value={c as string}>{c as string}</option>
-                    ))}
-                    <option value="NOVA_CATEGORIA" className="font-bold text-blue-600">+ Nova Categoria...</option>
-                  </select>
-                )}
-              </div>
-              <div className="space-y-1">
-                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><RotateCw size={14} className="mr-1"/> Recorrência</label>
-                <select value={recorrencia} onChange={e => setRecorrencia(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white">
-                  <option value="Nenhuma">Só uma vez</option><option value="Diária">Repetir todo dia</option><option value="Semanal">Repetir por semana</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="space-y-1 md:col-span-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">Instruções / Descrição (Opcional)</label>
-              <textarea value={descricao} onChange={e => setDescricao(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm min-h-[80px]" placeholder="Detalhes de como a tarefa deve ser feita..." />
+          {/* 2. Responsáveis */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Responsáveis</h4>
+            <div className="max-h-32 overflow-y-auto space-y-1">
+              {funcionarios.map(f => (
+                <label key={f.id} className="flex items-center space-x-3 cursor-pointer p-1.5 hover:bg-gray-50 rounded-lg transition-colors">
+                  <input type="checkbox" checked={responsaveisIds.includes(f.id)} onChange={e => {
+                    if (e.target.checked) setResponsaveisIds([...responsaveisIds, f.id]);
+                    else setResponsaveisIds(responsaveisIds.filter(id => id !== f.id));
+                  }} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" />
+                  <span className="text-sm font-medium text-gray-700">{f.nome} <span className="text-xs text-gray-400">({Array.isArray(f.cargo) ? f.cargo[0] : f.cargo})</span></span>
+                </label>
+              ))}
             </div>
           </div>
+
+          {/* 3. Data e Hora */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-3">
+            <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">Data e Hora</h4>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="relative">
+                <Calendar size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input type="date" value={dataAgendada} onChange={e => setDataAgendada(e.target.value)} className="w-full pl-10 p-2.5 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+              <div className="relative">
+                <Clock size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+                <input type="time" value={horaAgendada} onChange={e => setHoraAgendada(e.target.value)} className="w-full pl-10 p-2.5 bg-gray-50 border border-gray-100 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+              </div>
+            </div>
+            <label className="flex items-center space-x-2 mt-3 cursor-pointer p-2 bg-red-50 rounded-lg border border-red-100 w-fit">
+              <input type="checkbox" checked={urgente} onChange={e => setUrgente(e.target.checked)} className="w-4 h-4 rounded text-red-500 focus:ring-red-500" />
+              <span className="text-sm font-bold text-red-700 flex items-center"><AlertCircle size={16} className="mr-1"/> Urgente (Alarme)</span>
+            </label>
+          </div>
+
+          {/* 4. Mais opções */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
+            <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Mais Opções</h4>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 flex items-center"><Tags size={14} className="mr-1"/> Categoria</label>
+              {isNovaCategoria ? (
+                <div className="flex">
+                  <input autoFocus type="text" value={categoria} onChange={e => setCategoria(e.target.value)} placeholder="Nome da categoria..." className="w-full p-2.5 border border-gray-200 rounded-l-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
+                  <button onClick={() => { setIsNovaCategoria(false); setCategoria('Limpeza'); }} className="bg-gray-200 hover:bg-gray-300 border border-l-0 border-gray-200 rounded-r-lg px-3 text-gray-600 transition-colors" title="Cancelar"><X size={16} /></button>
+                </div>
+              ) : (
+                <select value={categoria} onChange={e => {
+                  if (e.target.value === 'NOVA_CATEGORIA') { setIsNovaCategoria(true); setCategoria(''); } 
+                  else { setCategoria(e.target.value); }
+                }} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
+                  {Array.from(new Set(['Limpeza', 'Auditoria', 'Produção', 'Financeiro', 'Outros', ...tarefas.map(t => t.categoria).filter(Boolean)])).map(c => (
+                    <option key={c as string} value={c as string}>{c as string}</option>
+                  ))}
+                  <option value="NOVA_CATEGORIA" className="font-bold text-indigo-600">+ Nova Categoria...</option>
+                </select>
+              )}
+            </div>
+          </div>
+
+          {/* 5. Detalhes */}
+          <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4 space-y-4">
+            <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-2">Detalhes</h4>
+            
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Organização</label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className={`flex items-center justify-center space-x-2 cursor-pointer p-2 rounded-lg border transition-colors ${sinalizado ? 'bg-orange-50 border-orange-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}>
+                  <input type="checkbox" checked={sinalizado} onChange={e => setSinalizado(e.target.checked)} className="hidden" />
+                  <Flag size={16} className={sinalizado ? 'text-orange-500 fill-orange-500' : 'text-gray-400'} />
+                  <span className={`text-sm font-bold ${sinalizado ? 'text-orange-700' : 'text-gray-600'}`}>Sinalizar</span>
+                </label>
+                
+                <select value={prioridade} onChange={e => setPrioridade(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium text-center appearance-none">
+                  <option value="Nenhuma">Prioridade: Nenhuma</option>
+                  <option value="Baixa">🟢 Prioridade: Baixa</option>
+                  <option value="Média">🟡 Prioridade: Média</option>
+                  <option value="Alta">🔴 Prioridade: Alta</option>
+                </select>
+              </div>
+              </div>
+
+            <div className="pt-3 border-t border-gray-100 space-y-3">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><RotateCw size={14} className="mr-1"/> Repetição</label>
+                <select value={recorrencia} onChange={e => setRecorrencia(e.target.value as any)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
+                  <option value="Nenhuma">Nunca</option><option value="Diária">Diária</option><option value="Semanal">Semanal</option><option value="Quinzenal">Quinzenal</option><option value="Mensal">Mensal</option><option value="Anual">Anual</option><option value="Personalizado">Personalizado...</option>
+                </select>
+              </div>
+
+              {recorrencia === 'Personalizado' && (
+                <div className="flex items-center gap-2 bg-indigo-50 p-2 rounded-lg border border-indigo-100">
+                  <span className="text-sm font-medium text-indigo-800 ml-1">A cada</span>
+                  <input type="number" min="1" value={recorrenciaCustomValor} onChange={e => setRecorrenciaCustomValor(Number(e.target.value))} className="w-16 p-1.5 text-center border border-indigo-200 rounded-md outline-none focus:ring-2 focus:ring-indigo-500 font-bold" />
+                  <select value={recorrenciaCustomUnidade} onChange={e => setRecorrenciaCustomUnidade(e.target.value as any)} className="flex-1 p-1.5 border border-indigo-200 rounded-md outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                    <option value="dia">dia(s)</option><option value="semana">semana(s)</option><option value="mes">mês(es)</option><option value="ano">ano(s)</option>
+                  </select>
+                </div>
+              )}
+
+              {recorrencia !== 'Nenhuma' && (
+                <div className="space-y-1 mt-2">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Terminar repetição</label>
+                  <div className="flex gap-2">
+                    <select value={terminarRepeticao} onChange={e => setTerminarRepeticao(e.target.value as any)} className="flex-1 p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50">
+                      <option value="nunca">Nunca</option><option value="em_data">Em Data</option>
+                    </select>
+                    {terminarRepeticao === 'em_data' && (
+                      <input type="date" value={dataFimRepeticao} onChange={e => setDataFimRepeticao(e.target.value)} className="flex-1 p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white" />
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="pt-3 border-t border-gray-100">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase flex items-center"><Bell size={14} className="mr-1"/> Lembrete Antecipado (WhatsApp)</label>
+                <select value={lembreteAntecipado} onChange={e => setLembreteAntecipado(Number(e.target.value))} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
+                  <option value={0}>Nenhum</option><option value={5}>5 minutos antes</option><option value={10}>10 minutos antes</option><option value={15}>15 minutos antes</option><option value={30}>30 minutos antes</option><option value={60}>1 hora antes</option><option value={120}>2 horas antes</option><option value={1440}>1 dia antes</option>
+                </select>
+              </div>
+            </div>
+
+          </div>
+
           <div className="flex justify-end pt-2">
-            <button onClick={salvarTarefa} className="bg-blue-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-blue-700 transition-colors">Delegar Tarefa</button>
+            <button onClick={salvarTarefa} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-sm">Adicionar Tarefa</button>
           </div>
         </div>
       )}
@@ -269,22 +381,28 @@ export default function TarefasManager() {
                 <div key={tarefa.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm border-l-4 border-l-orange-400">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-bold text-gray-900 leading-tight">{tarefa.titulo}</h4>
+                      <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2">
+                        {tarefa.sinalizado && <Flag size={14} className="text-orange-500 fill-orange-500 shrink-0" />}
+                        {tarefa.titulo}
+                      </h4>
                       <div className="flex gap-2 mt-1.5 mb-2">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getPrioColor(tarefa.prioridade)}`}>{tarefa.prioridade || 'Normal'}</span>
+                        {tarefa.prioridade && tarefa.prioridade !== 'Nenhuma' && <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getPrioColor(tarefa.prioridade)}`}>{tarefa.prioridade}</span>}
                         <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-gray-100 text-gray-600">{tarefa.categoria || 'Geral'}</span>
                         {tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma' && <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-blue-50 text-blue-600 flex items-center"><RotateCw size={10} className="mr-1"/> {tarefa.recorrencia}</span>}
                       </div>
+                      {tarefa.descricao && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{tarefa.descricao}</p>}
+                      {tarefa.url && <a href={tarefa.url.startsWith('http') ? tarefa.url : `https://${tarefa.url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Acessar Link</a>}
                     </div>
                     <div className="flex space-x-2">
                       <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={18} /></button>
                       <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded transition-colors"><Trash2 size={18} /></button>
                     </div>
                   </div>
-                  {tarefa.descricao && <p className="text-sm text-gray-500 mt-1">{tarefa.descricao}</p>}
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
                     <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded flex items-center"><Users size={12} className="mr-1"/> {respNomes}</span>
                     <span className="bg-orange-50 text-orange-600 border border-orange-100 px-2 py-1 rounded flex items-center"><Clock size={12} className="mr-1"/> {tarefa.dataAgendada ? tarefa.dataAgendada.split('-').reverse().join('/') : 'S/ Data'} às {tarefa.horaAgendada || 'S/ Hora'}</span>
+                    {tarefa.urgente && <span className="bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded flex items-center"><AlertCircle size={12} className="mr-1"/> Urgente</span>}
+                    {tarefa.lembreteAntecipado ? <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-1 rounded flex items-center" title={`${tarefa.lembreteAntecipado}min antes`}><Bell size={12} className="mr-1"/> Lembrete</span> : null}
                   </div>
                 </div>
               );

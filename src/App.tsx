@@ -69,7 +69,9 @@ export default function App() {
 
     const handleHashChange = () => {
       const hash = window.location.hash.replace('#', '') as any; 
-      if (['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'].includes(hash)) {
+      console.log('🔗 URL mudou para a aba:', hash);
+      
+      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'nova_aba'].includes(hash)) {
         setActiveTab(hash as any);
       }
       setIsMobileMenuOpen(false);
@@ -194,7 +196,7 @@ export default function App() {
 
     const isExempt = currentUser && (() => {
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono'].includes(c));
+      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono'].includes(c) || c.toUpperCase().includes('KDS'));
     })();
 
     if (currentUser && !isExempt) {
@@ -233,7 +235,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4" translate="no">
-        <style>{`@media (min-width: 768px) and (max-width: 1180px) { html { font-size: 18px; } }`}</style>
+        <style>{`@media (min-width: 768px) { html { font-size: clamp(12px, 1vw + 4px, 20px); } }`}</style>
         <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
           <div className="flex justify-center mb-8">
             <img src={logoImg} alt="ArttBurger Logo" className="h-32 w-auto object-contain" />
@@ -257,7 +259,7 @@ export default function App() {
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden" translate="no">
-      <style>{`@media (min-width: 768px) and (max-width: 1180px) { html { font-size: 18px; } }`}</style>
+      <style>{`@media (min-width: 768px) { html { font-size: clamp(12px, 1vw + 4px, 20px); } }`}</style>
       {/* Mobile Header */}
       <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">
         <div className="flex items-center space-x-2">
@@ -508,7 +510,7 @@ export default function App() {
           {activeTab === 'movimentacoes' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                {temPermissao('compras') && <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Compras</button>}
+                {temPermissao('compras') && <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Entrada de Mercadoria</button>}
                 {temPermissao('transferencias') && <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>}
               </div>
               {subTabMovimentacoes === 'compras' && <ComprasManager />}

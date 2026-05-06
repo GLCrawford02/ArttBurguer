@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay } from 'lucide-react';
 
 export default function ProducaoManager() {
   const [view, setView] = useState<'kds' | 'manual'>('kds');
@@ -14,6 +14,7 @@ export default function ProducaoManager() {
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [activeKds, setActiveKds] = useState<'Chapa' | 'Char Broiler' | 'Montagem' | 'Fritas' | 'Expedição' | 'Balcão'>('Montagem');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -139,7 +140,7 @@ export default function ProducaoManager() {
         if (currentMinutes < startMinutes && currentMinutes > endMinutes) return false;
       }
     }
-    return true;
+    return true; 
   };
 
   const handleFinalizarPedido = async (pedido: any) => {
@@ -177,50 +178,149 @@ export default function ProducaoManager() {
     ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const pendentes = pedidosCozinha.filter(p => p.status === 'Pendente').sort((a, b) => a.timestamp - b.timestamp);
+  // Mapeia categorias para seus respectivos setores do KDS
+  const filterItemsForKDS = (itens: any[], kds: string) => {
+    return itens.map((item, idx) => ({ ...item, originalIdx: idx })).filter(item => {
+      const prod = allItems.find(p => p.id === item.produtoId);
+      const cat = prod ? prod.categoria : 'Outros';
+
+      switch (kds) {
+        case 'Expedição':
+          return cat === 'Hambúrguer' || cat === 'Promoção / Combo' || cat === 'Porção';
+        case 'Chapa':
+        case 'Char Broiler':
+        case 'Montagem':
+          return cat === 'Hambúrguer' || cat === 'Promoção / Combo';
+        case 'Porção':
+          return cat === 'Porção';
+        case 'Balcão':
+          return cat === 'Bebida' || cat === 'Sobremesa' || cat === 'Outros';
+        default:
+          return true;
+      }
+    });
+  };
+
+  const toggleItemConcluido = async (pedidoId: string, itemIdx: number, isConcluido: boolean) => {
+    // Salva o status de concluído de forma independente para cada KDS
+    await update(ref(db, `pedidos_cozinha/${pedidoId}/itens/${itemIdx}/kdsStatus`), { [activeKds]: !isConcluido });
+  };
+
+  const handleProntoKds = async (pedido: any) => {
+    if (activeKds === 'Expedição') {
+      await handleFinalizarPedido(pedido);
+    } else {
+      // Remove a comanda apenas desta praça específica sem interferir nas outras
+      await update(ref(db, `pedidos_cozinha/${pedido.id}/kdsFinalizado`), { [activeKds]: true });
+      showToast(`${activeKds}: Comanda despachada da praça!`, 'success');
+    }
+  };
+
+  const handleAceitarComanda = async (pedidoId: string) => {
+    await update(ref(db, `pedidos_cozinha/${pedidoId}`), { status: 'Em Produção', aceitoEm: Date.now() });
+    showToast('Comanda aceita! Em produção.', 'success');
+  };
+
+  const pendentes = pedidosCozinha.filter(p => p.status !== 'Concluído' && p.status !== 'Cancelado').sort((a, b) => a.timestamp - b.timestamp);
+  const pedidosKds = pendentes
+    .filter(ped => !(ped.kdsFinalizado && ped.kdsFinalizado[activeKds])) // Oculta se já foi despachado desta praça
+    .map(ped => ({ 
+      ...ped, 
+      itensKds: filterItemsForKDS(ped.itens, activeKds).map((ik: any) => ({
+         ...ik,
+         concluidoNoKds: ik.kdsStatus ? ik.kdsStatus[activeKds] : false
+      }))
+    }))
+    .filter(ped => ped.itensKds.length > 0 || activeKds === 'Expedição'); // Expedição sempre vê para dar baixa final
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-        <button onClick={() => setView('kds')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'kds' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Monitor da Cozinha</button>
+        <button onClick={() => setView('kds')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'kds' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Modo KDS (Telas)</button>
         <button onClick={() => setView('manual')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'manual' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Baixa Avulsa / Manual</button>
       </div>
 
       {view === 'kds' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-bold text-gray-800 flex items-center"><Flame className="mr-2 text-orange-500"/> Fila de Produção ({pendentes.length})</h2>
+          {/* Navegação de Estações (Yooga Style) */}
+          <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide border-b border-gray-200">
+            {[
+              { id: 'Chapa', icon: <Flame size={18} /> },
+              { id: 'Char Broiler', icon: <Flame size={18} /> },
+              { id: 'Montagem', icon: <ChefHat size={18} /> },
+              { id: 'Porção', icon: <UtensilsCrossed size={18} /> },
+              { id: 'Balcão', icon: <Coffee size={18} /> },
+              { id: 'Expedição', icon: <Package size={18} /> }
+            ].map(station => (
+              <button 
+                key={station.id}
+                onClick={() => setActiveKds(station.id as any)} 
+                className={`flex items-center px-5 py-2.5 rounded-t-lg font-bold text-sm transition-colors border-t border-x ${activeKds === station.id ? 'bg-gray-900 text-white border-gray-900' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}
+              >
+                <span className="mr-2 opacity-80">{station.icon}</span> {station.id}
+              </button>
+            ))}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-            {pendentes.map(ped => {
+          <div className="flex items-center justify-between mt-2">
+            <h2 className="text-xl font-bold text-gray-800 flex items-center"><MonitorPlay className="mr-2 text-indigo-600"/> Tela Ativa: {activeKds} ({pedidosKds.length} pedidos)</h2>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+            {pedidosKds.map(ped => {
               const timeDiff = Math.floor((currentTime - ped.timestamp) / 60000);
-              const isLate = timeDiff > 15;
+              
+              let timeColor = 'bg-green-500 text-white';
+              let borderColor = 'border-gray-200';
+              if (timeDiff >= 15) { timeColor = 'bg-red-600 text-white animate-pulse'; borderColor = 'border-red-500 ring-2 ring-red-100'; }
+              else if (timeDiff >= 10) { timeColor = 'bg-yellow-400 text-yellow-900'; borderColor = 'border-yellow-400'; }
+
+              const allItemsDone = ped.itensKds.every((ik: any) => ik.concluidoNoKds);
+
               return (
-                <div key={ped.id} className={`bg-white rounded-xl shadow-md border-t-4 flex flex-col overflow-hidden transition-all ${isLate ? 'border-red-500 ring-2 ring-red-100' : 'border-orange-500'}`}>
-                  <div className={`p-3 border-b flex justify-between items-center ${isLate ? 'bg-red-50 border-red-100' : 'bg-gray-50 border-gray-100'}`}>
-                    <span className="font-black text-gray-800 text-lg uppercase tracking-tight">{ped.identificador}</span>
-                    <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center shadow-sm ${isLate ? 'bg-red-500 text-white animate-pulse' : 'bg-orange-100 text-orange-800'}`}><Clock size={12} className="mr-1"/> {timeDiff} min</span>
+                <div key={ped.id} className={`bg-white rounded-xl shadow-md border-t-4 flex flex-col overflow-hidden transition-all ${borderColor}`}>
+                  <div className="p-3 border-b border-gray-100 flex flex-col gap-2 bg-gray-50">
+                    <div className="flex justify-between items-start">
+                      <span className="font-black text-gray-800 text-lg uppercase tracking-tight leading-none">{ped.identificador}</span>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200`}>{ped.origem || 'PDV'}</span>
+                    </div>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-xs font-bold text-gray-500">{ped.status === 'Em Produção' ? 'Em Produção' : 'Aguardando'}</span>
+                      <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center shadow-sm ${timeColor}`}><Clock size={12} className="mr-1"/> {timeDiff} min</span>
+                    </div>
                   </div>
                   <div className="p-4 flex-1 space-y-3 bg-white">
-                     {ped.itens.map((item: any, idx: number) => (
-                       <div key={idx} className="flex items-start border-b border-gray-50 pb-2 last:border-0 last:pb-0">
-                         <span className={`font-black text-lg w-8 shrink-0 ${isLate ? 'text-red-600' : 'text-gray-800'}`}>{item.qtd}x</span>
-                         <span className="text-gray-700 font-medium leading-tight pt-0.5">{item.nome}</span>
-                       </div>
-                     ))}
+                    {(ped.status === 'Pendente' || ped.status === 'Novo') ? (
+                      <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-4">
+                        <AlertTriangle size={36} className="text-yellow-500" />
+                        <p className="text-sm font-bold text-gray-700">Nova comanda recebida</p>
+                        <button onClick={() => handleAceitarComanda(ped.id)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-3 rounded-xl font-bold transition-colors w-full shadow-sm">Aceitar Comanda</button>
+                      </div>
+                    ) : (
+                      <>
+                        {ped.itensKds.map((item: any, idx: number) => (
+                          <div key={idx} onClick={() => toggleItemConcluido(ped.id, item.originalIdx, !!item.concluidoNoKds)} className={`flex items-start border-b border-gray-50 pb-2 last:border-0 last:pb-0 cursor-pointer group transition-colors ${item.concluidoNoKds ? 'opacity-50' : 'hover:bg-gray-50'}`}>
+                            <button className={`mr-2 mt-0.5 flex-shrink-0 transition-colors ${item.concluidoNoKds ? 'text-green-500' : 'text-gray-300 group-hover:text-blue-400'}`}>{item.concluidoNoKds ? <CheckSquare size={20} /> : <Square size={20} />}</button>
+                            <span className={`font-black text-lg w-8 shrink-0 ${item.concluidoNoKds ? 'text-gray-500' : 'text-gray-800'}`}>{item.qtd}x</span>
+                            <span className={`font-medium leading-tight pt-0.5 ${item.concluidoNoKds ? 'text-gray-500 line-through' : 'text-gray-700'}`}>{item.nome}</span>
+                          </div>
+                        ))}
+                      </>
+                    )}
                   </div>
-                  <button onClick={() => handleFinalizarPedido(ped)} className="bg-green-500 hover:bg-green-600 text-white p-4 font-bold text-sm flex items-center justify-center transition-colors">
-                    <CheckCircle size={18} className="mr-2"/> Pronto / Enviar
-                  </button>
+                  {(ped.status !== 'Pendente' && ped.status !== 'Novo') && (
+                    <button onClick={() => handleProntoKds(ped)} className={`p-4 font-bold text-sm flex items-center justify-center transition-colors ${allItemsDone && activeKds !== 'Expedição' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                      <CheckCircle size={18} className="mr-2"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
+                    </button>
+                  )}
                 </div>
               );
             })}
-            {pendentes.length === 0 && (
+            {pedidosKds.length === 0 && (
               <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-400 bg-white rounded-xl border border-gray-100 border-dashed">
                 <UtensilsCrossed size={48} className="mb-4 opacity-30"/>
-                <p className="text-lg font-bold">Cozinha Livre</p>
-                <p className="text-sm">Nenhum pedido aguardando produção no momento.</p>
+                <p className="text-lg font-bold">Praça Livre</p>
+                <p className="text-sm">Nenhum item aguardando para o setor: {activeKds}</p>
               </div>
             )}
           </div>

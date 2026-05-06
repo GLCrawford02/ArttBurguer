@@ -2,21 +2,28 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
-import { ShoppingCart, Plus, Search, CheckCircle, MessageCircle } from 'lucide-react';
+import { ShoppingCart, Plus, Search, CheckCircle, MessageCircle, Trash2 } from 'lucide-react';
+
+interface ItemCarrinho {
+  id: string;
+  insumo: Insumo;
+  qtd: number;
+  valorTotalStr: string;
+  lote: string;
+  validade: string;
+  isIndefinida: boolean;
+}
 
 export default function ComprasManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [filtroTipoUso, setFiltroTipoUso] = useState('');
-  const [quantidades, setQuantidades] = useState<Record<string, number>>({});
-  const [lotes, setLotes] = useState<Record<string, string>>({});
-  const [validades, setValidades] = useState<Record<string, string>>({});
+  const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
-  const [pendingInsumo, setPendingInsumo] = useState<Insumo | null>(null);
+  const [pendingCart, setPendingCart] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -63,77 +70,126 @@ export default function ComprasManager() {
   const toggleValidadeIndefinida = async (insumoId: string, atual: boolean) => {
     try {
       await update(ref(db, `insumos/${insumoId}`), { validadeIndefinida: !atual });
+      setCarrinho(prev => prev.map(item => item.id === insumoId ? { ...item, isIndefinida: !atual } : item));
     } catch (error) {
       showToast('Erro ao atualizar opção de validade.', 'error');
     }
   };
 
-  const registrarCompra = async (insumo: Insumo, isConfirmedAdmin = false) => {
-    const qtdVolumes = quantidades[insumo.id];
-    if (!qtdVolumes || qtdVolumes <= 0) return;
-
-    const isIndefinida = (insumo as any).validadeIndefinida;
-    const validade = isIndefinida ? '' : (validades[insumo.id] || '');
-    if (!validade && !isIndefinida) {
-      showToast('A data de validade é obrigatória para registrar a compra.', 'error');
+  const adicionarAoCarrinho = (insumo: Insumo) => {
+    if (carrinho.find(item => item.id === insumo.id)) {
+      showToast('Este insumo já está na lista da nota.', 'error');
+      setSearchTerm('');
       return;
     }
+    setCarrinho([{
+      id: insumo.id,
+      insumo,
+      qtd: 1,
+      valorTotalStr: '',
+      lote: gerarLoteData(),
+      validade: '',
+      isIndefinida: (insumo as any).validadeIndefinida || false
+    }, ...carrinho]);
+    setSearchTerm('');
+  };
 
-    const qtdAdicionar = qtdVolumes * (insumo.qtdPacote || 1);
-    const novoEstoque = (insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
+  const atualizarItem = (id: string, field: keyof ItemCarrinho, value: any) => {
+    setCarrinho(carrinho.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
 
-    if (insumo.estoqueMaximo && novoEstoque > insumo.estoqueMaximo && !isConfirmedAdmin) {
-      setPendingInsumo(insumo);
-      setPin('');
-      setShowPinModal(true);
-      return;
+  const removerDoCarrinho = (id: string) => {
+    setCarrinho(carrinho.filter(item => item.id !== id));
+  };
+
+  const handleFinalizarEntrada = async (isConfirmedAdmin = false) => {
+    if (carrinho.length === 0) return showToast('A lista de entrada está vazia.', 'error');
+
+    for (const item of carrinho) {
+      const valorTotal = Number(item.valorTotalStr) || 0;
+      if (item.qtd <= 0) return showToast(`Informe a quantidade para ${item.insumo.nome}.`, 'error');
+      if (valorTotal <= 0) return showToast(`O Valor Total é obrigatório para ${item.insumo.nome}.`, 'error');
+      if (!item.validade && !item.isIndefinida) return showToast(`Validade obrigatória para ${item.insumo.nome}.`, 'error');
     }
 
-    const lote = lotes[insumo.id] || gerarLoteData();
-
-    const insumoRef = ref(db, `insumos/${insumo.id}`);
-    const result = await runTransaction(insumoRef, (currentData) => {
-      if (currentData) {
-        currentData.estoqueEstacionario = (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) + qtdAdicionar;
-        
-        if (lote || validade) {
-          if (!currentData.lotes) currentData.lotes = {};
-          const newLoteId = Date.now().toString() + Math.random().toString(36).substring(2, 5);
-          currentData.lotes[newLoteId] = {
-            lote: lote || 'N/A',
-            validade: validade || '',
-            quantidade: qtdAdicionar
-          };
-        }
-      }
-      return currentData;
-    });
-
-    if (result.committed) {
-      const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'Unidade';
-      const custoTotalCompra = qtdVolumes * (insumo.precoPacote || 0);
-      const historicoRef = push(ref(db, 'historico_compras'));
-      await set(historicoRef, {
-        insumoId: insumo.id,
-        nome: insumo.nome,
-        qtdPacotes: qtdVolumes,
-        qtdEmbalagens: qtdVolumes,
-        tipoEmbalagem: tipoEmb,
-        qtdUnidadesAdicionadas: qtdAdicionar,
-        unidadeBase: insumo.unidade,
-        custoTotal: custoTotalCompra,
-        lote,
-        validade,
-        timestamp: Date.now()
+    if (!isConfirmedAdmin) {
+      const excedentes = carrinho.filter(item => {
+        const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
+        const novoEstoque = (item.insumo.estoqueEstacionario ?? (item.insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
+        return item.insumo.estoqueMaximo && novoEstoque > item.insumo.estoqueMaximo;
       });
-      
-      showToast(`Estoque de ${insumo.nome} reabastecido (+${qtdVolumes} ${(insumo.qtdPacote || 1) > 1 ? 'Volume(s)' : 'UN'} = +${qtdAdicionar}${insumo.unidade}) com sucesso!`, 'success');
-      setQuantidades({ ...quantidades, [insumo.id]: 0 });
-      setLotes({ ...lotes, [insumo.id]: '' });
-      setValidades({ ...validades, [insumo.id]: '' });
-    } else {
-      showToast(`Erro ao registrar a compra de ${insumo.nome}. Tente novamente.`, 'error');
+
+      if (excedentes.length > 0) {
+        setPendingCart(true);
+        setPin('');
+        setShowPinModal(true);
+        return;
+      }
     }
+
+    setLoading(true);
+    let sucessos = 0;
+
+    for (const item of carrinho) {
+      const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
+      const valorCompraTotal = Number(item.valorTotalStr) || 0;
+      
+      const insumoRef = ref(db, `insumos/${item.id}`);
+      const result = await runTransaction(insumoRef, (currentData) => {
+        if (currentData) {
+          const atualEstoque = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
+          const atualEstoqueVols = atualEstoque / (currentData.qtdPacote || 1);
+          const atualPrecoMedio = currentData.precoPacote || 0;
+          
+          const totalVols = atualEstoqueVols + item.qtd;
+          const custoAntigo = atualEstoqueVols * atualPrecoMedio;
+          const novoPreco = totalVols > 0 ? (custoAntigo + valorCompraTotal) / totalVols : 0;
+
+          currentData.estoqueEstacionario = atualEstoque + qtdAdicionar;
+          currentData.precoPacote = Number(novoPreco.toFixed(4));
+          currentData.ultimoPrecoCompra = Number((valorCompraTotal / item.qtd).toFixed(4));
+          
+          if (item.lote || item.validade) {
+            if (!currentData.lotes) currentData.lotes = {};
+            const newLoteId = Date.now().toString() + Math.random().toString(36).substring(2, 5);
+            currentData.lotes[newLoteId] = {
+              lote: item.lote || 'N/A',
+              validade: item.validade || '',
+              quantidade: qtdAdicionar,
+              valorTotalLote: valorCompraTotal,
+              custoPorVolume: valorCompraTotal / item.qtd
+            };
+          }
+        }
+        return currentData;
+      });
+
+      if (result.committed) {
+        const tipoEmb = (item.insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
+        await set(push(ref(db, 'historico_compras')), {
+          insumoId: item.id,
+          nome: item.insumo.nome,
+          qtdPacotes: item.qtd,
+          qtdEmbalagens: item.qtd,
+          tipoEmbalagem: tipoEmb,
+          qtdUnidadesAdicionadas: qtdAdicionar,
+          unidadeBase: item.insumo.unidade,
+          custoTotal: valorCompraTotal,
+          precoMedioAtualizado: result.snapshot.val().precoPacote,
+          lote: item.lote,
+          validade: item.validade,
+          timestamp: Date.now()
+        });
+        sucessos++;
+      }
+    }
+
+    setLoading(false);
+    if (sucessos > 0) {
+      showToast(`Entrada de Mercadoria finalizada! ${sucessos} insumo(s) reabastecido(s).`, 'success');
+      setCarrinho([]);
+    }
+    setPendingCart(false);
   };
 
   const handlePinSubmit = async () => {
@@ -147,13 +203,12 @@ export default function ComprasManager() {
       return;
     }
     setShowPinModal(false);
-    if (pendingInsumo) {
-      await registrarCompra(pendingInsumo, true);
-      setPendingInsumo(null);
+    if (pendingCart) {
+      await handleFinalizarEntrada(true);
     }
   };
 
-  const enviarWhatsApp = () => {
+  const enviarWhatsApp = async () => {
     const precisandoReposicao = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
     
     if (precisandoReposicao.length === 0) {
@@ -166,38 +221,42 @@ export default function ComprasManager() {
 
     precisandoReposicao.forEach(i => {
       const atual = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
-      const max = i.estoqueMaximo ? `${i.estoqueMaximo}${i.unidade}` : 'Não definido';
-      const tipoEmb = (i.qtdPacote || 1) > 1 ? 'Volume' : 'Unidade';
-      const preco = i.precoPacote || 0;
+      const max = i.estoqueMaximo || 0;
+      const tipoEmb = (i.qtdPacote || 1) > 1 ? 'Volume(s)' : 'Unidade(s)';
+      const precoMedio = i.precoPacote || 0;
+      const ultimoPreco = (i as any).ultimoPrecoCompra || precoMedio;
       
-      let infoEstimativa = '';
-      if (i.estoqueMaximo && i.estoqueMaximo > atual) {
-        const qtdEmbalagensFaltantes = Math.ceil((i.estoqueMaximo - atual) / (i.qtdPacote || 1));
-        const estimativaItem = qtdEmbalagensFaltantes * preco;
-        estimativaTotal += estimativaItem;
-        infoEstimativa = `\n- Gasto estimado para encher: R$ ${estimativaItem.toFixed(2).replace('.', ',')}`;
+      let qtdComprarStr = 'Defina o Est. Máximo no cadastro';
+      let qtdComprar = 0;
+
+      if (max > atual) {
+        qtdComprar = Math.ceil((max - atual) / (i.qtdPacote || 1));
+        qtdComprarStr = `${qtdComprar} ${tipoEmb}`;
+        estimativaTotal += qtdComprar * ultimoPreco;
       }
 
-      msg += `*${i.nome}*\n- Atual: ${atual}${i.unidade}\n- Mínimo: ${i.alertaMinimo}${i.unidade}\n- Máximo: ${max}\n- Último custo: R$ ${preco.toFixed(2).replace('.', ',')} por ${tipoEmb}${infoEstimativa}\n\n`;
+      msg += `*${i.nome}*\n`;
+      msg += `- Comprar: ${qtdComprarStr}\n`;
+      msg += `- Valor Médio: R$ ${precoMedio.toFixed(2).replace('.', ',')}\n`;
+      msg += `- Última Compra: R$ ${ultimoPreco.toFixed(2).replace('.', ',')}\n\n`;
     });
 
     if (estimativaTotal > 0) {
-      msg += `*Estimativa Total p/ Encher Estoque: R$ ${estimativaTotal.toFixed(2).replace('.', ',')}*\n\n`;
+      msg += `*Estimativa Total p/ Comprar: R$ ${estimativaTotal.toFixed(2).replace('.', ',')}*\n\n`;
     }
 
-    const encodedMsg = encodeURIComponent(msg);
-    const phone = '5538998119347';
-    window.open(`https://wa.me/${phone}?text=${encodedMsg}`, '_blank');
+    try {
+      await set(push(ref(db, 'fila_mensagens')), {
+        telefone: '553898528008',
+        mensagem: msg,
+        status: 'pendente',
+        timestamp: Date.now()
+      });
+      showToast('O robô está enviando a lista para o seu WhatsApp!', 'success');
+    } catch (error) {
+      showToast('Erro ao acionar o robô.', 'error');
+    }
   };
-
-  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
-
-  const filteredInsumos = insumos.filter(i => {
-    const matchSearch = (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
-    return matchSearch && matchTipo;
-  });
-
 
   const formatarQtdJSX = (qtd: number, pacote: number, unid: string) => {
     if (pacote <= 1) return <span>{qtd} {unid}</span>;
@@ -205,124 +264,131 @@ export default function ComprasManager() {
     const resto = qtd % pacote;
     
     if (vols === 0) return <span>{qtd} {unid}</span>;
-    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''} <span className="text-xs text-gray-500 font-normal ml-1">({qtd} {unid})</span></span>;
+    return <span>{vols} Vol.{resto > 0 ? ` e ${resto} ${unid}` : ''}</span>;
   };
+  
+  const valorTotalEntrada = carrinho.reduce((acc, item) => acc + (Number(item.valorTotalStr) || 0), 0);
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h3 className="text-lg font-bold text-gray-800 flex items-center">
               <ShoppingCart className="mr-2 text-blue-600" size={20} />
-              Reabastecimento de Estoque
+              Nova Entrada de Mercadoria (Nota)
             </h3>
-          <p className="text-sm text-gray-500 mt-1">Informe a quantidade de embalagens (caixas, fardos, pacotes ou unidades) compradas. O sistema multiplicará pela quantidade da embalagem automaticamente.</p>
+            <p className="text-sm text-gray-500 mt-1">Busque os insumos da nota, adicione à lista e finalize tudo de uma vez.</p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-            <button onClick={enviarWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-600 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center">
-              <MessageCircle size={18} className="mr-2" />
-              Pedir Reposição
-            </button>
-            <select 
-              value={filtroTipoUso} 
-              onChange={(e) => setFiltroTipoUso(e.target.value)}
-              className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm bg-white"
-            >
-              <option value="">Todos os Tipos</option>
-              {tiposExistentes.map(t => <option key={t as string} value={t as string}>{t as string}</option>)}
-            </select>
-            <div className="relative w-full sm:w-auto">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Buscar por nome ou SKU..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm w-full sm:w-64"
-              />
+          <button onClick={enviarWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-600 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center">
+            <MessageCircle size={18} className="mr-2" />
+            Pedir Reposição
+          </button>
+        </div>
+        
+        <div className="mt-6 relative w-full lg:w-1/2">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+          <input
+            type="text"
+            placeholder="Buscar insumo por nome ou SKU para adicionar..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            className="pl-10 pr-4 py-3 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 text-sm w-full transition-all bg-white"
+          />
+          
+          {searchTerm && (
+            <div className="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())).map(i => (
+                 <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
+                    <div>
+                       <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
+                       <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0, i.qtdPacote || 1, i.unidade)}</p>
+                    </div>
+                    <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
+                 </div>
+               ))}
+               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                 <p className="p-4 text-center text-sm text-gray-500">Nenhum insumo encontrado.</p>
+               )}
             </div>
-          </div>
+          )}
         </div>
       </div>
 
-      {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 pr-2">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 h-[180px] animate-pulse flex flex-col justify-between">
-              <div className="h-4 bg-gray-200 rounded w-2/3 mb-2"></div>
-              <div className="h-3 bg-gray-200 rounded w-1/3 mb-4"></div>
-              <div className="h-10 bg-gray-200 rounded w-full mt-auto"></div>
-            </div>
-          ))}
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse">
+            <thead>
+              <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider font-bold">
+                <th className="p-2">Insumo</th>
+                <th className="p-2 w-20 sm:w-28">Lote</th>
+                <th className="p-2 w-24 sm:w-36">Validade</th>
+                <th className="p-2 w-16 sm:w-24">Qtd (Vol)</th>
+                <th className="p-2 w-24 sm:w-32">Valor Total</th>
+                <th className="p-2 w-10 sm:w-12 text-center">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {carrinho.map((item) => (
+                <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
+                  <td className="p-2">
+                    <p className="font-bold text-gray-800 text-xs sm:text-sm leading-tight">{item.insumo.nome}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">1 Vol = {item.insumo.qtdPacote || 1} {item.insumo.unidade}</p>
+                  </td>
+                  <td className="p-2">
+                    <input type="text" value={item.lote} onChange={(e) => atualizarItem(item.id, 'lote', e.target.value)} className="w-full p-1.5 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-xs bg-white" placeholder="N/A" />
+                  </td>
+                  <td className="p-2">
+                    <div className="space-y-1">
+                      <input type="date" value={item.validade} onChange={(e) => atualizarItem(item.id, 'validade', e.target.value)} disabled={item.isIndefinida} className={`w-full p-1.5 border rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-[10px] sm:text-xs ${item.isIndefinida ? 'bg-gray-100 text-gray-400 border-gray-200' : (!item.validade ? 'border-red-300 bg-red-50' : 'border-gray-200')}`} />
+                      <label className="flex items-center text-[9px] sm:text-[10px] text-gray-500 cursor-pointer font-medium leading-none">
+                        <input type="checkbox" checked={item.isIndefinida} onChange={() => toggleValidadeIndefinida(item.id, item.isIndefinida)} className="mr-1 w-2.5 h-2.5 rounded text-blue-600" />
+                        S/ Validade
+                      </label>
+                    </div>
+                  </td>
+                  <td className="p-2">
+                    <input type="number" min="1" value={item.qtd || ''} onChange={(e) => atualizarItem(item.id, 'qtd', Number(e.target.value))} className="w-full p-1.5 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-xs bg-white text-center font-bold" />
+                  </td>
+                  <td className="p-2">
+                    <div className="relative">
+                      <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-[10px] sm:text-xs font-medium">R$</span>
+                      <input type="text" value={item.valorTotalStr === '' ? '' : Number(item.valorTotalStr).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={(e) => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; atualizarItem(item.id, 'valorTotalStr', val); }} className="w-full pl-5 sm:pl-6 pr-1 py-1.5 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-[10px] sm:text-xs bg-white font-bold" placeholder="0,00" />
+                    </div>
+                  </td>
+                  <td className="p-2 text-center">
+                    <button onClick={() => removerDoCarrinho(item.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="Remover da lista">
+                      <Trash2 size={16} />
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {carrinho.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center">
+                     <ShoppingCart className="mx-auto text-gray-300 mb-3" size={40} />
+                     <p className="text-gray-500 font-medium text-sm">A sua nota de entrada está vazia.</p>
+                     <p className="text-gray-400 text-xs mt-1">Busque os insumos na barra acima para adicioná-los à lista.</p>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
-      ) : (
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
-        {filteredInsumos.map(insumo => {
-          const tipoEmb = (insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
-          return (
-          <div key={insumo.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-            <div className="mb-4">
-              <h4 className="font-bold text-gray-900 leading-tight">{insumo.nome}</h4>
-              <p className="text-xs font-mono text-gray-400">{(insumo as any).sku || 'Sem SKU'}</p>
-              <p className="text-sm text-gray-500">Est. Estacionado: <span className="font-bold">{formatarQtdJSX(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0, insumo.qtdPacote || 1, insumo.unidade)}</span></p>
-              <p className="text-xs text-blue-600 mt-1 bg-blue-50 inline-block px-2 py-1 rounded font-medium border border-blue-100">1 {tipoEmb} = {insumo.qtdPacote || 1} {insumo.unidade}</p>
-            </div>
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <input
-                    type="text"
-                    placeholder={`Lote (padrão: ${gerarLoteData()})`}
-                    value={lotes[insumo.id] || ''}
-                    onChange={(e) => setLotes({ ...lotes, [insumo.id]: e.target.value })}
-                    className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                  />
-                </div>
-                <div>
-                  <input
-                    type="date"
-                    value={validades[insumo.id] || ''}
-                    onChange={(e) => setValidades({ ...validades, [insumo.id]: e.target.value })}
-                    disabled={(insumo as any).validadeIndefinida}
-                    className={`w-full p-2 border rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm ${(insumo as any).validadeIndefinida ? 'bg-gray-100 text-gray-400 cursor-not-allowed border-gray-200' : !validades[insumo.id] && quantidades[insumo.id] ? 'border-red-400 bg-red-50' : 'border-gray-200'}`}
-                    title={(insumo as any).validadeIndefinida ? 'Validade Indefinida' : 'Data de Validade (Obrigatória)'}
-                  />
-                  <div className="mt-1 flex justify-end pr-1">
-                    <label className="flex items-center text-[10px] text-gray-500 cursor-pointer hover:text-gray-700 font-medium">
-                      <input
-                        type="checkbox"
-                        checked={(insumo as any).validadeIndefinida || false}
-                        onChange={() => toggleValidadeIndefinida(insumo.id, (insumo as any).validadeIndefinida || false)}
-                        className="mr-1.5 w-3 h-3 rounded text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      />
-                      Validade Indefinida
-                    </label>
-                  </div>
-                </div>
-              </div>
-              <div className="flex space-x-2">
-                <input
-                  type="number"
-                  min="1"
-                  value={quantidades[insumo.id] || ''}
-                  onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })}
-                  placeholder={`Qtd (${tipoEmb.substring(0,3).toUpperCase()})`}
-                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-                />
-                <button
-                  onClick={() => registrarCompra(insumo)}
-                  className="bg-green-600 text-white p-2 rounded-lg font-bold hover:bg-green-700 transition-colors flex items-center justify-center"
-                  title="Adicionar ao Estoque"
-                >
-                  <Plus size={20} />
-                </button>
-              </div>
-            </div>
+
+        {carrinho.length > 0 && (
+          <div className="bg-blue-50/50 border-t border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
+             <div>
+               <p className="text-sm font-bold text-blue-600 uppercase tracking-wider">Total da Entrada</p>
+               <p className="text-3xl font-black text-gray-900">R$ {valorTotalEntrada.toFixed(2).replace('.', ',')}</p>
+               <p className="text-xs text-gray-500 mt-1 font-medium">{carrinho.length} item(ns) na lista aguardando salvar</p>
+             </div>
+             <button onClick={() => handleFinalizarEntrada(false)} disabled={loading} className="w-full sm:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl disabled:opacity-70">
+                {loading ? <span className="animate-pulse">Salvando Estoque...</span> : <><CheckCircle size={24} className="mr-2"/> Confirmar Entrada de Mercadoria</>}
+             </button>
           </div>
-        )})}
+        )}
       </div>
-      )}
 
       {toast && (
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
@@ -350,7 +416,7 @@ export default function ComprasManager() {
             />
             
             <div className="flex space-x-3">
-              <button onClick={() => { setShowPinModal(false); setPendingInsumo(null); }} className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors">
+              <button onClick={() => { setShowPinModal(false); setPendingCart(false); }} className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors">
                 Cancelar
               </button>
               <button onClick={handlePinSubmit} disabled={pin.length !== 4} className="flex-1 p-3 text-white bg-blue-600 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors">

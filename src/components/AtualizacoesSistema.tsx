@@ -1,10 +1,23 @@
-import { Rocket, Star, CheckCircle, Flame, Map } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
     {
-      versao: '1.1.7',
+      versao: '1.1.8',
       data: 'Lançamento Recente',
+      titulo: 'Escala Fluida, Nova Tela de Compras e Robô Silencioso',
+      descricao: 'Layout 100% adaptável, entrada profissional de mercadorias e envio de mensagens em segundo plano.',
+      features: [
+        'Escala Fluida: O sistema usa Matemática CSS para ajustar e adaptar perfeitamente a todos os monitores, grandes ou pequenos.',
+        'Nova Entrada de Mercadorias: Modelo de carrinho de compras (nota fiscal) para buscar e finalizar múltiplos itens de uma vez.',
+        'Robô Integrado e Silencioso: Envio automático da lista de compras e de rotas de motoboy sem precisar abrir abas do WhatsApp Web.',
+        'Estoque Inteligente: O painel de Alertas agora soma o Almoxarifado com a Cozinha (Estoque Total) antes de pedir reposição.'
+      ],
+      icon: <Zap className="text-blue-500" size={20} />
+    },
+    {
+      versao: '1.1.7',
+      data: 'Versão Atual',
       titulo: 'Categorias Dinâmicas e IA para Produtos',
       descricao: 'Mais flexibilidade no cadastro de produtos e um assistente inteligente para agilizar seu trabalho.',
       features: [
@@ -17,7 +30,7 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.6',
-      data: 'Versão Atual',
+      data: 'Atualização Anterior',
       titulo: 'Integração PDV & Cozinha e Mapa de Mesas',
       descricao: 'Uma revolução na forma de atender seus clientes e produzir os lanches.',
       features: [
@@ -30,7 +43,7 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.5',
-      data: 'Atualização Anterior',
+      data: 'Atualização Antiga',
       titulo: 'Logística & Gestão de Equipe com IA',
       descricao: 'Controle total das entregas e inteligência artificial para o RH.',
       features: [

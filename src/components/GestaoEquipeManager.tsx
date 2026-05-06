@@ -32,6 +32,13 @@ export default function GestaoEquipeManager() {
     const unsubFunc = onValue(funcRef, snap => {
       if (snap.val()) {
         const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => {
+          const cargoA = Array.isArray(a.cargo) ? a.cargo[0] || 'Atendente' : a.cargo || 'Atendente';
+          const cargoB = Array.isArray(b.cargo) ? b.cargo[0] || 'Atendente' : b.cargo || 'Atendente';
+          const cargoCompare = cargoA.localeCompare(cargoB);
+          if (cargoCompare !== 0) return cargoCompare;
+          return (a.nome || '').localeCompare(b.nome || '');
+        });
         setFuncionarios(list);
       } else setFuncionarios([]);
     });

@@ -25,7 +25,15 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => {
+          const cargoA = Array.isArray(a.cargo) ? a.cargo[0] || 'Atendente' : a.cargo || 'Atendente';
+          const cargoB = Array.isArray(b.cargo) ? b.cargo[0] || 'Atendente' : b.cargo || 'Atendente';
+          const cargoCompare = cargoA.localeCompare(cargoB);
+          if (cargoCompare !== 0) return cargoCompare;
+          return (a.nome || '').localeCompare(b.nome || '');
+        });
+        setFuncionarios(list);
       } else {
         setFuncionarios([]);
         if (isFirstLoad) {
@@ -138,6 +146,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     if (c === 'gerente') return 'bg-orange-100 text-orange-700 border-orange-200';
     if (c.includes('entregador') || c.includes('motoboy')) return 'bg-green-100 text-green-700 border-green-200';
     if (c.includes('cozinheiro') || c.includes('chapa')) return 'bg-red-100 text-red-700 border-red-200';
+    if (c.includes('kds')) return 'bg-teal-100 text-teal-700 border-teal-200';
     return 'bg-blue-50 text-blue-600 border-blue-100';
   };
 
