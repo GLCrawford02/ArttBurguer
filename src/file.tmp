@@ -17,6 +17,7 @@ import { Funcionario } from './types';
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'produtos'>('insumos');
+  const [subcardapio] = useState<'produtos'(Produtos);
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'fechamento' | 'relatorios'>('fechamento');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);

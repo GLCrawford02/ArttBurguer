@@ -117,6 +117,7 @@ export default function ProdutosManager() {
   const salvarProduto = async () => {
     const missingFields = [];
     if (!nomeProduto) missingFields.push('Nome do Produto');
+    if (!categoria) missingFields.push('Categoria');
     if (ingredientesSelecionados.length === 0) missingFields.push('Composição (Pelo menos 1 ingrediente na Ficha Técnica)');
 
     if (missingFields.length > 0) {
@@ -224,6 +225,8 @@ export default function ProdutosManager() {
       return;
     }
 
+    const listaCategoriasStr = categoriasDb.length > 0 ? categoriasDb.map(c => c.nome).join(', ') : 'Hambúrguer, Porção, Bebida, Sobremesa, Outros';
+
     setIsGenerating(true);
     try {
       const response = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -239,7 +242,7 @@ export default function ProdutosManager() {
             {
               role: 'system',
               content: `Você é um assistente de cadastro de produtos. Extraia os produtos do texto do usuário, onde cada linha representa um produto com valores separados por vírgula na ordem:
-Nome, Categoria (Hambúrguer, Porção, Bebida, Sobremesa, Outros), Preço de Venda, Ingredientes (Nome Insumo:Quantidade | Nome Insumo:Quantidade).
+Nome, Categoria (${listaCategoriasStr}), Preço de Venda, Ingredientes (Nome Insumo:Quantidade | Nome Insumo:Quantidade).
 Não inclua crases, formatação markdown ou texto adicional, apenas o array JSON.
 Formato esperado:
 [{
@@ -291,8 +294,8 @@ Formato esperado:
         }, 0);
 
         const produtoData = {
-          nome: item.nome || 'Sem Nome',
-          categoria: item.categoria || 'Hambúrguer',
+          nome: item.nome || 'Produto IA',
+          categoria: item.categoria || 'Outros', // Default to 'Outros' if AI doesn't provide a category
           precoVenda: Number(item.precoVenda) || 0,
           custoTotal: custoTotal,
           ingredientes: ingredientesParaSalvar
@@ -324,7 +327,7 @@ Formato esperado:
   const handleEdit = (produto: Produto) => {
     setEditId(produto.id);
     setNomeProduto(produto.nome);
-    setCategoria((produto as any).categoria || 'Hambúrguer');
+    setCategoria((produto as any).categoria || '');
     setPrecoVenda(String((produto as any).precoVenda || ''));
     setIngredientesSelecionados(produto.ingredientes || []);
     setCriarDuplo(false);
@@ -363,7 +366,7 @@ Formato esperado:
       }).join('|');
       return [
         p.nome,
-        (p as any).categoria || 'Hambúrguer',
+        (p as any).categoria || '',
         (p as any).precoVenda || 0,
         (p.custoTotal || 0).toFixed(2),
         ingStr
@@ -401,7 +404,7 @@ Formato esperado:
           const nome = row[0]?.trim();
           if (!nome) continue;
 
-          const categoria = row[1]?.trim() || 'Hambúrguer';
+          const categoria = row[1]?.trim() || 'Outros'; // Default to 'Outros' if CSV doesn't provide a category
           const precoVenda = Number(row[2]?.trim().replace(',', '.')) || 0;
           const ingredientesStr = row[4]?.trim() || '';
 
@@ -469,7 +472,7 @@ Formato esperado:
             {!editId && (
               <div className="flex bg-gray-100 p-1 rounded-lg">
                 <button onClick={() => setCadastroMode('manual')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors ${cadastroMode === 'manual' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500'}`}>Manual</button>
-                <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA Mágica</button>
+                <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA</button>
               </div>
             )}
             <button onClick={() => { handleCancelEdit(); setShowForm(false); }} className="text-gray-400 hover:text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-full p-1 transition-colors"><X size={20} /></button>

@@ -27,8 +27,9 @@ import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas'>('dashboard');
-  const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'produtos' | 'promocoes' | 'fornecedores'>('insumos');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas'>('dashboard');
+  const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
+  const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
@@ -59,7 +60,7 @@ export default function App() {
 
     // Adiciona a logo na aba do navegador (Favicon)
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
-    if (!link) {
+    if (!link) { 
       link = document.createElement('link');
       link.rel = 'icon';
       document.head.appendChild(link);
@@ -67,7 +68,7 @@ export default function App() {
     link.href = logoImg;
 
     const handleHashChange = () => {
-      const hash = window.location.hash.replace('#', '') as any;
+      const hash = window.location.hash.replace('#', '') as any; 
       if (['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'].includes(hash)) {
         setActiveTab(hash as any);
       }
@@ -110,7 +111,7 @@ export default function App() {
     });
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas') => {
+  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -125,7 +126,7 @@ export default function App() {
   const getAllowedTabs = () => {
     if (!currentUser) return [];
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'];
+    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'];
 
     const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
     
@@ -135,6 +136,7 @@ export default function App() {
 
     if (hasPerm('vendas')) allowed.push('pdv');
     if (hasPerm('insumos') || hasPerm('produtos')) allowed.push('cadastros');
+    if (hasPerm('produtos') || hasPerm('promocoes')) allowed.push('cardapio');
     if (hasPerm('compras') || hasPerm('transferencias')) allowed.push('movimentacoes');
     if (hasPerm('clientes') || hasPerm('despacho')) allowed.push('logistica');
     if (hasPerm('producao')) allowed.push('producao');
@@ -156,7 +158,21 @@ export default function App() {
       const checkIsDono = Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono';
 
       // Redireciona a sub-aba automaticamente se ele perder o acesso
-      setSubTabCadastros(prev => (!temPermissao('produtos') && (prev === 'produtos' || prev === 'promocoes')) ? 'insumos' : prev);
+      const allowedCadastrosSubTabs: ('insumos' | 'fornecedores')[] = [];
+      if (temPermissao('insumos')) allowedCadastrosSubTabs.push('insumos');
+      if (temPermissao('configuracoes')) allowedCadastrosSubTabs.push('fornecedores');
+      if (activeTab === 'cadastros' && !allowedCadastrosSubTabs.includes(subTabCadastros) && allowedCadastrosSubTabs.length > 0) {
+          setSubTabCadastros(allowedCadastrosSubTabs[0]);
+      }
+
+      const allowedCardapioSubTabs: ('produtos' | 'promocoes')[] = [];
+      if (temPermissao('produtos')) allowedCardapioSubTabs.push('produtos');
+      if (temPermissao('promocoes')) allowedCardapioSubTabs.push('promocoes');
+      if (activeTab === 'cardapio' && !allowedCardapioSubTabs.includes(subTabCardapio) && allowedCardapioSubTabs.length > 0) {
+          setSubTabCardapio(allowedCardapioSubTabs[0]);
+      }
+
+
       setSubTabMovimentacoes(prev => (!temPermissao('compras') && prev === 'compras') ? 'transferencia' : prev);
       setSubTabLogistica(prev => (!temPermissao('clientes') && prev === 'clientes') ? 'despacho' : prev);
       setSubTabFinanceiro(prev => (!checkIsDono && prev === 'calendario') ? 'relatorios_gerais' : prev);
@@ -164,7 +180,7 @@ export default function App() {
     }
   }, [currentUser, activeTab, permissoes]);
 
-  // Temporizador de Logout Automático para funcionários comuns
+  // Temporizador de Logout Automático para funcionários comuns 
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
 
@@ -316,6 +332,20 @@ export default function App() {
           </button>
           )}
           
+          {allowedTabs.includes('cardapio') && (
+          <button
+            onClick={() => handleTabChange('cardapio')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'cardapio' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <Utensils size={20} />
+            <span>Cardápio</span>
+          </button>
+          )}
+
+
+
           {allowedTabs.includes('movimentacoes') && (
           <button
             onClick={() => handleTabChange('movimentacoes')}
@@ -451,18 +481,25 @@ export default function App() {
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
             {temPermissao('configuracoes') && <button onClick={() => setSubTabCadastros('fornecedores')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>}
-                {temPermissao('insumos') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>}
-                {temPermissao('produtos') && (
-                  <>
-                    <button onClick={() => setSubTabCadastros('produtos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'produtos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtos</button>
-                    <button onClick={() => setSubTabCadastros('promocoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'promocoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Promoções</button>
-                  </>
-                )}
+                {temPermissao('insumos') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>} 
               </div>
           {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} />}
               {subTabCadastros === 'insumos' && <InsumosManager />}
-              {subTabCadastros === 'produtos' && <ProdutosManager />}
-              {subTabCadastros === 'promocoes' && <PromocoesManager />}
+            </div>
+          )}
+
+          {activeTab === 'cardapio' && (
+            <div className="space-y-6">
+              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+                {temPermissao('produtos') && (
+                  <button onClick={() => setSubTabCardapio('produtos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCardapio === 'produtos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtos</button>
+                )}
+                {temPermissao('promocoes') && (
+                  <button onClick={() => setSubTabCardapio('promocoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCardapio === 'promocoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Promoções</button>
+                )}
+              </div>
+              {subTabCardapio === 'produtos' && <ProdutosManager />}
+              {subTabCardapio === 'promocoes' && <PromocoesManager />}
             </div>
           )}
 
