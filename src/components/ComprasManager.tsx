@@ -247,7 +247,7 @@ export default function ComprasManager() {
 
     try {
       await set(push(ref(db, 'fila_mensagens')), {
-        telefone: '5538998528008',
+        telefone: '5538998119347',
         mensagem: msg,
         status: 'pendente',
         timestamp: Date.now()
