@@ -1,10 +1,23 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
     {
-      versao: '1.1.8',
+      versao: '1.1.9',
       data: 'Lançamento Recente',
+      titulo: 'Dashboard Integrado, Modais Rápidos e Gráficos Financeiros',
+      descricao: 'O módulo financeiro agora está interligado ao PDV, possui gráficos de gastos e é incrivelmente ágil com os novos modais.',
+      features: [
+        'Integração Automática PDV x Financeiro: As vendas realizadas e finalizadas no Caixa/PDV agora somam automaticamente na sua Receita Total.',
+        'Interface Rápida (Modais): Lançar contas a pagar/receber e agendamentos agora acontece em pop-ups sobrepostos, sem que você perca a visão do calendário.',
+        'Novo Gráfico de Despesas: Avalie a saúde do seu negócio visualizando exatamente a porcentagem de gasto direcionada para cada categoria de despesa.',
+        'Cálculo Inteligente de Parcelas: Na hora de comprar parcelado, você pode escolher informar o "Valor Total da Compra" ou o "Valor Direto da Parcela".'
+      ],
+      icon: <TrendingUp className="text-green-500" size={20} />
+    },
+    {
+      versao: '1.1.8',
+      data: 'Atualização Anterior',
       titulo: 'Escala Fluida, Nova Tela de Compras e Robô Silencioso',
       descricao: 'Layout 100% adaptável, entrada profissional de mercadorias e envio de mensagens em segundo plano.',
       features: [
@@ -17,7 +30,7 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.7',
-      data: 'Versão Atual',
+      data: 'Atualização Antiga',
       titulo: 'Categorias Dinâmicas e IA para Produtos',
       descricao: 'Mais flexibilidade no cadastro de produtos e um assistente inteligente para agilizar seu trabalho.',
       features: [
@@ -30,7 +43,7 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.6',
-      data: 'Atualização Anterior',
+      data: 'Atualização Antiga',
       titulo: 'Integração PDV & Cozinha e Mapa de Mesas',
       descricao: 'Uma revolução na forma de atender seus clientes e produzir os lanches.',
       features: [
