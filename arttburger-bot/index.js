@@ -22,7 +22,16 @@ const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
         headless: false,
-        args: ['--no-sandbox', '--disable-setuid-sandbox']
+        args: [
+            '--no-sandbox', 
+            '--disable-setuid-sandbox',
+            '--disable-dev-shm-usage',
+            '--disable-gpu',
+            '--start-minimized',
+            '--disable-background-timer-throttling',
+            '--disable-backgrounding-occluded-windows',
+            '--disable-renderer-backgrounding'
+        ]
     }
 });
 
@@ -66,40 +75,101 @@ client.on('message', async (msg) => {
     const temPalavraConclusao = /(conclui|ok|pronto|feit)/.test(textoLimpo);
 
     // Verifica se é um comando válido do bot antes de consultar o banco
-    const isComando = textoLimpo === 'ping' || 
+    const isComando = textoLimpo === 'ping' || textoLimpo.startsWith('vincular') || 
                       textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || 
                       (codigoInformado && temPalavraConclusao) ||
                       textoLimpo.startsWith('assistente ');
 
     if (!isComando) return; // Ignora mensagens comuns (ex: clientes fazendo pedidos)
 
-    // 1. Autenticação Global: Encontrar o funcionário dono deste número de telefone
-    const numeroRemetente = msg.from.replace('@c.us', '');
+    // 1. Autenticação Global e Criação de Vínculo
     const funcSnap = await db.ref('funcionarios').once('value');
     const funcionarios = funcSnap.val() || {};
     let funcionarioId = null;
     let funcionarioNome = '';
     let funcionarioCargo = 'Funcionário';
+    let numeroRemetente = '';
 
+    // Tentativa 1: Busca pelo ID exato já vinculado (Ultra-rápido e à prova de falhas)
     for (const [id, func] of Object.entries(funcionarios)) {
-        if (func.telefone) {
-            let telLimpo = func.telefone.replace(/\D/g, '');
-            if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
-            
-            // Verifica se o número bate (Lida com o problema do 9º dígito)
-            if (telLimpo === numeroRemetente || 
-               (telLimpo.length === 13 && telLimpo.substring(0,4) + telLimpo.substring(5) === numeroRemetente) ||
-               (numeroRemetente.length === 13 && numeroRemetente.substring(0,4) + numeroRemetente.substring(5) === telLimpo)) {
-                funcionarioId = id;
-                funcionarioNome = func.nome;
-                funcionarioCargo = Array.isArray(func.cargo) ? func.cargo[0] : (func.cargo || 'Funcionário');
-                break;
+        if (func.whatsappId === msg.from) {
+            funcionarioId = id;
+            funcionarioNome = func.nome;
+            funcionarioCargo = Array.isArray(func.cargo) ? func.cargo[0] : (func.cargo || 'Funcionário');
+            break;
+        }
+    }
+
+    // Tentativa 2: Busca por PIN (Recomendado: vincular + PIN)
+    if (!funcionarioId && textoLimpo.startsWith('vincular ')) {
+        const possivelPin = textoLimpo.replace(/\D/g, '');
+        if (possivelPin.length === 4) {
+            for (const [id, func] of Object.entries(funcionarios)) {
+                if (String(func.pin) === possivelPin) {
+                    funcionarioId = id;
+                    funcionarioNome = func.nome;
+                    funcionarioCargo = Array.isArray(func.cargo) ? func.cargo[0] : (func.cargo || 'Funcionário');
+                    
+                    await db.ref(`funcionarios/${funcionarioId}`).update({ whatsappId: msg.from });
+                    console.log(`🔗 VÍNCULO CRIADO via PIN: O ID ${msg.from} foi salvo no cadastro de ${funcionarioNome}.`);
+                    break;
+                }
+            }
+        }
+    }
+
+    // Tentativa 3: Busca pelo Telefone (Fallback de segurança)
+    if (!funcionarioId) {
+        const contact = await msg.getContact();
+        numeroRemetente = contact.number || msg.from.split('@')[0];
+
+        // NOVO: Se o WhatsApp ocultou o número (@lid) e o usuário usou "vincular <numero>", pegamos daqui!
+        const digitosTexto = textoLimpo.replace(/\D/g, '');
+        if (textoLimpo.startsWith('vincular ') && digitosTexto.length >= 10) {
+            numeroRemetente = digitosTexto;
+        }
+
+        let remetenteFormatado = numeroRemetente;
+        if (!remetenteFormatado.startsWith('55') && remetenteFormatado.length >= 10) {
+            remetenteFormatado = '55' + remetenteFormatado;
+        }
+
+        for (const [id, func] of Object.entries(funcionarios)) {
+            if (func.telefone) {
+                let telLimpo = func.telefone.replace(/\D/g, '');
+                if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+                
+                // Verifica se o número bate
+                if (telLimpo === remetenteFormatado || 
+                   (telLimpo.length === 13 && telLimpo.substring(0,4) + telLimpo.substring(5) === remetenteFormatado) ||
+                   (remetenteFormatado.length === 13 && remetenteFormatado.substring(0,4) + remetenteFormatado.substring(5) === telLimpo)) {
+                    
+                    funcionarioId = id;
+                    funcionarioNome = func.nome;
+                    funcionarioCargo = Array.isArray(func.cargo) ? func.cargo[0] : (func.cargo || 'Funcionário');
+                    
+                    // SUCESSO! Cria o vínculo permanente salvando o ID Oficial
+                    await db.ref(`funcionarios/${funcionarioId}`).update({ whatsappId: msg.from });
+                    console.log(`🔗 VÍNCULO CRIADO: O ID ${msg.from} foi salvo no cadastro de ${funcionarioNome}.`);
+                    break;
+                }
             }
         }
     }
 
     if (!funcionarioId) {
-        console.log(`🚫 Mensagem ignorada: O número ${numeroRemetente} tentou usar o bot, mas não é um funcionário cadastrado.`);
+        // Se a pessoa tentou vincular mas o PIN estava incorreto ou ausente
+        if (textoLimpo.startsWith('vincular')) {
+            await msg.reply(`⚠️ *Não foi possível realizar o vínculo!*\n\nO PIN informado está incorreto ou o número não corresponde.\nPor favor, responda com a palavra vincular seguida do seu PIN exato de 4 dígitos cadastrado no sistema.\n\nExemplo:\n*vincular 1234*`);
+            return;
+        }
+        
+        console.log(`🚫 Mensagem ignorada: O número ${numeroRemetente || msg.from} tentou usar o bot, mas não é um funcionário cadastrado.`);
+        return;
+    }
+
+    if (textoLimpo.startsWith('vincular')) {
+        await msg.reply(`✅ Olá *${funcionarioNome.split(' ')[0]}*!\n\nSeu WhatsApp foi vinculado com sucesso ao seu cadastro no sistema ArttBurger.\n\n*Seu ID de Segurança:* \n_${msg.from}_`);
         return;
     }
 
@@ -135,7 +205,7 @@ client.on('message', async (msg) => {
             }
 
             if (tarefaParaBaixar) {
-                await db.ref(`tarefas/${idDaTarefa}`).update({ status: 'concluida' });
+                await db.ref(`tarefas/${idDaTarefa}`).update({ status: 'concluida', dataConclusao: Date.now() });
                 await msg.reply(`✅ Excelente, ${funcionarioNome.split(' ')[0]}!\nA tarefa *"${tarefaParaBaixar.titulo}"* foi marcada como concluída!`);
 
                 if (tarefaParaBaixar.recorrencia && tarefaParaBaixar.recorrencia !== 'Nenhuma') {
@@ -162,6 +232,7 @@ client.on('message', async (msg) => {
 
                     if (recreate) {
                         const novaTarefa = { ...tarefaParaBaixar, status: 'pendente', dataAgendada: nextDateStr, notificadoWhatsApp: false, timestamp: Date.now() };
+                        delete novaTarefa.dataConclusao;
                         novaTarefa.codigo = Math.floor(1000 + Math.random() * 9000).toString();
                         await db.ref('tarefas').push(novaTarefa);
                     }
@@ -236,6 +307,21 @@ function iniciarChecagemTarefas() {
             }
 
             for (const [id, tarefa] of Object.entries(tarefas)) {
+                // Limpeza Automática: Remove tarefas concluídas há mais de 7 dias
+                const isConcluida = tarefa.status && tarefa.status.trim().toLowerCase() === 'concluida';
+                if (isConcluida) {
+                    if (!tarefa.dataConclusao) {
+                        // Marca a data de hoje nas antigas para apagar daqui a 7 dias
+                        await db.ref(`tarefas/${id}`).update({ dataConclusao: Date.now() });
+                        continue;
+                    }
+                    if (Date.now() - tarefa.dataConclusao > 7 * 24 * 60 * 60 * 1000) {
+                        await db.ref(`tarefas/${id}`).remove();
+                        console.log(`🧹 Tarefa concluída removida automaticamente (7 dias): ${tarefa.titulo || 'Sem título'}`);
+                        continue;
+                    }
+                }
+
                 // Se a tarefa tá pendente (ignora se tá escrito Pendente ou pendente) e AINDA NÃO FOI notificada
                 const isPendente = tarefa.status && tarefa.status.trim().toLowerCase() === 'pendente';
                 if (isPendente && !tarefa.notificadoWhatsApp) {
@@ -342,6 +428,7 @@ function iniciarChecagemTarefas() {
                         }
                     } catch (sendError) {
                         console.error(`❌ Erro ao enviar mensagem avulsa:`, sendError.message);
+                        await db.ref(`fila_mensagens/${idMsg}`).update({ status: 'erro' });
                     }
                 }
             }

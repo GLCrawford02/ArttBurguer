@@ -166,6 +166,26 @@ export default function GestaoEquipeManager() {
         
         {selectedFuncId && selectedFunc ? (
           <div className="mt-6 space-y-6">
+            <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                <div>
+                    <h4 className="font-bold text-indigo-800 flex items-center"><MessageSquare className="mr-2 text-indigo-600" size={18}/> Vínculo WhatsApp (Robô)</h4>
+                    <p className="text-xs text-indigo-600 mt-1">Status da comunicação deste funcionário com o robô.</p>
+                </div>
+                <div>
+                    {(selectedFunc as any).whatsappId ? (
+                        <div className="bg-white px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center shadow-sm">
+                            <CheckCircle size={16} className="text-green-500 mr-2" />
+                            <span className="text-xs font-mono text-gray-600">{(selectedFunc as any).whatsappId}</span>
+                        </div>
+                    ) : (
+                        <div className="bg-white px-3 py-1.5 rounded-lg border border-orange-200 flex items-center shadow-sm">
+                            <AlertTriangle size={16} className="text-orange-500 mr-2" />
+                            <span className="text-xs font-bold text-orange-700">Pendente (Pedir para enviar "vincular")</span>
+                        </div>
+                    )}
+                </div>
+            </div>
+
             <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
               <h4 className="font-bold text-gray-700 flex items-center mb-3"><Briefcase className="mr-2 text-blue-500" size={18}/> Funções e Encargos</h4>
               <p className="text-xs text-gray-500 mb-2">Descreva as responsabilidades exatas de {selectedFunc.nome} para que a IA possa mapear as tarefas.</p>

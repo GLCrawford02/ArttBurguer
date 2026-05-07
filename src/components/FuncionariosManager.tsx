@@ -2,7 +2,7 @@ import { useState, useEffect, FormEvent } from 'react';
 import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
-import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck } from 'lucide-react';
+import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare } from 'lucide-react';
 
 export default function FuncionariosManager({ currentUser }: { currentUser?: any }) {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -159,6 +159,30 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
   const funcHistorico = transferencias.filter(t => t.funcionarioId === historicoFuncionarioId);
   const selectedFunc = funcionarios.find(f => f.id === historicoFuncionarioId);
 
+  const solicitarVinculo = async (f: Funcionario | any) => {
+    if (!f) return;
+    if (!f.telefone) {
+      showToast('O funcionário precisa ter um telefone cadastrado para receber a mensagem!', 'error');
+      return;
+    }
+    let telLimpo = f.telefone.replace(/\D/g, '');
+    if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+    
+    const msg = `Olá *${f.nome.split(' ')[0]}*! 👋\n\nPara receber suas tarefas e rotas diretamente aqui no WhatsApp, precisamos vincular o seu número ao sistema da ArttBurger.\n\nPor favor, responda esta mensagem exatamente com o comando abaixo:\n\n*vincular ${f.pin}*`;
+    
+    try {
+      await set(push(ref(db, 'fila_mensagens')), {
+        telefone: telLimpo,
+        mensagem: msg,
+        status: 'pendente',
+        timestamp: Date.now()
+      });
+      showToast('A solicitação está sendo enviada pelo robô!', 'success');
+    } catch (err) {
+      showToast('Erro ao enviar solicitação.', 'error');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center">
@@ -219,6 +243,36 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                   <span className="text-sm font-bold text-gray-700">Funcionário Ativo no Sistema</span>
                 </label>
               </div>
+              
+              <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 my-4">
+                  <div>
+                      <h4 className="font-bold text-indigo-800 flex items-center">
+                          <MessageSquare className="mr-2 text-indigo-600" size={18}/> Vínculo WhatsApp (Robô)
+                      </h4>
+                      <p className="text-xs text-indigo-600 mt-1">Status da comunicação deste funcionário com o robô.</p>
+                  </div>
+                  <div>
+                      {editId && (funcionarios.find(f => f.id === editId) as any)?.whatsappId ? (
+                          <div className="bg-white px-3 py-1.5 rounded-lg border border-indigo-100 flex items-center shadow-sm">
+                              <CheckCircle size={16} className="text-green-500 mr-2" />
+                              <span className="text-xs font-mono text-gray-600">{(funcionarios.find(f => f.id === editId) as any)?.whatsappId}</span>
+                          </div>
+                      ) : (
+                          editId ? (
+                            <button type="button" onClick={() => solicitarVinculo(funcionarios.find(f => f.id === editId))} className="bg-white px-3 py-1.5 rounded-lg border border-orange-300 flex items-center shadow-md hover:bg-orange-50 transition-colors group cursor-pointer">
+                                <AlertTriangle size={16} className="text-orange-500 mr-2 group-hover:scale-110 transition-transform" />
+                                <span className="text-xs font-bold text-orange-700">Pendente (Solicitar via WhatsApp)</span>
+                            </button>
+                          ) : (
+                            <div className="bg-white px-3 py-1.5 rounded-lg border border-gray-200 flex items-center shadow-sm opacity-60 cursor-not-allowed" title="Salve o cadastro primeiro">
+                                <AlertTriangle size={16} className="text-gray-400 mr-2" />
+                                <span className="text-xs font-bold text-gray-500">Pendente (Salve primeiro)</span>
+                            </div>
+                          )
+                      )}
+                  </div>
+              </div>
+
               <div className="flex space-x-2">
                 <button type="submit" className="flex-1 bg-blue-600 text-white p-2 rounded-lg font-bold hover:bg-blue-700 transition-colors flex items-center justify-center">
                   <Save size={18} className="mr-2" /> Salvar

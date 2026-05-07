@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X } from 'lucide-react';
 
 interface Fornecedor {
   id: string;
@@ -15,7 +15,7 @@ interface ContaPagar {
   valor: number;
   vencimento: string;
   status: 'Pendente' | 'Pago';
-  tipo: 'Fixa' | 'Variável';
+  tipo: string;
   fornecedorId: string;
   recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual';
   fimRecorrencia?: string;
@@ -57,7 +57,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [vencimento, setVencimento] = useState('');
   const [statusPagar, setStatusPagar] = useState<'Pendente' | 'Pago'>('Pendente');
   const [statusReceber, setStatusReceber] = useState<'Pendente' | 'Recebido'>('Pendente');
-  const [tipoPagar, setTipoPagar] = useState<'Fixa' | 'Variável'>('Variável');
+  const [tipoPagar, setTipoPagar] = useState<string>('Variável');
   const [fornecedorId, setFornecedorId] = useState('');
   const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
   const [fimRecorrencia, setFimRecorrencia] = useState('');
@@ -79,6 +79,12 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [recorrenciaAg, setRecorrenciaAg] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
   const [fimRecorrenciaAg, setFimRecorrenciaAg] = useState('');
   const [subTabCalendario, setSubTabCalendario] = useState<'calendario' | 'pagar' | 'receber'>('calendario');
+
+  const [showCategoriasModal, setShowCategoriasModal] = useState(false);
+  const [categoriasDespesa, setCategoriasDespesa] = useState<{id: string, nome: string}[]>([]);
+  const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
+  const [editCategoriaId, setEditCategoriaId] = useState<string | null>(null);
+  const [editCategoriaNome, setEditCategoriaNome] = useState('');
 
   useEffect(() => {
     const fornRef = ref(db, 'fornecedores');
@@ -127,7 +133,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       } else setFuncionarios([]);
     });
 
-    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); };
+    const catRef = ref(db, 'categorias_despesa');
+    const unsubCat = onValue(catRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setCategoriasDespesa(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setCategoriasDespesa([]);
+    });
+
+    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); unsubCat(); };
   }, []);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -230,6 +243,30 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       showToast('Agendamento registrado!');
     }
     resetForms();
+  };
+
+  const handleAddCategoria = async () => {
+    if (!novaCategoriaForm.trim()) return;
+    await set(push(ref(db, 'categorias_despesa')), { nome: novaCategoriaForm.trim() });
+    setNovaCategoriaForm('');
+  };
+
+  const handleEditCategoria = (c: any) => {
+    setEditCategoriaId(c.id);
+    setEditCategoriaNome(c.nome);
+  };
+
+  const handleSaveEditCategoria = async () => {
+    if (!editCategoriaNome.trim() || !editCategoriaId) return;
+    await update(ref(db, `categorias_despesa/${editCategoriaId}`), { nome: editCategoriaNome.trim() });
+    setEditCategoriaId(null);
+    setEditCategoriaNome('');
+  };
+
+  const handleDeleteCategoria = async (id: string) => {
+    if (confirm('Tem certeza que deseja excluir esta categoria?')) {
+      await remove(ref(db, `categorias_despesa/${id}`));
+    }
   };
 
   const alternarStatus = async (tipo: 'pagar' | 'receber', id: string, novoStatus: string) => {
@@ -345,10 +382,16 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
         
         {tipoConta === 'pagar' && (
           <>
-            <select value={tipoPagar} onChange={e=>setTipoPagar(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
-              <option value="Fixa">Despesa Fixa</option>
-              <option value="Variável">Despesa Variável</option>
-            </select>
+            <div className="space-y-1">
+              <div className="flex justify-between items-end mb-1">
+                <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center">Tipo de Despesa</label>
+                <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">Gerenciar</button>
+              </div>
+              <select value={tipoPagar} onChange={e=>setTipoPagar(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
+                <option value="">Selecione o tipo...</option>
+                {categoriasDespesa.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+              </select>
+            </div>
             <select value={fornecedorId} onChange={e=>setFornecedorId(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
               <option value="">Sem Fornecedor</option>
               {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
@@ -696,6 +739,43 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
           {subTabCalendario === 'calendario' && renderCalendario()}
           {subTabCalendario === 'pagar' && renderFormularioContas('pagar')}
           {subTabCalendario === 'receber' && renderFormularioContas('receber')}
+        </div>
+      )}
+
+      {showCategoriasModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Tipos de Despesa</h3>
+              <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="flex space-x-2">
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Ex: Impostos, Folha..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+              <button onClick={handleAddCategoria} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition-colors text-sm">Adicionar</button>
+            </div>
+            <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+              {categoriasDespesa.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                  {editCategoriaId === c.id ? (
+                    <div className="flex w-full space-x-2">
+                      <input type="text" value={editCategoriaNome} onChange={e => setEditCategoriaNome(e.target.value)} className="flex-1 p-1 border border-red-300 rounded outline-none focus:ring-2 focus:ring-red-500 text-sm bg-white" autoFocus />
+                      <button onClick={handleSaveEditCategoria} className="text-green-600 hover:bg-green-50 px-2 rounded font-bold text-sm">Salvar</button>
+                      <button onClick={() => setEditCategoriaId(null)} className="text-gray-500 hover:bg-gray-100 px-2 rounded font-bold text-sm">Cancelar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">{c.nome}</span>
+                      <div className="flex space-x-1">
+                        <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>
+                        <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              {categoriasDespesa.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhum tipo cadastrado.</p>}
+            </div>
+          </div>
         </div>
       )}
 

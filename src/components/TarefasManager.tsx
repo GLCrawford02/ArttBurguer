@@ -10,13 +10,14 @@ export interface Tarefa {
   titulo: string;
   descricao: string;
   url?: string;
-  responsavelId?: string; // Legado
-  responsaveisIds?: string[]; // Novo modelo múltiplo
+  responsavelId?: string; 
+  responsaveisIds?: string[]; 
   dataAgendada: string;
   horaAgendada: string;
   urgente?: boolean;
   status: 'pendente' | 'concluida';
   timestamp: number;
+  dataConclusao?: number;
   notificadoWhatsApp?: boolean;
   notificadoAntecipado?: boolean;
   prioridade?: 'Nenhuma' | 'Baixa' | 'Média' | 'Alta';
@@ -46,7 +47,11 @@ export default function TarefasManager() {
   const [prioridade, setPrioridade] = useState<'Nenhuma' | 'Baixa' | 'Média' | 'Alta'>('Nenhuma');
   const [sinalizado, setSinalizado] = useState(false);
   const [categoria, setCategoria] = useState('Limpeza');
-  const [isNovaCategoria, setIsNovaCategoria] = useState(false);
+  const [categoriasDb, setCategoriasDb] = useState<{id: string, nome: string}[]>([]);
+  const [showCategoriasModal, setShowCategoriasModal] = useState(false);
+  const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
+  const [editCategoriaId, setEditCategoriaId] = useState<string | null>(null);
+  const [editCategoriaNome, setEditCategoriaNome] = useState('');
   const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Quinzenal' | 'Mensal' | 'Anual' | 'Personalizado'>('Nenhuma');
   const [recorrenciaCustomValor, setRecorrenciaCustomValor] = useState(1);
   const [recorrenciaCustomUnidade, setRecorrenciaCustomUnidade] = useState<'dia' | 'semana' | 'mes' | 'ano'>('dia');
@@ -57,6 +62,7 @@ export default function TarefasManager() {
   
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [selectedTask, setSelectedTask] = useState<Tarefa | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -94,13 +100,62 @@ export default function TarefasManager() {
       }
     });
 
-    return () => { unsubFunc(); unsubTarefas(); };
+    const categoriasRef = ref(db, 'configuracoes/categorias_tarefas');
+    let isFirstLoadCat = true;
+    const unsubCategorias = onValue(categoriasRef, (snap) => {
+      const data = snap.val();
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, nome: val.nome }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCategoriasDb(list);
+      } else {
+        setCategoriasDb([]);
+        if (isFirstLoadCat) {
+          const defaults = ['Limpeza', 'Auditoria', 'Produção', 'Financeiro', 'Outros'];
+          defaults.forEach(nome => push(ref(db, 'configuracoes/categorias_tarefas'), { nome }));
+        }
+      }
+      isFirstLoadCat = false;
+    });
+
+    return () => { unsubFunc(); unsubTarefas(); unsubCategorias(); };
   }, []);
+
+  const handleAddCategoria = async () => {
+    if (!novaCategoriaForm.trim()) return;
+    await set(push(ref(db, 'configuracoes/categorias_tarefas')), { nome: novaCategoriaForm.trim() });
+    setNovaCategoriaForm('');
+  };
+
+  const handleDeleteCategoria = async (id: string) => {
+    if (window.confirm('Tem certeza que deseja excluir esta categoria? As tarefas que usam ela manterão o nome, mas ela sairá da lista.')) {
+      await remove(ref(db, `configuracoes/categorias_tarefas/${id}`));
+    }
+  };
+
+  const handleEditCategoria = (c: {id: string, nome: string}) => {
+    setEditCategoriaId(c.id);
+    setEditCategoriaNome(c.nome);
+  };
+
+  const handleSaveEditCategoria = async () => {
+    if (!editCategoriaId || !editCategoriaNome.trim()) return;
+    const oldCat = categoriasDb.find(c => c.id === editCategoriaId);
+    await update(ref(db, `configuracoes/categorias_tarefas/${editCategoriaId}`), { nome: editCategoriaNome.trim() });
+    
+    if (oldCat && oldCat.nome !== editCategoriaNome.trim()) {
+      for (const t of tarefas) {
+        if (t.categoria === oldCat.nome) await update(ref(db, `tarefas/${t.id}`), { categoria: editCategoriaNome.trim() });
+      }
+    }
+    setEditCategoriaId(null);
+    setEditCategoriaNome('');
+  };
 
   const resetForm = () => {
     setEditId(null);
     setTitulo(''); setDescricao(''); setUrl(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
-    setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza'); setIsNovaCategoria(false);
+    setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza');
     setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
     setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
     setShowForm(false);
@@ -178,7 +233,12 @@ export default function TarefasManager() {
 
   const toggleStatus = async (tarefa: Tarefa) => {
     const novoStatus = tarefa.status === 'pendente' ? 'concluida' : 'pendente';
-    await update(ref(db, `tarefas/${tarefa.id}`), { status: novoStatus });
+    
+    const updates: any = { status: novoStatus };
+    if (novoStatus === 'concluida') updates.dataConclusao = Date.now();
+    else updates.dataConclusao = null;
+
+    await update(ref(db, `tarefas/${tarefa.id}`), updates);
     
     // Lógica de Recorrência
     if (novoStatus === 'concluida' && tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma') {
@@ -208,6 +268,7 @@ export default function TarefasManager() {
       if (recreate) {
         const novaTarefa = { ...tarefa };
         delete (novaTarefa as any).id;
+        delete novaTarefa.dataConclusao;
         novaTarefa.codigo = Math.floor(1000 + Math.random() * 9000).toString();
         novaTarefa.status = 'pendente';
         novaTarefa.dataAgendada = nextDateStr;
@@ -316,23 +377,16 @@ export default function TarefasManager() {
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
             <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Mais Opções</h4>
             <div className="space-y-1">
-              <label className="text-xs font-bold text-gray-500 flex items-center"><Tags size={14} className="mr-1"/> Categoria</label>
-              {isNovaCategoria ? (
-                <div className="flex">
-                  <input autoFocus type="text" value={categoria} onChange={e => setCategoria(e.target.value)} placeholder="Nome da categoria..." className="w-full p-2.5 border border-gray-200 rounded-l-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
-                  <button onClick={() => { setIsNovaCategoria(false); setCategoria('Limpeza'); }} className="bg-gray-200 hover:bg-gray-300 border border-l-0 border-gray-200 rounded-r-lg px-3 text-gray-600 transition-colors" title="Cancelar"><X size={16} /></button>
-                </div>
-              ) : (
-                <select value={categoria} onChange={e => {
-                  if (e.target.value === 'NOVA_CATEGORIA') { setIsNovaCategoria(true); setCategoria(''); } 
-                  else { setCategoria(e.target.value); }
-                }} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
-                  {Array.from(new Set(['Limpeza', 'Auditoria', 'Produção', 'Financeiro', 'Outros', ...tarefas.map(t => t.categoria).filter(Boolean)])).map(c => (
-                    <option key={c as string} value={c as string}>{c as string}</option>
-                  ))}
-                  <option value="NOVA_CATEGORIA" className="font-bold text-indigo-600">+ Nova Categoria...</option>
-                </select>
-              )}
+              <div className="flex justify-between items-end mb-1">
+                <label className="text-xs font-bold text-gray-500 flex items-center"><Tags size={14} className="mr-1"/> Categoria</label>
+                <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase leading-none pb-0.5">Gerenciar</button>
+              </div>
+              <select value={categoria} onChange={e => setCategoria(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
+                <option value="">Selecione...</option>
+                {categoriasDb.map(c => (
+                  <option key={c.id} value={c.nome}>{c.nome}</option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -421,7 +475,7 @@ export default function TarefasManager() {
                 <div key={tarefa.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm border-l-4 border-l-orange-400">
                   <div className="flex justify-between items-start">
                     <div>
-                      <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2">
+                      <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
                         {tarefa.sinalizado && <Flag size={14} className="text-orange-500 fill-orange-500 shrink-0" />}
                         {tarefa.codigo && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
                         {tarefa.titulo}
@@ -463,7 +517,7 @@ export default function TarefasManager() {
               return (
                 <div key={tarefa.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 border-l-4 border-l-green-500 opacity-70 hover:opacity-100 transition-opacity">
                   <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-gray-600 line-through flex items-center gap-2">
+                    <h4 className="font-bold text-gray-600 line-through flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
                       {tarefa.codigo && <span className="bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
                       {tarefa.titulo}
                     </h4>
@@ -510,6 +564,133 @@ export default function TarefasManager() {
               </div>
             ))}
             {userStats.length === 0 && <p className="text-gray-400 italic">Nenhum dado de produtividade disponível.</p>}
+          </div>
+        </div>
+      )}
+
+      {selectedTask && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4" onClick={() => setSelectedTask(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 border-b border-gray-100 flex justify-between items-start bg-gray-50">
+              <div>
+                <h3 className="text-xl font-bold text-gray-900 flex items-center gap-2">
+                  {selectedTask.sinalizado && <Flag size={18} className="text-orange-500 fill-orange-500" />}
+                  {selectedTask.codigo && <span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-sm font-mono border border-gray-300">#{selectedTask.codigo}</span>}
+                  {selectedTask.titulo}
+                </h3>
+                <div className="flex gap-2 mt-3">
+                  <span className={`text-xs font-bold px-2.5 py-1 rounded border ${selectedTask.status === 'concluida' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                    {selectedTask.status === 'concluida' ? 'Concluída' : 'Pendente'}
+                  </span>
+                  {selectedTask.prioridade && selectedTask.prioridade !== 'Nenhuma' && (
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded border ${getPrioColor(selectedTask.prioridade)}`}>{selectedTask.prioridade}</span>
+                  )}
+                  <span className="text-xs font-bold px-2.5 py-1 rounded border bg-gray-100 text-gray-600">{selectedTask.categoria || 'Geral'}</span>
+                </div>
+              </div>
+              <button onClick={() => setSelectedTask(null)} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 p-1.5 rounded-lg transition-colors">
+                <X size={20} />
+              </button>
+            </div>
+            
+            <div className="p-6 space-y-6">
+              {selectedTask.descricao && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Descrição</h4>
+                  <p className="text-gray-700 text-sm whitespace-pre-wrap bg-gray-50 p-4 rounded-lg border border-gray-100">{selectedTask.descricao}</p>
+                </div>
+              )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Agendamento</h4>
+                  <div className="bg-orange-50 text-orange-700 p-3 rounded-lg border border-orange-100 flex flex-col gap-1 text-sm">
+                    <span className="font-bold flex items-center"><Calendar size={14} className="mr-1.5"/> {selectedTask.dataAgendada ? selectedTask.dataAgendada.split('-').reverse().join('/') : 'Sem data'}</span>
+                    <span className="font-bold flex items-center"><Clock size={14} className="mr-1.5"/> {selectedTask.horaAgendada || 'Sem hora'}</span>
+                  </div>
+                </div>
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Repetição</h4>
+                  <div className="bg-blue-50 text-blue-700 p-3 rounded-lg border border-blue-100 flex flex-col gap-1 text-sm h-full justify-center">
+                    <span className="font-bold flex items-center"><RotateCw size={14} className="mr-1.5"/> {selectedTask.recorrencia && selectedTask.recorrencia !== 'Nenhuma' ? selectedTask.recorrencia : 'Apenas uma vez'}</span>
+                  </div>
+                </div>
+              </div>
+
+              <div>
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Responsáveis</h4>
+                <div className="flex flex-wrap gap-2">
+                  {(() => {
+                    const ids = selectedTask.responsaveisIds || (selectedTask.responsavelId ? [selectedTask.responsavelId] : []);
+                    if (ids.length === 0) return <span className="text-sm text-gray-500">Nenhum responsável.</span>;
+                    return ids.map(id => {
+                      const func = funcionarios.find(f => f.id === id);
+                      return (
+                        <span key={id} className="bg-gray-100 text-gray-700 px-3 py-1.5 rounded-lg text-sm font-bold flex items-center border border-gray-200">
+                          <Users size={14} className="mr-1.5 text-gray-500"/>
+                          {func ? func.nome : 'Desconhecido'}
+                        </span>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+
+              {selectedTask.url && (
+                <div>
+                  <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Link Anexo</h4>
+                  <a href={selectedTask.url.startsWith('http') ? selectedTask.url : `https://${selectedTask.url}`} target="_blank" rel="noopener noreferrer" className="text-blue-600 bg-blue-50 hover:bg-blue-100 p-3 rounded-lg flex items-center text-sm font-bold transition-colors break-all border border-blue-100">
+                    <LinkIcon size={16} className="mr-2 shrink-0"/> {selectedTask.url}
+                  </a>
+                </div>
+              )}
+            </div>
+
+            <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between">
+               <button onClick={() => { setSelectedTask(null); editarTarefa(selectedTask); }} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center transition-colors">
+                 <Pencil size={16} className="mr-2" /> Editar
+               </button>
+               <button onClick={() => { toggleStatus(selectedTask); setSelectedTask(null); }} className={`px-6 py-2 text-white rounded-lg text-sm font-bold flex items-center shadow-sm transition-colors ${selectedTask.status === 'concluida' ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}>
+                 <CheckCircle size={16} className="mr-2" /> {selectedTask.status === 'concluida' ? 'Reabrir Tarefa' : 'Marcar como Concluída'}
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCategoriasModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Categorias de Tarefas</h3>
+              <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="flex space-x-2">
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Nova categoria..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <button onClick={handleAddCategoria} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">Adicionar</button>
+            </div>
+            <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+              {categoriasDb.map(c => (
+                <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                  {editCategoriaId === c.id ? (
+                    <div className="flex w-full space-x-2">
+                      <input type="text" value={editCategoriaNome} onChange={e => setEditCategoriaNome(e.target.value)} className="flex-1 p-1 border border-indigo-300 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white" autoFocus />
+                      <button onClick={handleSaveEditCategoria} className="text-green-600 hover:bg-green-50 px-2 rounded font-bold text-sm">Salvar</button>
+                      <button onClick={() => setEditCategoriaId(null)} className="text-gray-500 hover:bg-gray-100 px-2 rounded font-bold text-sm">Cancelar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">{c.nome}</span>
+                      <div className="flex space-x-1">
+                        <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>
+                        <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              {categoriasDb.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhuma categoria cadastrada.</p>}
+            </div>
           </div>
         </div>
       )}
