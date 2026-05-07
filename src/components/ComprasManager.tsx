@@ -316,7 +316,7 @@ export default function ComprasManager() {
               <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider font-bold">
                 <th className="p-2">Insumo</th>
                 <th className="p-2 w-20 sm:w-28">Lote</th>
-                <th className="p-2 w-24 sm:w-36">Validade<>
+                <th className="p-2 w-24 sm:w-36">Validade</th>
                 <th className="p-2 w-16 sm:w-24">Qtd (Vol)</th>
                 <th className="p-2 w-24 sm:w-32">Valor Total</th>
                 <th className="p-2 w-10 sm:w-12 text-center">Ações</th>
