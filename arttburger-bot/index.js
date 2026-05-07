@@ -14,17 +14,25 @@ const db = admin.database();
 // Chave da API da IA (Grok) que usamos no sistema web
 const GROK_KEY = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
-console.log('🚀 Iniciando os motores do robô...');
+console.log('Iniciandoo robô...');
 
 // 2. Inicializar o Cliente do WhatsApp
 const client = new Client({
     // LocalAuth salva a sua sessão. Você só escaneia o QR Code na primeira vez!
-    authStrategy: new LocalAuth() 
+    authStrategy: new LocalAuth(),
+    puppeteer: {
+        headless: false,
+        args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
 });
 
 client.on('qr', (qr) => {
     qrcode.generate(qr, { small: true });
-    console.log('🤖 Escaneie o QR Code acima com o WhatsApp da Hamburgueria.');
+    console.log('🤖 Escaneie o QR Code acima com o WhatsApp da Arttburger.');
+});
+
+client.on('loading_screen', (percent, message) => {
+    console.log(`⏳ Carregando o WhatsApp: ${percent}% - ${message}`);
 });
 
 client.on('ready', () => {
@@ -53,9 +61,14 @@ client.on('message', async (msg) => {
     // Remove acentos e converte para minúsculas (Ex: "Concluído" -> "concluido")
     const textoLimpo = msg.body.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
+    const codigoMatch = textoLimpo.match(/#?(\d{4})/);
+    const codigoInformado = codigoMatch ? codigoMatch[1] : null;
+    const temPalavraConclusao = /(conclui|ok|pronto|feit)/.test(textoLimpo);
+
     // Verifica se é um comando válido do bot antes de consultar o banco
     const isComando = textoLimpo === 'ping' || 
                       textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || 
+                      (codigoInformado && temPalavraConclusao) ||
                       textoLimpo.startsWith('assistente ');
 
     if (!isComando) return; // Ignora mensagens comuns (ex: clientes fazendo pedidos)
@@ -95,7 +108,7 @@ client.on('message', async (msg) => {
         return;
     }
 
-    if (textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok') {
+    if (textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || (codigoInformado && temPalavraConclusao)) {
         try {
             const tarefasSnap = await db.ref('tarefas').once('value');
             const tarefas = tarefasSnap.val() || {};
@@ -106,9 +119,17 @@ client.on('message', async (msg) => {
                 if (tar.status === 'pendente') {
                     const responsaveis = tar.responsaveisIds || (tar.responsavelId ? [tar.responsavelId] : []);
                     if (responsaveis.includes(funcionarioId)) {
-                        tarefaParaBaixar = tar;
-                        idDaTarefa = id;
-                        break; 
+                        if (codigoInformado) {
+                            if (tar.codigo === codigoInformado) {
+                                tarefaParaBaixar = tar;
+                                idDaTarefa = id;
+                                break;
+                            }
+                        } else {
+                            tarefaParaBaixar = tar;
+                            idDaTarefa = id;
+                            break; 
+                        }
                     }
                 }
             }
@@ -121,11 +142,32 @@ client.on('message', async (msg) => {
                     const d = new Date(`${tarefaParaBaixar.dataAgendada}T12:00:00`);
                     if (tarefaParaBaixar.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
                     else if (tarefaParaBaixar.recorrencia === 'Semanal') d.setDate(d.getDate() + 7);
+                    else if (tarefaParaBaixar.recorrencia === 'Quinzenal') d.setDate(d.getDate() + 14);
+                    else if (tarefaParaBaixar.recorrencia === 'Mensal') d.setMonth(d.getMonth() + 1);
+                    else if (tarefaParaBaixar.recorrencia === 'Anual') d.setFullYear(d.getFullYear() + 1);
+                    else if (tarefaParaBaixar.recorrencia === 'Personalizado') {
+                        const v = tarefaParaBaixar.recorrenciaCustomValor || 1;
+                        const u = tarefaParaBaixar.recorrenciaCustomUnidade || 'dia';
+                        if (u === 'dia') d.setDate(d.getDate() + v);
+                        else if (u === 'semana') d.setDate(d.getDate() + (v * 7));
+                        else if (u === 'mes') d.setMonth(d.getMonth() + v);
+                        else if (u === 'ano') d.setFullYear(d.getFullYear() + v);
+                    }
                     const nextDateStr = d.toISOString().split('T')[0];
                     
-                    const novaTarefa = { ...tarefaParaBaixar, status: 'pendente', dataAgendada: nextDateStr, notificadoWhatsApp: false, timestamp: Date.now() };
-                    await db.ref('tarefas').push(novaTarefa);
+                    let recreate = true;
+                    if (tarefaParaBaixar.terminarRepeticao === 'em_data' && tarefaParaBaixar.dataFimRepeticao) {
+                        if (nextDateStr > tarefaParaBaixar.dataFimRepeticao) recreate = false;
+                    }
+
+                    if (recreate) {
+                        const novaTarefa = { ...tarefaParaBaixar, status: 'pendente', dataAgendada: nextDateStr, notificadoWhatsApp: false, timestamp: Date.now() };
+                        novaTarefa.codigo = Math.floor(1000 + Math.random() * 9000).toString();
+                        await db.ref('tarefas').push(novaTarefa);
+                    }
                 }
+            } else if (codigoInformado) {
+                await msg.reply(`⚠️ ${funcionarioNome.split(' ')[0]}, não encontrei nenhuma tarefa pendente sua com o código *#${codigoInformado}*. Verifique o código e tente novamente.`);
             } else {
                 await msg.reply(`Tudo limpo, ${funcionarioNome.split(' ')[0]}! Você não tem nenhuma tarefa pendente no momento. 🍔`);
             }
@@ -235,7 +277,8 @@ function iniciarChecagemTarefas() {
                                     numeroMovel = '55' + numeroMovel;
                                 }
 
-                                const mensagem = `🔔 *ArttBurger Tasks*\nOlá *${funcionario.nome}*, você tem uma tarefa programada para agora!\n\n👉 *${tarefa.titulo}*\n📝 ${tarefa.descricao || 'Sem instruções adicionais.'}\n⏰ Prazo: *${tarefa.horaAgendada}*\n\nPor favor, marque como concluída no sistema após finalizar. Bom trabalho! 🍔`;
+                                const codigoExibicao = tarefa.codigo ? `[#${tarefa.codigo}] ` : '';
+                                const mensagem = `🔔 *ArttBurger Tasks*\nOlá *${funcionario.nome}*, você tem uma tarefa programada para agora!\n\n👉 *${codigoExibicao}${tarefa.titulo}*\n📝 ${tarefa.descricao || 'Sem instruções adicionais.'}\n⏰ Prazo: *${tarefa.horaAgendada}*\n\nPor favor, responda com *"Concluído ${tarefa.codigo ? '#' + tarefa.codigo : ''}"* para finalizar no sistema. Bom trabalho! 🍔`;
 
                                 console.log(`📤 Tentando enviar mensagem para ${funcionario.nome} (${numeroMovel})...`);
                                 

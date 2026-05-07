@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle } from 'lucide-react';
+import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil } from 'lucide-react';
 
 export interface Tarefa {
   id: string;
+  codigo?: string;
   titulo: string;
   descricao: string;
   url?: string;
@@ -52,6 +53,7 @@ export default function TarefasManager() {
   const [terminarRepeticao, setTerminarRepeticao] = useState<'nunca' | 'em_data'>('nunca');
   const [dataFimRepeticao, setDataFimRepeticao] = useState('');
   const [lembreteAntecipado, setLembreteAntecipado] = useState<number>(0);
+  const [editId, setEditId] = useState<string | null>(null);
   
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -95,46 +97,83 @@ export default function TarefasManager() {
     return () => { unsubFunc(); unsubTarefas(); };
   }, []);
 
+  const resetForm = () => {
+    setEditId(null);
+    setTitulo(''); setDescricao(''); setUrl(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
+    setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza'); setIsNovaCategoria(false);
+    setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
+    setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
+    setShowForm(false);
+  };
+
   const salvarTarefa = async () => {
     if (!titulo || responsaveisIds.length === 0) {
       showToast('Preencha título e selecione pelo menos um responsável.', 'error');
       return;
     }
 
+    const tarefaData = {
+      titulo,
+      descricao,
+      url,
+      responsaveisIds,
+      responsavelId: responsaveisIds[0] || null, // Fallback para não quebrar o script legado de WhatsApp
+      dataAgendada,
+      horaAgendada,
+      urgente,
+      prioridade,
+      sinalizado,
+      categoria,
+      recorrencia,
+      recorrenciaCustomValor,
+      recorrenciaCustomUnidade,
+      terminarRepeticao,
+      dataFimRepeticao,
+      lembreteAntecipado,
+    };
+
     try {
-      await set(push(ref(db, 'tarefas')), {
-        titulo,
-        descricao,
-        url,
-        responsaveisIds,
-        responsavelId: responsaveisIds[0] || null, // Fallback para não quebrar o script legado de WhatsApp
-        dataAgendada,
-        horaAgendada,
-        urgente,
-        prioridade,
-        sinalizado,
-        categoria,
-        recorrencia,
-        recorrenciaCustomValor,
-        recorrenciaCustomUnidade,
-        terminarRepeticao,
-        dataFimRepeticao,
-        lembreteAntecipado,
-        status: 'pendente',
-        notificadoWhatsApp: false, // Preparação para a API do Zap
-        notificadoAntecipado: false,
-        timestamp: Date.now()
-      });
+      if (editId) {
+        await update(ref(db, `tarefas/${editId}`), tarefaData);
+        showToast('Tarefa atualizada com sucesso!', 'success');
+      } else {
+        await set(push(ref(db, 'tarefas')), {
+          ...tarefaData,
+          codigo: Math.floor(1000 + Math.random() * 9000).toString(),
+          status: 'pendente',
+          notificadoWhatsApp: false, // Preparação para a API do Zap
+          notificadoAntecipado: false,
+          timestamp: Date.now()
+        });
+        showToast('Tarefa delegada com sucesso!', 'success');
+      }
       
-      showToast('Tarefa delegada com sucesso!', 'success');
-      setTitulo(''); setDescricao(''); setUrl(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
-      setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza'); setIsNovaCategoria(false);
-      setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
-      setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
-      setShowForm(false);
+      resetForm();
     } catch (error: any) {
       showToast('Erro ao salvar: ' + error.message, 'error');
     }
+  };
+
+  const editarTarefa = (tarefa: Tarefa) => {
+    setEditId(tarefa.id);
+    setTitulo(tarefa.titulo || '');
+    setDescricao(tarefa.descricao || '');
+    setUrl(tarefa.url || '');
+    setDataAgendada(tarefa.dataAgendada || '');
+    setHoraAgendada(tarefa.horaAgendada || '');
+    setUrgente(tarefa.urgente || false);
+    setResponsaveisIds(tarefa.responsaveisIds || (tarefa.responsavelId ? [tarefa.responsavelId] : []));
+    setPrioridade(tarefa.prioridade || 'Nenhuma');
+    setSinalizado(tarefa.sinalizado || false);
+    setCategoria(tarefa.categoria || 'Limpeza');
+    setRecorrencia(tarefa.recorrencia || 'Nenhuma');
+    setRecorrenciaCustomValor(tarefa.recorrenciaCustomValor || 1);
+    setRecorrenciaCustomUnidade(tarefa.recorrenciaCustomUnidade || 'dia');
+    setTerminarRepeticao(tarefa.terminarRepeticao || 'nunca');
+    setDataFimRepeticao(tarefa.dataFimRepeticao || '');
+    setLembreteAntecipado(tarefa.lembreteAntecipado || 0);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
   const toggleStatus = async (tarefa: Tarefa) => {
@@ -169,6 +208,7 @@ export default function TarefasManager() {
       if (recreate) {
         const novaTarefa = { ...tarefa };
         delete (novaTarefa as any).id;
+        novaTarefa.codigo = Math.floor(1000 + Math.random() * 9000).toString();
         novaTarefa.status = 'pendente';
         novaTarefa.dataAgendada = nextDateStr;
         novaTarefa.notificadoWhatsApp = false;
@@ -217,7 +257,7 @@ export default function TarefasManager() {
             <p className="text-sm text-gray-500">Programe tarefas para a equipe (Limpeza, Auditoria, Produção).</p>
           </div>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
+        <button onClick={() => showForm ? resetForm() : setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
           {showForm ? <><X size={20} className="mr-2" /> Cancelar</> : <><Plus size={20} className="mr-2" /> Nova Task</>}
         </button>
       </div>
@@ -363,7 +403,7 @@ export default function TarefasManager() {
           </div>
 
           <div className="flex justify-end pt-2">
-            <button onClick={salvarTarefa} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-sm">Adicionar Tarefa</button>
+            <button onClick={salvarTarefa} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-3 rounded-xl font-bold hover:bg-indigo-700 transition-colors shadow-sm">{editId ? 'Atualizar Tarefa' : 'Adicionar Tarefa'}</button>
           </div>
         </div>
       )}
@@ -383,6 +423,7 @@ export default function TarefasManager() {
                     <div>
                       <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2">
                         {tarefa.sinalizado && <Flag size={14} className="text-orange-500 fill-orange-500 shrink-0" />}
+                        {tarefa.codigo && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
                         {tarefa.titulo}
                       </h4>
                       <div className="flex gap-2 mt-1.5 mb-2">
@@ -393,9 +434,10 @@ export default function TarefasManager() {
                       {tarefa.descricao && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{tarefa.descricao}</p>}
                       {tarefa.url && <a href={tarefa.url.startsWith('http') ? tarefa.url : `https://${tarefa.url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Acessar Link</a>}
                     </div>
-                    <div className="flex space-x-2">
-                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={18} /></button>
-                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded transition-colors"><Trash2 size={18} /></button>
+                    <div className="flex space-x-1 sm:space-x-2 shrink-0">
+                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+                      <button onClick={() => editarTarefa(tarefa)} className="p-1.5 bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 rounded transition-colors" title="Editar tarefa"><Pencil size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
                     </div>
                   </div>
                   <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
@@ -421,10 +463,13 @@ export default function TarefasManager() {
               return (
                 <div key={tarefa.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 border-l-4 border-l-green-500 opacity-70 hover:opacity-100 transition-opacity">
                   <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-gray-600 line-through">{tarefa.titulo}</h4>
-                    <div className="flex space-x-2">
-                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 text-green-600 rounded" title="Voltar para pendente"><CheckCircle size={18} /></button>
-                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 hover:bg-red-50 text-gray-400 hover:text-red-500 rounded transition-colors"><Trash2 size={18} /></button>
+                    <h4 className="font-bold text-gray-600 line-through flex items-center gap-2">
+                      {tarefa.codigo && <span className="bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
+                      {tarefa.titulo}
+                    </h4>
+                    <div className="flex space-x-1 sm:space-x-2 shrink-0">
+                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-green-600 rounded transition-colors" title="Voltar para pendente"><CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
                     </div>
                   </div>
                   <div className="mt-2 flex gap-2 text-xs font-bold text-gray-400">

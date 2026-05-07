@@ -210,6 +210,8 @@ export default function ComprasManager() {
       return;
     }
 
+    precisandoReposicao.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
+
     let msg = `*Lista de Reposição de Estoque*\nData: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     let estimativaTotal = 0;
 
