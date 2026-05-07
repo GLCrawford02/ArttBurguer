@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, update, remove } from 'firebase/database';
+import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart } from 'lucide-react';
+import ModalContas from './ModalContas';
+import ModalAgendamentos from './ModalAgendamentos';
+import TabFornecedores from './TabFornecedores';
 
 interface Fornecedor {
   id: string;
@@ -47,38 +50,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
   const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
   const [funcionarios, setFuncionarios] = useState<any[]>([]);
+  const [historicoVendas, setHistoricoVendas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [loading, setLoading] = useState(true);
-
-
-  const [editId, setEditId] = useState<string | null>(null);
-  const [descricao, setDescricao] = useState('');
-  const [valor, setValor] = useState('');
-  const [vencimento, setVencimento] = useState('');
-  const [statusPagar, setStatusPagar] = useState<'Pendente' | 'Pago'>('Pendente');
-  const [statusReceber, setStatusReceber] = useState<'Pendente' | 'Recebido'>('Pendente');
-  const [tipoPagar, setTipoPagar] = useState<string>('Variável');
-  const [fornecedorId, setFornecedorId] = useState('');
-  const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
-  const [fimRecorrencia, setFimRecorrencia] = useState('');
-
-  const [gerarLembrete, setGerarLembrete] = useState(false);
-  const [responsavelLembrete, setResponsavelLembrete] = useState('');
-  const [horaLembrete, setHoraLembrete] = useState('08:00');
-
-  const [nomeForn, setNomeForn] = useState('');
-  const [telForn, setTelefoneForn] = useState('');
-
-
-  const [tituloAg, setTituloAg] = useState('');
-  const [dataAg, setDataAg] = useState('');
-  const [horaAg, setHoraAg] = useState('');
-  const [descAg, setDescAg] = useState('');
+  
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [recorrenciaAg, setRecorrenciaAg] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
-  const [fimRecorrenciaAg, setFimRecorrenciaAg] = useState('');
-  const [subTabCalendario, setSubTabCalendario] = useState<'calendario' | 'pagar' | 'receber'>('calendario');
+  const [modalAberto, setModalAberto] = useState<'pagar' | 'receber' | 'agendamento' | null>(null);
+  const [itemEdit, setItemEdit] = useState<any>(null);
 
   const [showCategoriasModal, setShowCategoriasModal] = useState(false);
   const [categoriasDespesa, setCategoriasDespesa] = useState<{id: string, nome: string}[]>([]);
@@ -92,6 +71,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const receberRef = ref(db, 'contas_receber');
     const agendRef = ref(db, 'agendamentos');
     const funcRef = ref(db, 'funcionarios');
+    const vendasRef = ref(db, 'historico_vendas');
 
     const unsubF = onValue(fornRef, (snapshot) => {
       const data = snapshot.val();
@@ -133,6 +113,12 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       } else setFuncionarios([]);
     });
 
+    const unsubVendas = onValue(vendasRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setHistoricoVendas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setHistoricoVendas([]);
+    });
+
     const catRef = ref(db, 'categorias_despesa');
     const unsubCat = onValue(catRef, (snapshot) => {
       const data = snapshot.val();
@@ -140,7 +126,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       else setCategoriasDespesa([]);
     });
 
-    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); unsubCat(); };
+    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); unsubVendas(); unsubCat(); };
   }, []);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -149,106 +135,20 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   };
 
   const resetForms = () => {
-    setEditId(null);
-    setDescricao(''); setValor(''); setVencimento('');
-    setStatusPagar('Pendente'); setStatusReceber('Pendente');
-    setTipoPagar('Variável'); setFornecedorId('');
-    setNomeForn(''); setTelefoneForn('');
-    setRecorrencia('Nenhuma');
-    setFimRecorrencia('');
-    setGerarLembrete(false);
-    setResponsavelLembrete('');
-    setHoraLembrete('08:00');
-    setTituloAg(''); setDataAg(''); setHoraAg(''); setDescAg('');
-    setRecorrenciaAg('Nenhuma'); setFimRecorrenciaAg('');
+    setItemEdit(null);
+    setModalAberto(null);
   };
 
-  useEffect(() => { resetForms(); }, [activeTab, subTabCalendario]);
-
-
-  const salvarFornecedor = async () => {
-    if (!nomeForn) return showToast('Nome é obrigatório', 'error');
-    if (editId) await update(ref(db, `fornecedores/${editId}`), { nome: nomeForn, telefone: telForn });
-    else await set(push(ref(db, 'fornecedores')), { nome: nomeForn, telefone: telForn });
-    showToast(editId ? 'Fornecedor atualizado!' : 'Fornecedor salvo com sucesso!');
-    resetForms();
-  };
-
-  const salvarContaPagar = async () => {
-    if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
-    if (gerarLembrete && !responsavelLembrete) return showToast('Selecione quem receberá o lembrete no WhatsApp!', 'error');
-    const data = { descricao, valor: Number(valor), vencimento, status: statusPagar, tipo: tipoPagar, fornecedorId, recorrencia, fimRecorrencia };
-    if (editId) {
-      await update(ref(db, `contas_pagar/${editId}`), data);
-      showToast('Conta atualizada!');
-    } else {
-      await set(push(ref(db, 'contas_pagar')), data);
-      if (gerarLembrete) {
-        await set(push(ref(db, 'tarefas')), {
-          titulo: `Pagar Conta: ${descricao}`,
-          descricao: `Vencimento programado para hoje. Valor: R$ ${Number(valor).toFixed(2).replace('.', ',')}`,
-          responsaveisIds: [responsavelLembrete],
-          dataAgendada: vencimento,
-          horaAgendada: horaLembrete,
-          prioridade: 'Alta',
-          categoria: 'Financeiro',
-          recorrencia: recorrencia,
-          status: 'pendente',
-          notificadoWhatsApp: false,
-          timestamp: Date.now()
-        });
-      }
-      showToast('Conta a pagar registrada!');
-    }
-    resetForms();
-  };
-
-  const salvarContaReceber = async () => {
-    if (!descricao || !valor || !vencimento) return showToast('Preencha todos os campos!', 'error');
-    if (gerarLembrete && !responsavelLembrete) return showToast('Selecione quem receberá o lembrete no WhatsApp!', 'error');
-    const data = { descricao, valor: Number(valor), vencimento, status: statusReceber, recorrencia, fimRecorrencia };
-    if (editId) {
-      await update(ref(db, `contas_receber/${editId}`), data);
-      showToast('Conta atualizada!');
-    } else {
-      await set(push(ref(db, 'contas_receber')), data);
-      if (gerarLembrete) {
-        await set(push(ref(db, 'tarefas')), {
-          titulo: `Receber Conta: ${descricao}`,
-          descricao: `Vencimento programado para hoje. Valor: R$ ${Number(valor).toFixed(2).replace('.', ',')}`,
-          responsaveisIds: [responsavelLembrete],
-          dataAgendada: vencimento,
-          horaAgendada: horaLembrete,
-          prioridade: 'Alta',
-          categoria: 'Financeiro',
-          recorrencia: recorrencia,
-          status: 'pendente',
-          notificadoWhatsApp: false,
-          timestamp: Date.now()
-        });
-      }
-      showToast('Conta a receber registrada!');
-    }
-    resetForms();
-  };
-
-  const salvarAgendamento = async () => {
-    if (!tituloAg || !dataAg) return showToast('Título e Data são obrigatórios!', 'error');
-    const data = { titulo: tituloAg, data: dataAg, horario: horaAg, descricao: descAg, recorrencia: recorrenciaAg, fimRecorrencia: fimRecorrenciaAg };
-    if (editId) {
-      await update(ref(db, `agendamentos/${editId}`), data);
-      showToast('Agendamento atualizado!');
-    } else {
-      await set(push(ref(db, 'agendamentos')), data);
-      showToast('Agendamento registrado!');
-    }
-    resetForms();
-  };
+  useEffect(() => { resetForms(); }, [activeTab]);
 
   const handleAddCategoria = async () => {
     if (!novaCategoriaForm.trim()) return;
-    await set(push(ref(db, 'categorias_despesa')), { nome: novaCategoriaForm.trim() });
-    setNovaCategoriaForm('');
+    try {
+      await set(push(ref(db, 'categorias_despesa')), { nome: novaCategoriaForm.trim() });
+      setNovaCategoriaForm('');
+    } catch (e: any) {
+      showToast('Erro ao salvar categoria: ' + e.message, 'error');
+    }
   };
 
   const handleEditCategoria = (c: any) => {
@@ -258,53 +158,21 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
   const handleSaveEditCategoria = async () => {
     if (!editCategoriaNome.trim() || !editCategoriaId) return;
-    await update(ref(db, `categorias_despesa/${editCategoriaId}`), { nome: editCategoriaNome.trim() });
-    setEditCategoriaId(null);
-    setEditCategoriaNome('');
+    try {
+      await update(ref(db, `categorias_despesa/${editCategoriaId}`), { nome: editCategoriaNome.trim() });
+      setEditCategoriaId(null);
+      setEditCategoriaNome('');
+    } catch (e: any) {
+      showToast('Erro ao atualizar categoria: ' + e.message, 'error');
+    }
   };
 
   const handleDeleteCategoria = async (id: string) => {
     if (confirm('Tem certeza que deseja excluir esta categoria?')) {
-      await remove(ref(db, `categorias_despesa/${id}`));
-    }
-  };
-
-  const alternarStatus = async (tipo: 'pagar' | 'receber', id: string, novoStatus: string) => {
-    await update(ref(db, `contas_${tipo}/${id}`), { status: novoStatus });
-
-
-    const lista = tipo === 'pagar' ? contasPagar : contasReceber;
-    const conta = lista.find(c => c.id === id);
-    
-    if (conta && (novoStatus === 'Pago' || novoStatus === 'Recebido') && conta.recorrencia && conta.recorrencia !== 'Nenhuma') {
-      const nextDate = new Date(conta.vencimento + 'T12:00:00');
-      if (conta.recorrencia === 'Mensal') {
-        nextDate.setMonth(nextDate.getMonth() + 1);
-      } else if (conta.recorrencia === 'Semanal') {
-        nextDate.setDate(nextDate.getDate() + 7);
-      } else if (conta.recorrencia === 'Diária') {
-        nextDate.setDate(nextDate.getDate() + 1);
-      } else if (conta.recorrencia === 'Anual') {
-        nextDate.setFullYear(nextDate.getFullYear() + 1);
-      }
-      
-      const nextVencimento = nextDate.toISOString().split('T')[0];
-  
-      const nextExists = lista.some((c: any) => 
-        c.descricao === conta.descricao && 
-        c.vencimento === nextVencimento && 
-        c.valor === conta.valor
-      );
-  
-      if (!nextExists) {
-        if (conta.fimRecorrencia && nextVencimento > conta.fimRecorrencia) {
-          showToast(`Parcela final paga! Recorrência concluída.`, 'success');
-        } else {
-          const novaConta = { ...conta, status: 'Pendente', vencimento: nextVencimento };
-          delete novaConta.id;
-          await set(push(ref(db, `contas_${tipo}`)), novaConta);
-          showToast(`Próxima recorrência gerada para ${formatarData(nextVencimento)}`, 'success');
-        }
+      try {
+        await remove(ref(db, `categorias_despesa/${id}`));
+      } catch (e: any) {
+        showToast('Erro ao excluir categoria: ' + e.message, 'error');
       }
     }
   };
@@ -323,7 +191,15 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const pagarPendente = contasPagar.filter(c => c.status === 'Pendente').reduce((acc, c) => acc + c.valor, 0);
     const pagarPago = contasPagar.filter(c => c.status === 'Pago').reduce((acc, c) => acc + c.valor, 0);
     const receberPendente = contasReceber.filter(c => c.status === 'Pendente').reduce((acc, c) => acc + c.valor, 0);
-    const receberRecebido = contasReceber.filter(c => c.status === 'Recebido').reduce((acc, c) => acc + c.valor, 0);
+    
+    const totalVendasPDV = historicoVendas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+    const receberRecebido = contasReceber.filter(c => c.status === 'Recebido').reduce((acc, c) => acc + c.valor, 0) + totalVendasPDV;
+
+    const totalPagarGeral = contasPagar.reduce((a,b) => a + b.valor, 0);
+    const categoriasUsadas = categoriasDespesa.map(cat => ({
+      ...cat,
+      total: contasPagar.filter(c => c.tipo === cat.nome).reduce((a,b)=>a+b.valor,0)
+    })).filter(c => c.total > 0).sort((a,b) => b.total - a.total);
 
     return (
       <div className="space-y-6">
@@ -341,219 +217,37 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
             <h4 className="text-2xl font-black text-blue-600 mt-2">{formatarMoeda(receberPendente)}</h4>
           </div>
           <div className="bg-white p-6 rounded-xl shadow-sm border border-green-100">
-            <p className="text-sm font-bold text-gray-500 flex items-center"><CheckCircle size={16} className="mr-2 text-green-500"/> Total Recebido</p>
-            <h4 className="text-2xl font-black text-green-600 mt-2">{formatarMoeda(receberRecebido)}</h4>
+            <p className="text-sm font-bold text-gray-500 flex items-center"><CheckCircle size={16} className="mr-2 text-green-500"/> Receita Total (PDV + Lançamentos)</p>
+            <h4 className="text-2xl font-black text-green-600 mt-2" title={`R$ ${totalVendasPDV.toFixed(2).replace('.', ',')} originados do PDV`}>{formatarMoeda(receberRecebido)}</h4>
           </div>
         </div>
         
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-           <h3 className="text-lg font-bold text-gray-800 mb-4">Resumo por Tipo (Despesas a Pagar)</h3>
-           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-             <div className="p-4 bg-gray-50 rounded-lg">
-               <p className="text-sm text-gray-500 font-bold">Despesas Fixas</p>
-               <p className="text-xl font-bold text-gray-800 mt-1">{formatarMoeda(contasPagar.filter(c => c.tipo === 'Fixa').reduce((a,b)=>a+b.valor,0))}</p>
+           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><PieChart size={20} className="mr-2 text-indigo-500"/> Gastos por Categoria (A Pagar)</h3>
+           {categoriasUsadas.length > 0 ? (
+             <div className="space-y-4">
+               {categoriasUsadas.map(cat => {
+                 const percent = totalPagarGeral > 0 ? (cat.total / totalPagarGeral) * 100 : 0;
+                 return (
+                   <div key={cat.id}>
+                     <div className="flex justify-between text-sm mb-1">
+                       <span className="font-bold text-gray-700">{cat.nome}</span>
+                       <span className="text-gray-500 font-medium">{formatarMoeda(cat.total)} <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 ml-1">{percent.toFixed(1)}%</span></span>
+                     </div>
+                     <div className="w-full bg-gray-100 rounded-full h-2">
+                       <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${percent}%` }}></div>
+                     </div>
+                   </div>
+                 )
+               })}
              </div>
-             <div className="p-4 bg-gray-50 rounded-lg">
-               <p className="text-sm text-gray-500 font-bold">Despesas Variáveis</p>
-               <p className="text-xl font-bold text-gray-800 mt-1">{formatarMoeda(contasPagar.filter(c => c.tipo === 'Variável').reduce((a,b)=>a+b.valor,0))}</p>
-             </div>
-           </div>
+           ) : (
+             <p className="text-sm text-gray-400">Nenhum gasto categorizado no momento.</p>
+           )}
         </div>
       </div>
     );
   };
-
-  const renderFormularioContas = (tipoConta: 'pagar' | 'receber') => (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
-        <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Conta' : `Nova Conta a ${tipoConta === 'pagar' ? 'Pagar' : 'Receber'}`}</h3>
-        
-        {(() => {
-          const isAdminOrDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono'));
-          
-          return (
-            <>
-        <input type="text" placeholder={`Descrição (Ex: ${tipoConta === 'pagar' ? 'Conta de Luz' : 'Venda Ifood'})`} value={descricao} onChange={e=>setDescricao(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
-        <div className="relative w-full">
-          <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
-          <input type="text" placeholder="0,00" value={valor === '' ? '' : Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; setValor(val); }} className={`w-full pl-8 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
-        </div>
-        <input type="date" value={vencimento} onChange={e=>setVencimento(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
-        
-        {tipoConta === 'pagar' && (
-          <>
-            <div className="space-y-1">
-              <div className="flex justify-between items-end mb-1">
-                <label className="text-[10px] font-bold text-gray-500 uppercase flex items-center">Tipo de Despesa</label>
-                <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">Gerenciar</button>
-              </div>
-              <select value={tipoPagar} onChange={e=>setTipoPagar(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
-                <option value="">Selecione o tipo...</option>
-                {categoriasDespesa.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
-              </select>
-            </div>
-            <select value={fornecedorId} onChange={e=>setFornecedorId(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
-              <option value="">Sem Fornecedor</option>
-              {fornecedores.map(f => <option key={f.id} value={f.id}>{f.nome}</option>)}
-            </select>
-            <select value={statusPagar} onChange={e=>setStatusPagar(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500">
-              <option value="Pendente">Pendente</option>
-              <option value="Pago">Pago</option>
-            </select>
-          </>
-        )}
-        {tipoConta === 'receber' && (
-          <select value={statusReceber} onChange={e=>setStatusReceber(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500">
-            <option value="Pendente">Pendente</option>
-            <option value="Recebido">Recebido</option>
-          </select>
-        )}
-              {isAdminOrDono && (
-          <div className="grid grid-cols-2 gap-2">
-            <div className="relative">
-              <select value={recorrencia} onChange={e=>setRecorrencia(e.target.value as any)} className={`w-full p-2 pl-8 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`}>
-                <option value="Nenhuma">Sem Recorrência</option>
-                <option value="Diária">Recorrência Diária</option>
-                <option value="Semanal">Recorrência Semanal</option>
-                <option value="Mensal">Recorrência Mensal</option>
-                <option value="Anual">Recorrência Anual</option>
-              </select>
-              <Repeat size={16} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500" />
-            </div>
-            {recorrencia !== 'Nenhuma' && (
-              <div className="relative">
-                <label className="absolute -top-2 left-2 bg-white px-1 text-[10px] font-bold text-gray-500">Parar Em:</label>
-                <input type="date" value={fimRecorrencia} onChange={e=>setFimRecorrencia(e.target.value)} className={`w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'}`} />
-              </div>
-            )}
-          </div>
-        )}
-        
-        {!editId && (
-          <div className="pt-4 border-t border-gray-100 space-y-3 mt-4">
-            <label className="flex items-center space-x-2 cursor-pointer w-fit">
-              <input type="checkbox" checked={gerarLembrete} onChange={e => setGerarLembrete(e.target.checked)} className={`rounded focus:ring-2 w-4 h-4 cursor-pointer ${tipoConta === 'pagar' ? 'text-red-600 focus:ring-red-500' : 'text-blue-600 focus:ring-blue-500'}`} />
-              <span className="text-sm font-bold text-gray-700">Automação Robô: Criar tarefa com lembrete no WhatsApp</span>
-            </label>
-            
-            {gerarLembrete && (
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50 p-4 rounded-lg border border-gray-200 animate-in fade-in">
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase flex items-center">Responsável pelo Lembrete</label>
-                  <select value={responsavelLembrete} onChange={e=>setResponsavelLembrete(e.target.value)} className={`w-full p-2 mt-1 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'} text-sm bg-white`}>
-                    <option value="">Selecione...</option>
-                    {funcionarios.map((f: any) => <option key={f.id} value={f.id}>{f.nome} - {Array.isArray(f.cargo) ? f.cargo[0] : f.cargo}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-gray-500 uppercase flex items-center">Horário do Disparo</label>
-                  <input type="time" value={horaLembrete} onChange={e=>setHoraLembrete(e.target.value)} className={`w-full p-2 mt-1 border border-gray-200 rounded-lg outline-none focus:ring-2 ${tipoConta === 'pagar' ? 'focus:ring-red-500' : 'focus:ring-blue-500'} text-sm bg-white`} />
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-            </>
-          );
-        })()}
-        <div className="flex gap-2">
-          <button onClick={tipoConta === 'pagar' ? salvarContaPagar : salvarContaReceber} className={`flex-1 text-white p-2 rounded-lg font-bold transition-colors ${tipoConta === 'pagar' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar</button>
-          {editId && <button onClick={resetForms} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
-        </div>
-      </div>
-
-      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-         <table className="w-full text-left min-w-[500px]">
-           <thead className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
-             <tr>
-               <th className="p-4">Descrição</th>
-               <th className="p-4">Valor</th>
-               <th className="p-4">Vencimento</th>
-               <th className="p-4">Status</th>
-               <th className="p-4 text-right">Ações</th>
-             </tr>
-           </thead>
-           {loading ? (
-             <tbody>
-               {[...Array(5)].map((_, i) => (
-                 <tr key={i} className="animate-pulse border-b border-gray-50">
-                   <td className="p-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
-                   <td className="p-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
-                   <td className="p-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
-                   <td className="p-4"><div className="h-6 bg-gray-200 rounded-full w-16"></div></td>
-                   <td className="p-4 flex justify-end"><div className="h-6 bg-gray-200 rounded w-12"></div></td>
-                 </tr>
-               ))}
-             </tbody>
-           ) : (
-           <tbody className="divide-y divide-gray-50 text-sm">
-             {(tipoConta === 'pagar' ? contasPagar : contasReceber).sort((a,b)=>a.vencimento.localeCompare(b.vencimento)).map((c: any) => (
-               <tr key={c.id} className="hover:bg-gray-50">
-                 <td className="p-4 font-medium text-gray-800">{c.descricao} {c.recorrencia && c.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{c.recorrencia}{c.fimRecorrencia ? ` até ${formatarData(c.fimRecorrencia)}` : ''}</span>} {tipoConta === 'pagar' && <span className="block text-xs text-gray-400">{c.tipo} {c.fornecedorId ? `| ${fornecedores.find(f=>f.id===c.fornecedorId)?.nome}` : ''}</span>}</td>
-                 <td className={`p-4 font-bold ${tipoConta === 'pagar' ? 'text-red-600' : 'text-blue-600'}`}>{formatarMoeda(c.valor)}</td>
-                 <td className={`p-4 ${c.vencimento < hoje && c.status === 'Pendente' ? 'text-red-500 font-bold' : 'text-gray-600'}`}>{formatarData(c.vencimento)}</td>
-                 <td className="p-4">
-                   <button onClick={()=>alternarStatus(tipoConta, c.id, c.status.includes('P') ? (tipoConta === 'pagar' ? 'Pago' : 'Recebido') : 'Pendente')} className={`px-2 py-1 rounded-full text-xs font-bold ${!c.status.includes('Pendente') ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>{c.status}</button>
-                 </td>
-                 <td className="p-4 text-right flex justify-end space-x-2">
-                   <button onClick={()=>{setEditId(c.id); setDescricao(c.descricao); setValor(String(c.valor)); setVencimento(c.vencimento); setRecorrencia(c.recorrencia || 'Nenhuma'); setFimRecorrencia(c.fimRecorrencia || ''); if(tipoConta === 'pagar'){setTipoPagar(c.tipo); setStatusPagar(c.status); setFornecedorId(c.fornecedorId||'');}else{setStatusReceber(c.status);} }} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
-                   <button onClick={()=>excluir(`contas_${tipoConta}/${c.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
-                 </td>
-               </tr>
-             ))}
-             {(tipoConta === 'pagar' ? contasPagar : contasReceber).length === 0 && <tr><td colSpan={5} className="p-4 text-center text-gray-400">Nenhum registro.</td></tr>}
-           </tbody>
-           )}
-         </table>
-      </div>
-    </div>
-  );
-
-  const renderFornecedores = () => (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
-        <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h3>
-        <input type="text" placeholder="Nome do Fornecedor" value={nomeForn} onChange={e=>setNomeForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-        <input type="text" placeholder="Telefone / Contato" value={telForn} onChange={e=>setTelefoneForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-        <div className="flex gap-2">
-          <button onClick={salvarFornecedor} className="flex-1 bg-purple-600 text-white p-2 rounded-lg font-bold hover:bg-purple-700 transition-colors">Salvar</button>
-          {editId && <button onClick={resetForms} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
-        </div>
-      </div>
-      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
-         <table className="w-full text-left min-w-[400px]">
-           <thead className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase">
-             <tr><th className="p-4">Nome</th><th className="p-4">Contato</th><th className="p-4 text-right">Ações</th></tr>
-           </thead>
-           {loading ? (
-             <tbody>
-               {[...Array(5)].map((_, i) => (
-                 <tr key={i} className="animate-pulse border-b border-gray-50">
-                   <td className="p-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
-                   <td className="p-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
-                   <td className="p-4 flex justify-end"><div className="h-6 bg-gray-200 rounded w-12"></div></td>
-                 </tr>
-               ))}
-             </tbody>
-           ) : (
-           <tbody className="divide-y divide-gray-50 text-sm">
-             {fornecedores.map(f => (
-               <tr key={f.id} className="hover:bg-gray-50">
-                 <td className="p-4 font-bold text-gray-800">{f.nome}</td>
-                 <td className="p-4 text-gray-600">{f.telefone || '-'}</td>
-                 <td className="p-4 text-right flex justify-end space-x-2">
-                   <button onClick={()=>{setEditId(f.id); setNomeForn(f.nome); setTelefoneForn(f.telefone);}} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>
-                   <button onClick={()=>excluir(`fornecedores/${f.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button>
-                 </td>
-               </tr>
-             ))}
-             {fornecedores.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-gray-400">Nenhum fornecedor registrado.</td></tr>}
-           </tbody>
-           )}
-         </table>
-      </div>
-    </div>
-  );
 
   const renderCalendario = () => {
     const year = currentMonth.getFullYear();
@@ -602,8 +296,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const selectedEvents = selectedDate ? eventosDoDia(selectedDate) : { p: [], r: [], a: [] };
 
     return (
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
           <div className="flex flex-col sm:flex-row justify-between items-center mb-6 gap-4">
             <h3 className="text-lg font-bold text-gray-800 flex items-center">
               <CalendarClock className="mr-2 text-indigo-500"/> Calendário Mensal
@@ -652,6 +345,10 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                     <div className="text-right flex items-center space-x-3">
                       <span className="font-bold text-red-600 text-sm">{formatarMoeda(c.valor)}</span>
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Pago' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                      <div className="flex space-x-1 ml-2">
+                        <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('pagar'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); excluir(`contas_pagar/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -661,6 +358,10 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                     <div className="text-right flex items-center space-x-3">
                       <span className="font-bold text-blue-600 text-sm">{formatarMoeda(c.valor)}</span>
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Recebido' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                      <div className="flex space-x-1 ml-2">
+                        <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('receber'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
+                        <button onClick={(e) => { e.stopPropagation(); excluir(`contas_receber/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -674,7 +375,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                       </div>
                     </div>
                     <div className="flex space-x-2">
-                      <button onClick={() => { setEditId(ag.id); setTituloAg(ag.titulo); setDataAg(ag.data); setHoraAg(ag.horario || ''); setDescAg(ag.descricao || ''); setRecorrenciaAg(ag.recorrencia || 'Nenhuma'); setFimRecorrenciaAg(ag.fimRecorrencia || ''); }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100"><Pencil size={16}/></button>
+                      <button onClick={() => { setItemEdit(ag); setModalAberto('agendamento'); }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100"><Pencil size={16}/></button>
                       <button onClick={() => excluir(`agendamentos/${ag.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100"><Trash2 size={16}/></button>
                     </div>
                   </div>
@@ -685,41 +386,6 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
               </div>
             </div>
           )}
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4 sticky top-6">
-           <h3 className="text-lg font-bold text-gray-800 mb-2 flex items-center">
-             {editId ? <Pencil size={18} className="mr-2 text-purple-500"/> : <Plus size={18} className="mr-2 text-purple-500"/>} {editId ? 'Editar Agendamento' : 'Novo Agendamento'}
-           </h3>
-           <input type="text" placeholder="Título (Ex: Reunião Fornecedor)" value={tituloAg} onChange={e=>setTituloAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
-           <div className="grid grid-cols-2 gap-2">
-             <input type="date" value={dataAg} onChange={e=>setDataAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
-             <input type="time" value={horaAg} onChange={e=>setHoraAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
-           </div>
-           <div className="grid grid-cols-2 gap-2 mt-2">
-              <div className="relative">
-                <select value={recorrenciaAg} onChange={e=>setRecorrenciaAg(e.target.value as any)} className="w-full p-2 pl-8 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm">
-                  <option value="Nenhuma">Sem Recorrência</option>
-                  <option value="Diária">Recorrência Diária</option>
-                  <option value="Semanal">Recorrência Semanal</option>
-                  <option value="Mensal">Recorrência Mensal</option>
-                  <option value="Anual">Recorrência Anual</option>
-                </select>
-                <Repeat size={16} className="absolute left-2.5 top-1/2 transform -translate-y-1/2 text-gray-500" />
-              </div>
-              {recorrenciaAg !== 'Nenhuma' && (
-                <div className="relative">
-                  <label className="absolute -top-2 left-2 bg-white px-1 text-[10px] font-bold text-gray-500">Parar Em:</label>
-                  <input type="date" value={fimRecorrenciaAg} onChange={e=>setFimRecorrenciaAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm" />
-                </div>
-              )}
-           </div>
-           <textarea placeholder="Descrição ou observações..." value={descAg} onChange={e=>setDescAg(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 resize-none h-24 text-sm"></textarea>
-           <div className="flex gap-2">
-             <button onClick={salvarAgendamento} className="flex-1 bg-purple-600 text-white p-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors text-sm shadow-sm">{editId ? 'Atualizar' : 'Salvar Agendamento'}</button>
-             {editId && <button onClick={resetForms} className="p-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300 text-sm shadow-sm">Cancelar</button>}
-           </div>
-        </div>
       </div>
     );
   };
@@ -727,23 +393,46 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   return (
     <div className="animate-in fade-in duration-300">
       {activeTab === 'dashboard_fin' && renderDashboard()}
-      {activeTab === 'fornecedores' && renderFornecedores()}
+      {activeTab === 'fornecedores' && <TabFornecedores fornecedores={fornecedores} loading={loading} showToast={showToast} excluir={excluir} />}
       
       {activeTab === 'calendario' && (
         <div className="space-y-6">
-          <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-            <button onClick={() => setSubTabCalendario('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visão Mensal</button>
-            <button onClick={() => setSubTabCalendario('pagar')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'pagar' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Pagar</button>
-            <button onClick={() => setSubTabCalendario('receber')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCalendario === 'receber' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>A Receber</button>
+          <div className="flex flex-wrap gap-3">
+            <button onClick={() => setModalAberto('pagar')} className="bg-red-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-red-700 transition-colors shadow-sm flex items-center"><TrendingDown size={18} className="mr-2"/> Lançar Despesa (A Pagar)</button>
+            <button onClick={() => setModalAberto('receber')} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center"><TrendingUp size={18} className="mr-2"/> Lançar Receita (A Receber)</button>
+            <button onClick={() => setModalAberto('agendamento')} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><Clock size={18} className="mr-2"/> Novo Agendamento</button>
           </div>
-          {subTabCalendario === 'calendario' && renderCalendario()}
-          {subTabCalendario === 'pagar' && renderFormularioContas('pagar')}
-          {subTabCalendario === 'receber' && renderFormularioContas('receber')}
+          {renderCalendario()}
         </div>
       )}
 
+      <ModalContas
+        isOpen={modalAberto === 'pagar' || modalAberto === 'receber'}
+        onClose={resetForms}
+        tipoConta={modalAberto as 'pagar' | 'receber'}
+        contas={modalAberto === 'pagar' ? contasPagar : contasReceber}
+        categoriasDespesa={categoriasDespesa}
+        fornecedores={fornecedores}
+        funcionarios={funcionarios}
+        currentUser={currentUser}
+        onManageCategorias={() => setShowCategoriasModal(true)}
+        showToast={showToast}
+        excluir={excluir}
+        itemEdit={itemEdit}
+        setItemEdit={setItemEdit}
+        loading={loading}
+      />
+
+      <ModalAgendamentos
+        isOpen={modalAberto === 'agendamento'}
+        onClose={resetForms}
+        itemEdit={itemEdit}
+        setItemEdit={setItemEdit}
+        showToast={showToast}
+      />
+
       {showCategoriasModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
           <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
             <div className="flex justify-between items-center mb-2">
               <h3 className="text-lg font-bold text-gray-800">Tipos de Despesa</h3>
