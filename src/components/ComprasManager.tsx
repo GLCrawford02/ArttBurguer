@@ -33,10 +33,12 @@ export default function ComprasManager() {
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
-    const unsubInsumos = onValue(insumosRef, (snapshot) => {
+    const unsub = onValue(insumosRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setInsumos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setInsumos(list);
       } else {
         setInsumos([]);
       }
@@ -46,17 +48,11 @@ export default function ComprasManager() {
     const funcRef = ref(db, 'funcionarios');
     const unsubFunc = onValue(funcRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) {
-        setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
-      } else {
-        setFuncionarios([]);
-      }
+      if (data) setFuncionarios(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      else setFuncionarios([]);
     });
 
-    return () => {
-      unsubInsumos();
-      unsubFunc();
-    };
+    return () => { unsub(); unsubFunc(); };
   }, []);
 
   const gerarLoteData = () => {
@@ -115,7 +111,7 @@ export default function ComprasManager() {
     if (!isConfirmedAdmin) {
       const excedentes = carrinho.filter(item => {
         const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
-        const novoEstoque = (item.insumo.estoqueEstacionario ?? (item.insumo as any).estoqueAtual ?? 0) + qtdAdicionar;
+        const novoEstoque = (item.insumo.estoqueEstacionario ?? (item.insumo as any).estoqueAtual ?? 0) + (item.insumo.estoqueRotativo ?? 0) + qtdAdicionar;
         return item.insumo.estoqueMaximo && novoEstoque > item.insumo.estoqueMaximo;
       });
 
@@ -193,13 +189,11 @@ export default function ComprasManager() {
   };
 
   const handlePinSubmit = async () => {
-    const admin = funcionarios.find(f => {
-      if (f.pin !== pin) return false;
-      const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-      return cargos.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c));
-    });
-    if (!admin) {
-      showToast('PIN inválido ou autorização negada!', 'error');
+    const func = funcionarios.find(f => f.pin === pin);
+    if (!func) return showToast('PIN inválido!', 'error');
+    const isAdminOrGerente = Array.isArray(func.cargo) ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c)) : ['Administrador', 'Gerente', 'Dono'].includes(func.cargo as string);
+    if (!isAdminOrGerente) {
+      showToast('Autorização negada! Requer Gerente ou Administrador.', 'error');
       return;
     }
     setShowPinModal(false);
@@ -209,18 +203,18 @@ export default function ComprasManager() {
   };
 
   const enviarWhatsApp = async () => {
-    const precisandoReposicao = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
+    const precisandoReposicao = insumos.filter(i => ((i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + (i.estoqueRotativo ?? 0)) <= (i.alertaMinimo || 0));
     
     if (precisandoReposicao.length === 0) {
-      showToast('Nenhum insumo precisando de reposição no momento.', 'error');
+      showToast('Nenhum insumo está abaixo do estoque mínimo!', 'success');
       return;
     }
 
-    let msg = '*Lista de Reposição Necessária*\n\n';
+    let msg = `*Lista de Reposição de Estoque*\nData: ${new Date().toLocaleDateString('pt-BR')}\n\n`;
     let estimativaTotal = 0;
 
     precisandoReposicao.forEach(i => {
-      const atual = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+      const atual = (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + (i.estoqueRotativo ?? 0);
       const max = i.estoqueMaximo || 0;
       const tipoEmb = (i.qtdPacote || 1) > 1 ? 'Volume(s)' : 'Unidade(s)';
       const precoMedio = i.precoPacote || 0;
@@ -247,7 +241,7 @@ export default function ComprasManager() {
 
     try {
       await set(push(ref(db, 'fila_mensagens')), {
-        telefone: '553898119347',
+        telefone: '5538998119347',
         mensagem: msg,
         status: 'pendente',
         timestamp: Date.now()
@@ -322,7 +316,7 @@ export default function ComprasManager() {
               <tr className="bg-gray-50 border-b border-gray-200 text-[10px] sm:text-xs text-gray-500 uppercase tracking-wider font-bold">
                 <th className="p-2">Insumo</th>
                 <th className="p-2 w-20 sm:w-28">Lote</th>
-                <th className="p-2 w-24 sm:w-36">Validade</th>
+                <th className="p-2 w-24 sm:w-36">Validade<>
                 <th className="p-2 w-16 sm:w-24">Qtd (Vol)</th>
                 <th className="p-2 w-24 sm:w-32">Valor Total</th>
                 <th className="p-2 w-10 sm:w-12 text-center">Ações</th>
