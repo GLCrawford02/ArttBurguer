@@ -77,7 +77,9 @@ export default function TransferenciaManager() {
     } else {
       newSel.add(insumo.id);
       const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
-        setQuantidades({ ...quantidades, [insumo.id]: estEstacionario });
+      const qtdPacote = insumo.qtdPacote || 1;
+      const maxVal = qtdPacote > 1 ? Math.floor(estEstacionario / qtdPacote) : estEstacionario;
+      setQuantidades({ ...quantidades, [insumo.id]: maxVal });
     }
     setSelecionados(newSel);
   };
@@ -89,7 +91,8 @@ export default function TransferenciaManager() {
         showToast('Informe a quantidade para transferir.', 'error');
         return;
       }
-      const unitsToTransfer = numVolumesTransferir;
+      const qtdPacote = insumo.qtdPacote || 1;
+      const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
 
@@ -161,7 +164,8 @@ export default function TransferenciaManager() {
         const insumo = insumos.find(i => i.id === id);
         if (!insumo) return;
 
-        const unitsToTransfer = numVolumesTransferir;
+        const qtdPacote = insumo.qtdPacote || 1;
+        const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
         const insumoRef = ref(db, `insumos/${id}`);
 
         const result = await runTransaction(insumoRef, (currentData) => {
@@ -286,6 +290,9 @@ export default function TransferenciaManager() {
         {filteredInsumos.map(insumo => {
           const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
           const estRotativo = insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0;
+          const qtdPacote = insumo.qtdPacote || 1;
+          const maxVal = qtdPacote > 1 ? (estEstacionario / qtdPacote) : estEstacionario;
+          const inputPlaceholder = qtdPacote > 1 ? `Qtd (Volumes)` : `Qtd (${insumo.unidade})`;
           
           return (
           <div key={insumo.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
@@ -305,8 +312,8 @@ export default function TransferenciaManager() {
               </div>
             </div>
             <div className="flex space-x-2">
-              <input type="number" min="1" max={estEstacionario} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={`Qtd (${insumo.unidade})`} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > estEstacionario} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
+              <input type="number" step="any" min="0.01" max={maxVal} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={inputPlaceholder} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxVal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
                 Transferir
               </button>
             </div>

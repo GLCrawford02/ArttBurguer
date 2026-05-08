@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2 } from 'lucide-react';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
   const [view, setView] = useState<'kds' | 'manual'>('kds');
@@ -17,6 +17,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [showFiltrosKds, setShowFiltrosKds] = useState(false);
+  const [expandedKdsOrderId, setExpandedKdsOrderId] = useState<string | null>(null);
 
   const cargos = currentUser ? (Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || '']) : [];
   const kdsRoles = cargos.filter((c: string) => c.toUpperCase().includes('KDS'));
@@ -192,6 +193,14 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
         
         const multiplicador = item.qtd;
         for (const ing of (prod.ingredientes || [])) {
+          const insumo = insumos.find(i => i.id === ing.insumoId);
+          if (insumo && item.opcoes && item.opcoes.restricoes) {
+            const restricoesArray = Object.values(item.opcoes.restricoes) as string[];
+            if (restricoesArray.includes(insumo.nome)) {
+              continue; // Não abate do estoque pois o cliente pediu sem este ingrediente
+            }
+          }
+
           const insumoRef = ref(db, `insumos/${ing.insumoId}`);
           await runTransaction(insumoRef, (currentData) => {
             if (currentData) {
@@ -199,6 +208,23 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
             }
             return currentData;
           });
+        }
+
+        // Abater adicionais
+        if (item.opcoes && item.opcoes.adicionais) {
+          const adicionaisArray = Object.values(item.opcoes.adicionais) as any[];
+          for (const add of adicionaisArray) {
+            const insumoAdicional = insumos.find(i => i.nome.toLowerCase().trim() === (add.nome || '').toLowerCase().trim());
+            if (insumoAdicional) {
+              const insumoRef = ref(db, `insumos/${insumoAdicional.id}`);
+              await runTransaction(insumoRef, (currentData) => {
+                if (currentData) {
+                  currentData.estoqueRotativo = (currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - (add.qtd * multiplicador);
+                }
+                return currentData;
+              });
+            }
+          }
         }
       }
       await update(ref(db, `pedidos_cozinha/${pedido.id}`), { status: 'Concluído', finalizadoEm: Date.now() });
@@ -262,6 +288,8 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
       }))
     }))
     .filter(ped => ped.itensKds.length > 0); // Exibe apenas se houver itens que passaram no filtro de categoria
+
+  const expandedOrder = expandedKdsOrderId ? pedidosKds.find(p => p.id === expandedKdsOrderId) : null;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -362,7 +390,8 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                       <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center shadow-sm ${timeColor}`}><Clock size={12} className="mr-1"/> {timeDiff} min</span>
                     </div>
                   </div>
-                  <div className="p-4 flex-1 space-y-3 bg-white">
+                  <div className="relative flex-1 bg-white flex flex-col">
+                    <div className="p-4 space-y-3 overflow-hidden max-h-[180px]">
                     {(ped.status === 'Pendente' || ped.status === 'Novo') ? (
                       <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-4">
                         <AlertTriangle size={36} className="text-yellow-500" />
@@ -370,16 +399,47 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                         <button onClick={() => handleAceitarComanda(ped.id)} className="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-3 rounded-xl font-bold transition-colors w-full shadow-sm">Aceitar Comanda</button>
                       </div>
                     ) : (
-                      <>
+                      <div className="space-y-4">
                         {ped.itensKds.map((item: any, idx: number) => (
-                          <div key={idx} onClick={() => toggleItemConcluido(ped.id, item.originalIdx, !!item.concluidoNoKds)} className={`flex items-start border-b border-gray-50 pb-2 last:border-0 last:pb-0 cursor-pointer group transition-colors ${item.concluidoNoKds ? 'opacity-50' : 'hover:bg-gray-50'}`}>
-                            <button className={`mr-2 mt-0.5 flex-shrink-0 transition-colors ${item.concluidoNoKds ? 'text-green-500' : 'text-gray-300 group-hover:text-blue-400'}`}>{item.concluidoNoKds ? <CheckSquare size={20} /> : <Square size={20} />}</button>
-                            <span className={`font-black text-lg w-8 shrink-0 ${item.concluidoNoKds ? 'text-gray-500' : 'text-gray-800'}`}>{item.qtd}x</span>
-                            <span className={`font-medium leading-tight pt-0.5 ${item.concluidoNoKds ? 'text-gray-500 line-through' : 'text-gray-700'}`}>{item.nome}</span>
+                          <div key={idx} className={`border-b border-gray-100 pb-3 last:border-0 last:pb-0 transition-colors ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
+                            <div className="flex items-start cursor-pointer group hover:bg-gray-50" onClick={() => toggleItemConcluido(ped.id, item.originalIdx, !!item.concluidoNoKds)}>
+                              <button className={`mr-2 mt-0.5 flex-shrink-0 transition-colors ${item.concluidoNoKds ? 'text-green-500' : 'text-gray-300 group-hover:text-blue-400'}`}>{item.concluidoNoKds ? <CheckSquare size={20} /> : <Square size={20} />}</button>
+                              <span className={`font-black text-lg w-8 shrink-0 ${item.concluidoNoKds ? 'text-gray-500' : 'text-gray-800'}`}>{item.qtd}x</span>
+                              <span className={`font-medium leading-tight pt-0.5 ${item.concluidoNoKds ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{item.nome}</span>
+                            </div>
+                            {item.opcoes && (
+                              <div className={`text-sm mt-2 pl-10 space-y-2 ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
+                                {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && (
+                                  <div><span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider block mb-0.5">Tipo de Montagem:</span><ul className="list-disc pl-4 text-gray-700 font-medium">{Object.values(item.opcoes.montagem).map((m:any, i:number)=><li key={i}>{m}</li>)}</ul></div>
+                                )}
+                                {item.opcoes.pontoCarne && (
+                                  <div><span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider block mb-0.5">Ponto da carne:</span><ul className="list-disc pl-4 text-gray-700 font-medium"><li>{item.opcoes.pontoCarne}</li></ul></div>
+                                )}
+                                {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).length > 0 && (
+                                  <div><span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider block mb-0.5">Adicionais:</span><ul className="list-disc pl-4 text-blue-700 font-bold">{Object.values(item.opcoes.adicionais).map((a:any, i:number)=><li key={i}>{a.qtd}x AD/ {a.nome}</li>)}</ul></div>
+                                )}
+                                {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && (
+                                  <div><span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider block mb-0.5">Restrições (Sem):</span><ul className="list-none pl-0 text-red-600 font-bold">{Object.values(item.opcoes.restricoes).map((r:any, i:number)=><li key={i}>- {r}</li>)}</ul></div>
+                                )}
+                                {item.opcoes.observacao && (
+                                  <div><span className="font-bold text-gray-500 text-[10px] uppercase tracking-wider block mb-0.5">Observação Especial:</span><p className="text-gray-800 font-medium italic bg-yellow-50 border border-yellow-200 p-2 rounded-lg">{item.opcoes.observacao}</p></div>
+                                )}
+                              </div>
+                            )}
                           </div>
                         ))}
-                      </>
+                      </div>
                     )}
+                  </div>
+                    {ped.status !== 'Pendente' && ped.status !== 'Novo' && (
+                      <div className="absolute bottom-0 left-0 right-0 h-10 bg-gradient-to-t from-white to-transparent pointer-events-none"></div>
+                    )}
+                  </div>
+                  <div className="bg-gray-50 px-3 py-2 flex justify-between items-center border-t border-gray-100">
+                    <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest pl-1">Expandir para ler tudo</span>
+                    <button onClick={() => setExpandedKdsOrderId(ped.id)} className="text-xs font-bold text-indigo-600 flex items-center hover:text-indigo-800 transition-colors bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md">
+                      <Maximize2 size={14} className="mr-1" /> Tela Cheia
+                    </button>
                   </div>
                   {(ped.status !== 'Pendente' && ped.status !== 'Novo') && (
                     <button onClick={() => handleProntoKds(ped)} className={`p-4 font-bold text-sm flex items-center justify-center transition-colors ${allItemsDone && activeKds !== 'Expedição' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
@@ -397,6 +457,64 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               </div>
             )}
           </div>
+
+          {expandedOrder && (
+            <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4 sm:p-8" onClick={() => setExpandedKdsOrderId(null)}>
+              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-full max-h-[95vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
+                <div className="p-4 sm:p-6 bg-gray-100 border-b border-gray-200 flex justify-between items-center shrink-0">
+                  <div>
+                    <div className="flex items-center gap-3">
+                      <h2 className="text-2xl sm:text-4xl font-black text-gray-900 uppercase tracking-tight">{expandedOrder.identificador}</h2>
+                      <span className="text-sm sm:text-base font-bold px-3 py-1 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200">{expandedOrder.origem || 'PDV'}</span>
+                    </div>
+                    <p className="text-base font-bold text-gray-600 mt-2">Tela Ativa: {activeKds} • {Math.floor((currentTime - expandedOrder.timestamp) / 60000)} min atrás</p>
+                  </div>
+                  <button onClick={() => setExpandedKdsOrderId(null)} className="p-3 bg-white shadow-sm hover:bg-gray-50 text-gray-600 rounded-full transition-colors border border-gray-200">
+                    <X size={28} />
+                  </button>
+                </div>
+                
+                <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-white space-y-6">
+                  {expandedOrder.itensKds.map((item: any, idx: number) => (
+                    <div key={idx} className={`border-b border-gray-100 pb-6 last:border-0 last:pb-0 transition-colors ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
+                      <div className="flex items-start cursor-pointer group hover:bg-gray-50 p-2 rounded-lg" onClick={() => toggleItemConcluido(expandedOrder.id, item.originalIdx, !!item.concluidoNoKds)}>
+                        <button className={`mr-4 mt-1 flex-shrink-0 transition-colors ${item.concluidoNoKds ? 'text-green-500' : 'text-gray-300 group-hover:text-blue-400'}`}>
+                          {item.concluidoNoKds ? <CheckSquare size={36} /> : <Square size={36} />}
+                        </button>
+                        <span className={`font-black text-3xl sm:text-4xl w-16 shrink-0 ${item.concluidoNoKds ? 'text-gray-500' : 'text-gray-900'}`}>{item.qtd}x</span>
+                        <span className={`font-bold text-2xl sm:text-3xl pt-1 leading-tight ${item.concluidoNoKds ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{item.nome}</span>
+                      </div>
+                      {item.opcoes && (
+                        <div className={`text-lg sm:text-xl mt-4 pl-20 space-y-3 ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
+                          {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && (
+                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Tipo de Montagem:</span><ul className="list-disc pl-6 text-gray-800 font-bold">{Object.values(item.opcoes.montagem).map((m:any, i:number)=><li key={i}>{m}</li>)}</ul></div>
+                          )}
+                          {item.opcoes.pontoCarne && (
+                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Ponto da carne:</span><ul className="list-disc pl-6 text-gray-800 font-bold"><li>{item.opcoes.pontoCarne}</li></ul></div>
+                          )}
+                          {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).length > 0 && (
+                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Adicionais:</span><ul className="list-disc pl-6 text-blue-700 font-black">{Object.values(item.opcoes.adicionais).map((a:any, i:number)=><li key={i}>{a.qtd}x AD/ {a.nome}</li>)}</ul></div>
+                          )}
+                          {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && (
+                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Restrições (Sem):</span><ul className="list-none pl-0 text-red-600 font-black">{Object.values(item.opcoes.restricoes).map((r:any, i:number)=><li key={i}>- {r}</li>)}</ul></div>
+                          )}
+                          {item.opcoes.observacao && (
+                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Observação Especial:</span><p className="text-gray-900 font-bold italic bg-yellow-50 border border-yellow-300 p-4 rounded-xl">{item.opcoes.observacao}</p></div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                
+                <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-100 shrink-0">
+                  <button onClick={() => { if (expandedOrder.status !== 'Pendente' && expandedOrder.status !== 'Novo') { const allItemsDoneExpanded = expandedOrder.itensKds.every((ik: any) => ik.concluidoNoKds); handleProntoKds(expandedOrder); if (activeKds === 'Expedição' || allItemsDoneExpanded) { setExpandedKdsOrderId(null); } } }} disabled={expandedOrder.status === 'Pendente' || expandedOrder.status === 'Novo'} className={`w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md ${expandedOrder.status === 'Pendente' || expandedOrder.status === 'Novo' ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                    <CheckCircle size={28} className="mr-3"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

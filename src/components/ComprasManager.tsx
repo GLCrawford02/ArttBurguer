@@ -110,9 +110,11 @@ export default function ComprasManager() {
 
     if (!isConfirmedAdmin) {
       const excedentes = carrinho.filter(item => {
+        const targetId = (item.insumo as any).insumoVinculado || item.id;
+        const targetInsumo = insumos.find(i => i.id === targetId) || item.insumo;
         const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
-        const novoEstoque = (item.insumo.estoqueEstacionario ?? (item.insumo as any).estoqueAtual ?? 0) + (item.insumo.estoqueRotativo ?? 0) + qtdAdicionar;
-        return item.insumo.estoqueMaximo && novoEstoque > item.insumo.estoqueMaximo;
+        const novoEstoque = (targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0) + (targetInsumo.estoqueRotativo ?? 0) + qtdAdicionar;
+        return targetInsumo.estoqueMaximo && novoEstoque > targetInsumo.estoqueMaximo;
       });
 
       if (excedentes.length > 0) {
@@ -130,20 +132,23 @@ export default function ComprasManager() {
       const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
       const valorCompraTotal = Number(item.valorTotalStr) || 0;
       
-      const insumoRef = ref(db, `insumos/${item.id}`);
+      const targetId = (item.insumo as any).insumoVinculado || item.id;
+      const insumoRef = ref(db, `insumos/${targetId}`);
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
           const atualEstoque = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
-          const atualEstoqueVols = atualEstoque / (currentData.qtdPacote || 1);
+          const targetQtdPacote = currentData.qtdPacote || 1;
+          const atualEstoqueVols = atualEstoque / targetQtdPacote;
           const atualPrecoMedio = currentData.precoPacote || 0;
           
-          const totalVols = atualEstoqueVols + item.qtd;
+          const qtdAdicionarLinkedVols = qtdAdicionar / targetQtdPacote;
+          const totalVols = atualEstoqueVols + qtdAdicionarLinkedVols;
           const custoAntigo = atualEstoqueVols * atualPrecoMedio;
           const novoPreco = totalVols > 0 ? (custoAntigo + valorCompraTotal) / totalVols : 0;
 
           currentData.estoqueEstacionario = atualEstoque + qtdAdicionar;
           currentData.precoPacote = Number(novoPreco.toFixed(4));
-          currentData.ultimoPrecoCompra = Number((valorCompraTotal / item.qtd).toFixed(4));
+          currentData.ultimoPrecoCompra = Number((valorCompraTotal / qtdAdicionarLinkedVols).toFixed(4));
           
           if (item.lote || item.validade) {
             if (!currentData.lotes) currentData.lotes = {};
@@ -153,7 +158,7 @@ export default function ComprasManager() {
               validade: item.validade || '',
               quantidade: qtdAdicionar,
               valorTotalLote: valorCompraTotal,
-              custoPorVolume: valorCompraTotal / item.qtd
+              custoPorVolume: valorCompraTotal / qtdAdicionarLinkedVols
             };
           }
         }
@@ -162,9 +167,15 @@ export default function ComprasManager() {
 
       if (result.committed) {
         const tipoEmb = (item.insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
+        
+        let nomeInsumoLog = item.insumo.nome;
+        if (targetId !== item.id && result.snapshot.val()) {
+           nomeInsumoLog = `${item.insumo.nome} (Quebra p/ ${result.snapshot.val().nome})`;
+        }
+
         await set(push(ref(db, 'historico_compras')), {
-          insumoId: item.id,
-          nome: item.insumo.nome,
+          insumoId: targetId,
+          nome: nomeInsumoLog,
           qtdPacotes: item.qtd,
           qtdEmbalagens: item.qtd,
           tipoEmbalagem: tipoEmb,

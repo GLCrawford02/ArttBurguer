@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingDown, TrendingUp, Repeat, Pencil, Trash2, X } from 'lucide-react';
+import { TrendingDown, TrendingUp, Repeat, Pencil, Trash2, X, Search } from 'lucide-react';
 
 export default function ModalContas({
   isOpen, onClose, tipoConta, contas, categoriasDespesa, fornecedores, funcionarios,
@@ -13,6 +13,8 @@ export default function ModalContas({
   const [statusPagar, setStatusPagar] = useState<'Pendente' | 'Pago'>('Pendente');
   const [statusReceber, setStatusReceber] = useState<'Pendente' | 'Recebido'>('Pendente');
   const [tipoPagar, setTipoPagar] = useState<string>('Variável');
+  const [searchTipoPagar, setSearchTipoPagar] = useState('Variável');
+  const [showTipoPagarDropdown, setShowTipoPagarDropdown] = useState(false);
   const [fornecedorId, setFornecedorId] = useState('');
   const [recorrencia, setRecorrencia] = useState<'Nenhuma' | 'Diária' | 'Semanal' | 'Mensal' | 'Anual'>('Nenhuma');
   const [fimRecorrencia, setFimRecorrencia] = useState('');
@@ -38,6 +40,7 @@ export default function ModalContas({
       setFimRecorrencia(itemEdit.fimRecorrencia || '');
       if (tipoConta === 'pagar') {
         setTipoPagar(itemEdit.tipo || 'Variável');
+        setSearchTipoPagar(itemEdit.tipo || 'Variável');
         setStatusPagar(itemEdit.status || 'Pendente');
         setFornecedorId(itemEdit.fornecedorId || '');
       } else {
@@ -49,6 +52,7 @@ export default function ModalContas({
       setDescricao(''); setValor(''); setVencimento('');
       setStatusPagar('Pendente'); setStatusReceber('Pendente');
       setTipoPagar('Variável'); setFornecedorId('');
+      setSearchTipoPagar('Variável');
       setRecorrencia('Nenhuma'); setFimRecorrencia('');
       setGerarLembrete(false); setResponsavelLembrete(''); setHoraLembrete('08:00');
       setTipoLancamento('Unico'); setQtdParcelas('2'); setParcelaInicial('1');
@@ -179,7 +183,31 @@ export default function ModalContas({
               
               {tipoConta === 'pagar' && (
                 <>
-                  <div className="space-y-1"><div className="flex justify-between items-end mb-1"><label className="text-[10px] font-bold text-gray-500 uppercase">Tipo de Despesa</label><button type="button" onClick={onManageCategorias} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">Gerenciar</button></div><select value={tipoPagar} onChange={e=>setTipoPagar(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500"><option value="">Selecione o tipo...</option>{categoriasDespesa.map((c: any) => <option key={c.id} value={c.nome}>{c.nome}</option>)}</select></div>
+                  <div className="space-y-1">
+                    <div className="flex justify-between items-end mb-1"><label className="text-[10px] font-bold text-gray-500 uppercase">Tipo de Despesa</label><button type="button" onClick={onManageCategorias} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">Gerenciar</button></div>
+                    <div className="relative w-full">
+                      <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-red-500">
+                        <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                        <input 
+                          type="text" 
+                          value={searchTipoPagar} 
+                          onChange={e => { setSearchTipoPagar(e.target.value); setTipoPagar(e.target.value); setShowTipoPagarDropdown(true); }}
+                          onFocus={() => setShowTipoPagarDropdown(true)}
+                          onBlur={() => setTimeout(() => setShowTipoPagarDropdown(false), 200)}
+                          className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                          placeholder="Buscar ou digitar..."
+                        />
+                      </div>
+                      {showTipoPagarDropdown && categoriasDespesa.length > 0 && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          {categoriasDespesa.filter((c: any) => c.nome.toLowerCase().includes(searchTipoPagar.toLowerCase())).map((c: any) => (
+                            <div key={c.id} onClick={() => { setTipoPagar(c.nome); setSearchTipoPagar(c.nome); setShowTipoPagarDropdown(false); }} className="p-2 text-sm hover:bg-red-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{c.nome}</span></div>
+                          ))}
+                          {categoriasDespesa.filter((c: any) => c.nome.toLowerCase().includes(searchTipoPagar.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
                   <select value={fornecedorId} onChange={e=>setFornecedorId(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500"><option value="">Sem Fornecedor</option>{fornecedores.map((f: any) => <option key={f.id} value={f.id}>{f.nome}</option>)}</select>
                   <select value={statusPagar} onChange={e=>setStatusPagar(e.target.value as any)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500"><option value="Pendente">Pendente</option><option value="Pago">Pago</option></select>
                 </>

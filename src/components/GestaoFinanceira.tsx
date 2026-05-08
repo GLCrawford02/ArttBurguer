@@ -121,8 +121,11 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const catRef = ref(db, 'categorias_despesa');
     const unsubCat = onValue(catRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setCategoriasDespesa(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setCategoriasDespesa([]);
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCategoriasDespesa(list);
+      } else setCategoriasDespesa([]);
     });
 
     return () => { unsubF(); unsubP(); unsubR(); unsubT(); unsubFunc(); unsubVendas(); unsubCat(); };
@@ -407,7 +410,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
               <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="flex space-x-2">
-              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Ex: Impostos, Folha..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Ex: Impostos, Folha..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm" />
               <button onClick={handleAddCategoria} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition-colors text-sm">Adicionar</button>
             </div>
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">

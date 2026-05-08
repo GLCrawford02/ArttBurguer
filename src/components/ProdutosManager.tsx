@@ -35,6 +35,21 @@ export default function ProdutosManager() {
   const [expandedProdutoId, setExpandedProdutoId] = useState<string | null>(null);
   const [tempInsumoId, setTempInsumoId] = useState('');
   const [tempQtd, setTempQtd] = useState(0);
+  const [searchInsumoReceita, setSearchInsumoReceita] = useState('');
+  const [showInsumoReceitaDropdown, setShowInsumoReceitaDropdown] = useState(false);
+
+  const [tiposMontagem, setTiposMontagem] = useState<{id: string, nome: string}[]>([]);
+  const [pontosCarne, setPontosCarne] = useState<{id: string, nome: string}[]>([]);
+  const [adicionais, setAdicionais] = useState<{id: string, nome: string, preco: number}[]>([]);
+  const [novaMontagem, setNovaMontagem] = useState('');
+  const [novoPonto, setNovoPonto] = useState('');
+  const [novoAdicionalNome, setNovoAdicionalNome] = useState('');
+  const [novoAdicionalPreco, setNovoAdicionalPreco] = useState('');
+  const [produtoCopiaId, setProdutoCopiaId] = useState('');
+  const [searchProdutoCopia, setSearchProdutoCopia] = useState('');
+  const [showProdutoCopiaDropdown, setShowProdutoCopiaDropdown] = useState(false);
+  const [searchCategoria, setSearchCategoria] = useState('');
+  const [showCategoriaDropdown, setShowCategoriaDropdown] = useState(false);
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
@@ -65,7 +80,9 @@ export default function ProdutosManager() {
     const unsubCategorias = onValue(categoriasRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setCategoriasDb(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setCategoriasDb(list);
       } else {
         setCategoriasDb([]);
       }
@@ -96,6 +113,7 @@ export default function ProdutosManager() {
     }
     setTempInsumoId('');
     setTempQtd(0);
+    setSearchInsumoReceita('');
   };
 
   const removeIngrediente = (index: number) => {
@@ -111,6 +129,41 @@ export default function ProdutosManager() {
   const handleDeleteCategoria = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir esta categoria?')) {
       await remove(ref(db, `categorias_produtos/${id}`));
+    }
+  };
+
+  const handleAddMontagem = () => {
+    if (!novaMontagem.trim()) return;
+    setTiposMontagem([...tiposMontagem, { id: Date.now().toString(), nome: novaMontagem.trim() }]);
+    setNovaMontagem('');
+  };
+  const handleRemoveMontagem = (id: string) => setTiposMontagem(tiposMontagem.filter(i => i.id !== id));
+
+  const handleAddPonto = () => {
+    if (!novoPonto.trim()) return;
+    setPontosCarne([...pontosCarne, { id: Date.now().toString(), nome: novoPonto.trim() }]);
+    setNovoPonto('');
+  };
+  const handleRemovePonto = (id: string) => setPontosCarne(pontosCarne.filter(i => i.id !== id));
+
+  const handleAddAdicional = () => {
+    if (!novoAdicionalNome.trim()) return;
+    setAdicionais([...adicionais, { id: Date.now().toString(), nome: novoAdicionalNome.trim(), preco: Number(novoAdicionalPreco) || 0 }]);
+    setNovoAdicionalNome('');
+    setNovoAdicionalPreco('');
+  };
+  const handleRemoveAdicional = (id: string) => setAdicionais(adicionais.filter(i => i.id !== id));
+
+  const handleCopiarOpcoes = () => {
+    if (!produtoCopiaId) return;
+    const p = produtos.find(x => x.id === produtoCopiaId);
+    if (p && (p as any).opcoes) {
+      setTiposMontagem((p as any).opcoes.tiposMontagem || []);
+      setPontosCarne((p as any).opcoes.pontosCarne || []);
+      setAdicionais((p as any).opcoes.adicionais || []);
+      showToast('Opções copiadas com sucesso!', 'success');
+    } else {
+      showToast('Este produto não possui opções cadastradas.', 'error');
     }
   };
 
@@ -141,6 +194,12 @@ export default function ProdutosManager() {
     }
     
     try {
+      const opcoesData = {
+        tiposMontagem,
+        pontosCarne,
+        adicionais
+      };
+
       const produtosRef = ref(db, 'produtos');
       
       if (editId) {
@@ -149,7 +208,8 @@ export default function ProdutosManager() {
           categoria,
           ingredientes: ingredientesSelecionados,
           custoTotal: custoTotalFicha || 0,
-          precoVenda: Number(precoVenda) || 0
+          precoVenda: Number(precoVenda) || 0,
+          opcoes: opcoesData
         });
         setEditId(null);
       } else if (criarDuplo) {
@@ -158,12 +218,12 @@ export default function ProdutosManager() {
         
         const extrasSalao = [
           { nome: 'Palito Golf', qtd: 1 },
-          { nome: 'Embalagem Lanche', qtd: 1 }
+          { nome: 'Papel acoplado', qtd: 1 }
         ];
         
         const extrasDelivery = [
           { nome: 'CH3', qtd: 1 },
-          { nome: 'Embalagem Lanche', qtd: 1 },
+          { nome: 'Papel laminado', qtd: 1 },
           { nome: 'Lacre', qtd: 1 },
           { nome: 'Adesivo nominal', qtd: 1 },
           { nome: 'Sacola', qtd: 1 },
@@ -192,8 +252,8 @@ export default function ProdutosManager() {
         const ingDelivery = buildIngredientes(extrasDelivery);
         const ingSalao = buildIngredientes(extrasSalao);
   
-        await set(push(produtosRef), { nome: `/ ${nomeProduto}`, categoria, ingredientes: ingDelivery, custoTotal: calcCusto(ingDelivery) || 0, precoVenda: Number(precoVenda) || 0 });
-        await set(push(produtosRef), { nome: `% ${nomeProduto}`, categoria, ingredientes: ingSalao, custoTotal: calcCusto(ingSalao) || 0, precoVenda: Number(precoVenda) || 0 });
+        await set(push(produtosRef), { nome: `/ ${nomeProduto}`, categoria, ingredientes: ingDelivery, custoTotal: calcCusto(ingDelivery) || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData });
+        await set(push(produtosRef), { nome: `% ${nomeProduto}`, categoria, ingredientes: ingSalao, custoTotal: calcCusto(ingSalao) || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData });
       } else {
         const newProdutoRef = push(produtosRef);
         await set(newProdutoRef, {
@@ -201,7 +261,8 @@ export default function ProdutosManager() {
           categoria,
           ingredientes: ingredientesSelecionados,
           custoTotal: custoTotalFicha || 0,
-          precoVenda: Number(precoVenda) || 0
+          precoVenda: Number(precoVenda) || 0,
+          opcoes: opcoesData
         });
       }
   
@@ -209,6 +270,12 @@ export default function ProdutosManager() {
       setCategoria('');
       setPrecoVenda('');
       setIngredientesSelecionados([]);
+      setTiposMontagem([]);
+      setPontosCarne([]);
+      setAdicionais([]);
+      setProdutoCopiaId('');
+      setSearchProdutoCopia('');
+      setSearchCategoria('');
       setCriarDuplo(false);
   
       showToast(editId ? 'Produto atualizado com sucesso!' : 'Produto salvo com sucesso!', 'success');
@@ -328,8 +395,13 @@ Formato esperado:
     setEditId(produto.id);
     setNomeProduto(produto.nome);
     setCategoria((produto as any).categoria || '');
+    setSearchCategoria((produto as any).categoria || '');
     setPrecoVenda(String((produto as any).precoVenda || ''));
     setIngredientesSelecionados(produto.ingredientes || []);
+    setTiposMontagem((produto as any).opcoes?.tiposMontagem || []);
+    setPontosCarne((produto as any).opcoes?.pontosCarne || []);
+    setAdicionais((produto as any).opcoes?.adicionais || []);
+    setSearchProdutoCopia('');
     setCriarDuplo(false);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -339,8 +411,14 @@ Formato esperado:
     setEditId(null);
     setNomeProduto('');
     setCategoria('');
+    setSearchCategoria('');
     setPrecoVenda('');
     setIngredientesSelecionados([]);
+    setTiposMontagem([]);
+    setPontosCarne([]);
+    setAdicionais([]);
+    setProdutoCopiaId('');
+    setSearchProdutoCopia('');
   };
 
   const excluirProduto = async (id: string) => {
@@ -352,7 +430,7 @@ Formato esperado:
   const filteredProdutos = produtos.filter(p => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
   const embalagensNecessarias = [
-    'Palito Golf', 'Embalagem Lanche', 'CH3', 'Lacre',
+    'Palito Golf', 'Papel acoplado', 'Papel laminado', 'CH3', 'Lacre',
     'Adesivo nominal', 'Sacola', 'Sache Ketchup', 'Sache Maionese', 'Guardanapo'
   ];
   const insumosFaltantes = embalagensNecessarias.filter(nome => !insumos.some(i => (i.nome || '').trim().toLowerCase() === nome.trim().toLowerCase()));
@@ -500,14 +578,30 @@ Formato esperado:
                   <label className="text-xs font-bold text-gray-500 uppercase">Categoria</label>
                   <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 uppercase leading-none pb-0.5">Gerenciar</button>
                 </div>
-                <select
-                  value={categoria}
-                  onChange={e => setCategoria(e.target.value)}
-                  className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-white"
-                >
-                  <option value="">Selecione...</option>
-                  {categoriasDb.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
-                </select>
+                <div className="relative w-full">
+                  <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500">
+                    <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      value={searchCategoria} 
+                      onChange={e => { setSearchCategoria(e.target.value); setCategoria(e.target.value); setShowCategoriaDropdown(true); }}
+                      onFocus={() => setShowCategoriaDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowCategoriaDropdown(false), 200)}
+                      className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                      placeholder="Buscar ou digitar..."
+                    />
+                  </div>
+                  {showCategoriaDropdown && categoriasDb.length > 0 && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).map(c => (
+                        <div key={c.id} onClick={() => { setCategoria(c.nome); setSearchCategoria(c.nome); setShowCategoriaDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50">
+                          <span className="font-medium text-gray-800">{c.nome}</span>
+                        </div>
+                      ))}
+                      {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhuma categoria encontrada</div>}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="space-y-1 sm:col-span-3">
                 <label className="text-xs font-bold text-gray-500 uppercase">Preço de Venda</label>
@@ -558,18 +652,35 @@ Formato esperado:
             <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
               <p className="text-sm font-bold text-gray-700">Adicionar Insumo à Receita</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <select
-                  value={tempInsumoId}
-                  onChange={e => setTempInsumoId(e.target.value)}
-                  className="p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Selecione...</option>
-                  {insumos
-                    .filter(i => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase()))
-                    .map(i => (
-                    <option key={i.id} value={i.id}>{i.nome} ({i.unidade})</option>
-                  ))}
-                </select>
+                <div className="relative w-full">
+                  <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-blue-500 transition-colors h-full">
+                    <Search size={16} className="ml-3 text-gray-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      value={searchInsumoReceita} 
+                      onChange={e => {
+                        setSearchInsumoReceita(e.target.value);
+                        setTempInsumoId('');
+                        setShowInsumoReceitaDropdown(true);
+                      }}
+                      onFocus={() => setShowInsumoReceitaDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowInsumoReceitaDropdown(false), 200)}
+                      className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                      placeholder="Buscar insumo para a receita..."
+                    />
+                  </div>
+                  {showInsumoReceitaDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {insumos.filter(i => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase())).filter(i => i.nome.toLowerCase().includes(searchInsumoReceita.toLowerCase())).map(i => (
+                        <div key={i.id} onClick={() => { setTempInsumoId(i.id); setSearchInsumoReceita(i.nome); setShowInsumoReceitaDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
+                          <span className="font-medium text-gray-800">{i.nome}</span>
+                          <span className="text-gray-400 text-xs ml-2">{i.unidade}</span>
+                        </div>
+                      ))}
+                      {insumos.filter(i => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase())).filter(i => i.nome.toLowerCase().includes(searchInsumoReceita.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum insumo encontrado</div>}
+                    </div>
+                  )}
+                </div>
                 <div className="flex space-x-2">
                   <input
                     type="number"
@@ -608,6 +719,82 @@ Formato esperado:
                 {ingredientesSelecionados.length === 0 && (
                   <p className="p-4 text-center text-gray-400 text-sm italic">Nenhum ingrediente adicionado</p>
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4">
+            <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
+              <h4 className="text-sm font-bold text-gray-700">Opções (Adicionais, Pontos, etc.)</h4>
+              <div className="flex items-center space-x-2">
+                <div className="relative w-64">
+                  <div className="flex items-center border border-gray-200 rounded text-xs bg-white focus-within:ring-2 focus-within:ring-blue-500">
+                    <Search size={12} className="ml-1.5 text-gray-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      value={searchProdutoCopia} 
+                      onChange={e => {
+                        setSearchProdutoCopia(e.target.value);
+                        setProdutoCopiaId('');
+                        setShowProdutoCopiaDropdown(true);
+                      }}
+                      onFocus={() => setShowProdutoCopiaDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProdutoCopiaDropdown(false), 200)}
+                      className="w-full p-1.5 outline-none rounded bg-transparent"
+                      placeholder="Copiar de outro produto..."
+                    />
+                  </div>
+                  {showProdutoCopiaDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">
+                      {produtos.filter(p => p.id !== editId && (p as any).opcoes && p.nome.toLowerCase().includes(searchProdutoCopia.toLowerCase())).map(p => (
+                        <div key={p.id} onClick={() => { setProdutoCopiaId(p.id); setSearchProdutoCopia(p.nome); setShowProdutoCopiaDropdown(false); }} className="p-2 text-xs hover:bg-blue-50 cursor-pointer border-b border-gray-50">
+                          <span className="font-medium text-gray-800">{p.nome}</span>
+                        </div>
+                      ))}
+                      {produtos.filter(p => p.id !== editId && (p as any).opcoes && p.nome.toLowerCase().includes(searchProdutoCopia.toLowerCase())).length === 0 && <div className="p-2 text-xs text-gray-500 text-center">Nenhum produto encontrado</div>}
+                    </div>
+                  )}
+                </div>
+                <button onClick={handleCopiarOpcoes} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition-colors">Copiar</button>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="bg-white p-3 border border-gray-200 rounded-lg">
+                <p className="text-xs font-bold text-gray-700 uppercase mb-2">Tipos de Montagem</p>
+                <div className="flex space-x-2 mb-3">
+                  <input type="text" value={novaMontagem} onChange={e => setNovaMontagem(e.target.value)} placeholder="Ex: No Prato" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none" />
+                  <button onClick={handleAddMontagem} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Plus size={16}/></button>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {tiposMontagem.map(t => (<div key={t.id} className="flex justify-between items-center bg-gray-50 p-2 rounded text-xs"><span>{t.nome}</span><button onClick={() => handleRemoveMontagem(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}
+                  {tiposMontagem.length === 0 && <p className="text-xs text-gray-400 text-center">Nenhum adicionado</p>}
+                </div>
+              </div>
+
+              <div className="bg-white p-3 border border-gray-200 rounded-lg">
+                <p className="text-xs font-bold text-gray-700 uppercase mb-2">Ponto da Carne</p>
+                <div className="flex space-x-2 mb-3">
+                  <input type="text" value={novoPonto} onChange={e => setNovoPonto(e.target.value)} placeholder="Ex: Mal Passada" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none" />
+                  <button onClick={handleAddPonto} className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"><Plus size={16}/></button>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {pontosCarne.map(t => (<div key={t.id} className="flex justify-between items-center bg-gray-50 p-2 rounded text-xs"><span>{t.nome}</span><button onClick={() => handleRemovePonto(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}
+                  {pontosCarne.length === 0 && <p className="text-xs text-gray-400 text-center">Nenhum adicionado</p>}
+                </div>
+              </div>
+
+              <div className="bg-white p-3 border border-gray-200 rounded-lg">
+                <p className="text-xs font-bold text-gray-700 uppercase mb-2">Adicionais (Cobrados)</p>
+                <div className="flex space-x-2 mb-3">
+                  <input type="text" value={novoAdicionalNome} onChange={e => setNovoAdicionalNome(e.target.value)} placeholder="Ex: Bacon" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none w-1/2" />
+                  <input type="number" value={novoAdicionalPreco} onChange={e => setNovoAdicionalPreco(e.target.value)} placeholder="R$ 0,00" className="p-2 border border-gray-200 rounded-lg text-xs outline-none w-20" />
+                  <button onClick={handleAddAdicional} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"><Plus size={16}/></button>
+                </div>
+                <div className="space-y-1 max-h-32 overflow-y-auto">
+                  {adicionais.map(t => (<div key={t.id} className="flex justify-between items-center bg-gray-50 p-2 rounded text-xs"><span>{t.nome} <strong className="text-green-600">R$ {t.preco.toFixed(2)}</strong></span><button onClick={() => handleRemoveAdicional(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}
+                  {adicionais.length === 0 && <p className="text-xs text-gray-400 text-center">Nenhum adicionado</p>}
+                </div>
               </div>
             </div>
           </div>
@@ -772,7 +959,7 @@ Formato esperado:
               <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="flex space-x-2">
-              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Ex: Combos, Bebidas..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Ex: Combos, Bebidas..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 text-sm" />
               <button onClick={handleAddCategoria} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors text-sm">Adicionar</button>
             </div>
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">

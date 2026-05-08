@@ -1,7 +1,20 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
+    {
+      versao: '1.1.11',
+      titulo: 'Quebra de Estoque, Buscas Inteligentes e Opções por Produto',
+      descricao: 'Otimizamos o fluxo de caixas para unidades, introduzimos barras de pesquisa em todas as telas e individualizamos os adicionais no PDV.',
+      features: [
+        'Quebra Automática na Compra: Compre a caixa fechada (ex: Caixa 36un) e o sistema converte e deposita direto no estoque do insumo unitário base.',
+        'Transferências Facilitadas: Digite quantos "Volumes" quer mandar para a cozinha e o sistema fraciona automaticamente para o rotativo.',
+        'Busca Inteligente (Dropdowns): Várias telas (Ficha Técnica, Contas a Pagar, Tarefas) agora possuem campo de digitar para buscar e filtrar as opções.',
+        'Opções de PDV (Adicionais): Agora os adicionais, pontos da carne e tipos de montagem são salvos individualmente dentro de cada produto.',
+        'Organização Geral: Todas as categorias e tipos de uso organizados em ordem alfabética. SKUs encurtados, exatos e atualizados em tempo real.'
+      ],
+      icon: <Package className="text-indigo-500" size={20} />
+    },
     {
       versao: '1.1.10',
       titulo: 'Otimização Extrema, Simulador Turbinado e KDS Inteligente',

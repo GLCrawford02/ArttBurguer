@@ -12,6 +12,12 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [produtos, setProdutos] = useState<any[]>([]);
   const [promocoes, setPromocoes] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
+  const [insumos, setInsumos] = useState<any[]>([]);
+
+  const [pdvItemModal, setPdvItemModal] = useState<any>(null);
+  const [pdvItemOptions, setPdvItemOptions] = useState<any>({
+    montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1
+  });
 
 
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
@@ -19,7 +25,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
   const [qtdMesas, setQtdMesas] = useState(30);
 
-  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { nome: string, preco: number, qtd: number, enviadoCozinha?: number }>>({});
+  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, opcoes?: any }>>({});
   const [pdvPagamentos, setPdvPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [pdvDescricao, setPdvDescricao] = useState('');
   const [pdvSearchProd, setPdvSearchProd] = useState('');
@@ -87,6 +93,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       if (snap.val()) setClientes(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setClientes([]);
     });
 
+    const insumosRef = ref(db, 'insumos');
+    onValue(insumosRef, snap => {
+      if (snap.val()) setInsumos(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setInsumos([]);
+    });
+
     const mesasRef = ref(db, 'mesas_abertas');
     onValue(mesasRef, snap => setMesasAbertas(snap.val() || {}));
 
@@ -122,6 +133,18 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     else if (totalConf === 0) setConfPagamentos([{ taxaId: confPagamentos[0]?.taxaId || '', valor: 0 }]);
   }, [totalConf]);
 
+  const updateCartItemQtd = (cartItemId: string, delta: number) => {
+    setPdvCarrinho((prev: any) => {
+      const current = prev[cartItemId];
+      if (!current) return prev;
+      const newQtd = current.qtd + delta;
+      if (newQtd <= 0) { const { [cartItemId]: _, ...rest } = prev; return rest; }
+      let newEnviado = current.enviadoCozinha || 0;
+      if (newQtd < newEnviado) newEnviado = newQtd;
+      return { ...prev, [cartItemId]: { ...current, qtd: newQtd, enviadoCozinha: newEnviado } };
+    });
+  };
+
   const updateCart = (setter: any, id: string, nome: string, preco: number, delta: number) => {
     setter((prev: any) => {
       const current = prev[id] || { nome, preco, qtd: 0, enviadoCozinha: 0 };
@@ -137,9 +160,10 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const itensParaEnviar = Object.entries(pdvCarrinho)
       .filter(([id, item]) => item.qtd > (item.enviadoCozinha || 0))
       .map(([id, item]) => ({
-        produtoId: id,
+        produtoId: item.produtoId || id,
         nome: item.nome,
-        qtd: item.qtd - (item.enviadoCozinha || 0)
+        qtd: item.qtd - (item.enviadoCozinha || 0),
+        opcoes: item.opcoes || null
       }));
 
     const novoCarrinho: any = {};
@@ -191,6 +215,59 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     setPdvView('mapa');
   };
 
+  const handleOpenPdvItemModal = (item: any) => {
+    setPdvItemModal(item);
+    setPdvItemOptions({
+      montagem: [],
+      pontoCarne: '',
+      adicionais: {},
+      restricoes: [],
+      observacao: '',
+      quantidade: 1
+    });
+  };
+
+  const handleAddPdvItem = () => {
+    let basePrice = pdvItemModal.precoVenda || 0;
+    let adicionaisPrice = 0;
+    const adicionaisDoProduto = pdvItemModal.opcoes?.adicionais || [];
+    
+    Object.entries(pdvItemOptions.adicionais).forEach(([addId, qtd]: [string, any]) => {
+       const add = adicionaisDoProduto.find((a: any) => a.id === addId);
+       if (add) adicionaisPrice += (add.preco || 0) * qtd;
+    });
+    
+    const unitPrice = basePrice + adicionaisPrice;
+    const cartItemId = `${pdvItemModal.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    
+    const hasOptions = pdvItemOptions.montagem.length > 0 || pdvItemOptions.pontoCarne || Object.keys(pdvItemOptions.adicionais).length > 0 || pdvItemOptions.restricoes.length > 0 || pdvItemOptions.observacao;
+  
+    const opcoesObj = hasOptions ? {
+      montagem: pdvItemOptions.montagem,
+      pontoCarne: pdvItemOptions.pontoCarne,
+      adicionais: Object.entries(pdvItemOptions.adicionais).map(([addId, qtd]: [string, any]) => {
+        const add = adicionaisDoProduto.find((a: any) => a.id === addId);
+        return { id: add?.id, nome: add?.nome, qtd, preco: add?.preco || 0 };
+      }),
+      restricoes: pdvItemOptions.restricoes,
+      observacao: pdvItemOptions.observacao
+    } : null;
+  
+    setPdvCarrinho(prev => ({
+      ...prev,
+      [cartItemId]: {
+        produtoId: pdvItemModal.id,
+        nome: pdvItemModal.nome,
+        preco: unitPrice,
+        qtd: pdvItemOptions.quantidade,
+        opcoes: opcoesObj,
+        enviadoCozinha: 0
+      }
+    }));
+    
+    setPdvItemModal(null);
+  };
+
   const handlePdvSalvar = async () => {
     if (totalPdv <= 0) return showToast('Adicione produtos à venda.', 'error');
     const pagamentosValidos = pdvPagamentos.filter(p => p.taxaId && Number(p.valor) > 0);
@@ -209,7 +286,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
     let custoPedido = 0;
     Object.entries(pdvCarrinho).forEach(([id, item]) => {
-      const prod = produtos.find(p => p.id === id) || promocoes.find(p => p.id === id);
+      const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
       if (prod) custoPedido += (prod.custoTotal || 0) * item.qtd;
     });
     valorLiquidoTotal -= custoPedido;
@@ -411,7 +488,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4">
               {pdvFilteredItems.map(item => (
-                <div key={item.id} onClick={() => updateCart(setPdvCarrinho, item.id, item.nome, item.precoVenda || 0, 1)} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-36 relative overflow-hidden group">
+                <div key={item.id} onClick={() => handleOpenPdvItemModal(item)} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-36 relative overflow-hidden group">
                   <div className="absolute top-0 left-0 w-1 h-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                   <p className="font-bold text-sm text-gray-800 leading-tight line-clamp-2">{item.nome}</p>
                   <div className="mt-auto">
@@ -467,19 +544,30 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
             <div className="flex-1 overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3">
               {Object.entries(pdvCarrinho).map(([id, item]) => (
-                <div key={id} className="flex justify-between items-center text-sm group">
-                  <div className="flex-1 min-w-0 pr-2 flex items-center">
-                    <div className="flex items-center space-x-1 mr-2 bg-gray-100 rounded p-0.5">
-                      <button onClick={() => updateCart(setPdvCarrinho, id, item.nome, item.preco, -1)} className="text-gray-500 hover:bg-white rounded"><Minus size={14}/></button>
-                      <span className="font-bold w-4 text-center text-xs">{item.qtd}</span>
-                      <button onClick={() => updateCart(setPdvCarrinho, id, item.nome, item.preco, 1)} className="text-gray-500 hover:bg-white rounded"><Plus size={14}/></button>
+                <div key={id} className="flex justify-between items-start text-sm group border-b border-gray-50 pb-3 last:border-0 last:pb-0">
+                  <div className="flex-1 min-w-0 pr-2">
+                    <div className="flex items-center">
+                      <div className="flex items-center space-x-1 mr-2 bg-gray-100 rounded p-0.5 shrink-0">
+                        <button onClick={() => updateCartItemQtd(id, -1)} className="text-gray-500 hover:bg-white rounded px-1"><Minus size={14}/></button>
+                        <span className="font-bold w-4 text-center text-xs">{item.qtd}</span>
+                        <button onClick={() => updateCartItemQtd(id, 1)} className="text-gray-500 hover:bg-white rounded px-1"><Plus size={14}/></button>
+                      </div>
+                      <p className="font-bold text-gray-800 break-words">{item.nome}</p>
+                      {item.enviadoCozinha && item.enviadoCozinha > 0 ? (
+                        <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full ml-2 font-bold whitespace-nowrap flex items-center shrink-0"><Flame size={10} className="mr-0.5"/> Na Cozinha ({item.enviadoCozinha})</span>
+                      ) : null}
                     </div>
-                    <p className="font-bold text-gray-800 truncate">{item.nome}</p>
-                    {item.enviadoCozinha && item.enviadoCozinha > 0 ? (
-                      <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full ml-2 font-bold whitespace-nowrap flex items-center"><Flame size={10} className="mr-0.5"/> Na Cozinha ({item.enviadoCozinha})</span>
-                    ) : null}
+                    {item.opcoes && (
+                      <div className="text-xs text-gray-500 mt-1.5 pl-12 space-y-0.5">
+                        {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && <p><span className="font-bold text-gray-600">Montagem:</span> {Object.values(item.opcoes.montagem).join(', ')}</p>}
+                        {item.opcoes.pontoCarne && <p><span className="font-bold text-gray-600">Ponto:</span> {item.opcoes.pontoCarne}</p>}
+                        {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).map((a:any, i:number) => <p key={i}>+ {a.qtd}x AD/ {a.nome}</p>)}
+                        {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && <p className="text-red-500 font-medium">- {Object.values(item.opcoes.restricoes).join(', ')}</p>}
+                        {item.opcoes.observacao && <p><span className="font-bold text-gray-600">Obs:</span> {item.opcoes.observacao}</p>}
+                      </div>
+                    )}
                   </div>
-                  <span className="font-bold text-gray-800 shrink-0">R$ {(item.preco * item.qtd).toFixed(2)}</span>
+                  <span className="font-bold text-gray-800 shrink-0 mt-1">R$ {(item.preco * item.qtd).toFixed(2)}</span>
                 </div>
               ))}
               {Object.keys(pdvCarrinho).length === 0 && (
@@ -646,6 +734,104 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
           </div>
         </div>
       )}
+
+      {pdvItemModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col">
+            <div className="p-5 border-b flex justify-between items-center bg-gray-50 rounded-t-xl shrink-0">
+               <h3 className="font-black text-xl text-gray-800">{pdvItemModal.nome}</h3>
+               <button onClick={() => setPdvItemModal(null)} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1 transition-colors"><X size={20} /></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+               
+               <div className="space-y-2">
+                 <div className="flex justify-between items-end"><h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Tipo de Montagem</h4></div>
+                 <div className="flex flex-wrap gap-2">
+                   {(pdvItemModal.opcoes?.tiposMontagem || []).map((t: any) => (
+                     <button key={t.id} onClick={() => setPdvItemOptions((prev: any) => ({ ...prev, montagem: prev.montagem.includes(t.nome) ? [] : [t.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${pdvItemOptions.montagem.includes(t.nome) ? 'bg-blue-100 border-blue-500 text-blue-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{t.nome}</button>
+                   ))}
+                   {(pdvItemModal.opcoes?.tiposMontagem || []).length === 0 && <span className="text-xs text-gray-400">Nenhum tipo de montagem configurado.</span>}
+                 </div>
+               </div>
+
+               <div className="space-y-2">
+                 <div className="flex justify-between items-end"><h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Ponto da Carne</h4></div>
+                 <div className="flex flex-wrap gap-2">
+                   {(pdvItemModal.opcoes?.pontosCarne || []).map((p: any) => (
+                     <button key={p.id} onClick={() => setPdvItemOptions({...pdvItemOptions, pontoCarne: pdvItemOptions.pontoCarne === p.nome ? '' : p.nome})} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${pdvItemOptions.pontoCarne === p.nome ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{p.nome}</button>
+                   ))}
+                   {(pdvItemModal.opcoes?.pontosCarne || []).length === 0 && <span className="text-xs text-gray-400">Nenhum ponto de carne configurado.</span>}
+                 </div>
+               </div>
+
+               <div className="space-y-2">
+                 <div className="flex justify-between items-end"><h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Adicionais</h4></div>
+                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                   {(pdvItemModal.opcoes?.adicionais || []).map((a: any) => {
+                     const qtd = pdvItemOptions.adicionais[a.id] || 0;
+                     return (
+                       <div key={a.id} className="flex justify-between items-center p-2 border rounded-lg bg-gray-50">
+                         <div>
+                           <span className="font-medium text-sm text-gray-800">{a.nome}</span>
+                           {a.preco > 0 && <span className="block text-xs text-green-600 font-bold">+ R$ {a.preco.toFixed(2)}</span>}
+                         </div>
+                         <div className="flex items-center space-x-3 bg-white p-1 rounded-lg border shadow-sm">
+                           <button onClick={() => setPdvItemOptions((prev: any) => { const n = {...prev.adicionais}; if (qtd <= 1) delete n[a.id]; else n[a.id] = qtd - 1; return {...prev, adicionais: n}; })} className="text-gray-500 hover:text-red-500 px-2">-</button>
+                           <span className="text-sm font-bold w-4 text-center">{qtd}</span>
+                           <button onClick={() => setPdvItemOptions((prev: any) => ({...prev, adicionais: {...prev.adicionais, [a.id]: qtd + 1}}))} className="text-gray-500 hover:text-green-500 px-2">+</button>
+                         </div>
+                       </div>
+                     );
+                   })}
+                   {(pdvItemModal.opcoes?.adicionais || []).length === 0 && <span className="text-xs text-gray-400">Nenhum adicional configurado.</span>}
+                 </div>
+               </div>
+
+               <div className="space-y-2">
+                 <div className="flex justify-between items-end"><h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Restrições (Sem)</h4></div>
+                 <div className="flex flex-wrap gap-2">
+                   {pdvItemModal.ingredientes && pdvItemModal.ingredientes.length > 0 ? (
+                     pdvItemModal.ingredientes
+                       .map((ing: any) => insumos.find(i => i.id === ing.insumoId))
+                       .filter((insumo: any) => {
+                         if (!insumo) return false;
+                         const nome = (insumo.nome || '').toLowerCase();
+                         const tipoUso = (insumo.tipoUso || '').toLowerCase();
+                         if (tipoUso === 'embalagem') return false;
+                         if (['embalagem', 'palito', 'sacola', 'sache', 'sachê', 'lacre', 'adesivo', 'ch3', 'papel'].some(word => nome.includes(word))) return false;
+                         return true;
+                       })
+                       .map((r: any) => (
+                         <button key={r.id} onClick={() => setPdvItemOptions((prev: any) => ({ ...prev, restricoes: prev.restricoes.includes(r.nome) ? prev.restricoes.filter((n: any) => n !== r.nome) : [...prev.restricoes, r.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${pdvItemOptions.restricoes.includes(r.nome) ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{r.nome}</button>
+                       ))
+                   ) : (
+                     <span className="text-xs text-gray-400">Nenhum ingrediente configurado.</span>
+                   )}
+                 </div>
+               </div>
+
+               <div className="space-y-2">
+                 <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Observação Especial</h4>
+                 <textarea value={pdvItemOptions.observacao} onChange={e=>setPdvItemOptions({...pdvItemOptions, observacao: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-green-500 resize-none text-sm bg-gray-50 focus:bg-white" rows={2} placeholder="Ex: Embalar separado..."></textarea>
+               </div>
+
+            </div>
+            
+            <div className="p-4 border-t bg-gray-100 rounded-b-xl flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
+               <div className="flex items-center space-x-4 bg-white p-2 rounded-lg border shadow-sm w-full sm:w-auto justify-center">
+                 <button onClick={() => setPdvItemOptions({...pdvItemOptions, quantidade: Math.max(1, pdvItemOptions.quantidade - 1)})} className="px-4 py-1 text-gray-500 hover:text-red-500 font-bold text-lg">-</button>
+                 <span className="font-black text-lg">{pdvItemOptions.quantidade}</span>
+                 <button onClick={() => setPdvItemOptions({...pdvItemOptions, quantidade: pdvItemOptions.quantidade + 1})} className="px-4 py-1 text-gray-500 hover:text-green-500 font-bold text-lg">+</button>
+               </div>
+               <button onClick={handleAddPdvItem} className="w-full sm:w-auto bg-green-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-green-700 flex items-center justify-center shadow-md text-lg">
+                 Adicionar <span className="ml-3 bg-green-700 px-2.5 py-1.5 rounded-md text-sm">R$ {((pdvItemModal.precoVenda || 0) * pdvItemOptions.quantidade + Object.entries(pdvItemOptions.adicionais).reduce((acc,[id,qtd]: [string, any])=>acc+(((pdvItemModal.opcoes?.adicionais || []).find((a:any)=>a.id===id)?.preco||0)*qtd),0) * pdvItemOptions.quantidade).toFixed(2)}</span>
+               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
 
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
 

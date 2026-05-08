@@ -24,6 +24,8 @@ export default function PromocoesManager() {
   const [expandedPromocaoId, setExpandedPromocaoId] = useState<string | null>(null);
   const [tempProdutoId, setTempProdutoId] = useState('');
   const [tempQtd, setTempQtd] = useState(1);
+  const [searchProdutoCombo, setSearchProdutoCombo] = useState('');
+  const [showProdutoComboDropdown, setShowProdutoComboDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
 
@@ -88,6 +90,7 @@ export default function PromocoesManager() {
     
     setTempProdutoId('');
     setTempQtd(1);
+    setSearchProdutoCombo('');
   };
 
   const removeItem = (index: number) => {
@@ -262,10 +265,34 @@ export default function PromocoesManager() {
             <div className="p-4 bg-white border border-gray-200 rounded-lg space-y-4">
               <p className="text-sm font-bold text-gray-700">Adicionar Produtos ao Combo</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                <select value={tempProdutoId} onChange={e => setTempProdutoId(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500">
-                  <option value="">Selecione um produto...</option>
-                  {produtos.map(p => (<option key={p.id} value={p.id}>{p.nome}</option>))}
-                </select>
+                <div className="relative w-full">
+                  <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-purple-500 transition-colors h-full">
+                    <Search size={16} className="ml-3 text-gray-400 shrink-0" />
+                    <input 
+                      type="text" 
+                      value={searchProdutoCombo} 
+                      onChange={e => {
+                        setSearchProdutoCombo(e.target.value);
+                        setTempProdutoId('');
+                        setShowProdutoComboDropdown(true);
+                      }}
+                      onFocus={() => setShowProdutoComboDropdown(true)}
+                      onBlur={() => setTimeout(() => setShowProdutoComboDropdown(false), 200)}
+                      className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                      placeholder="Buscar produto para o combo..."
+                    />
+                  </div>
+                  {showProdutoComboDropdown && (
+                    <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                      {produtos.filter(p => p.nome.toLowerCase().includes(searchProdutoCombo.toLowerCase())).map(p => (
+                        <div key={p.id} onClick={() => { setTempProdutoId(p.id); setSearchProdutoCombo(p.nome); setShowProdutoComboDropdown(false); }} className="p-2 text-sm hover:bg-purple-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
+                          <span className="font-medium text-gray-800">{p.nome}</span>
+                        </div>
+                      ))}
+                      {produtos.filter(p => p.nome.toLowerCase().includes(searchProdutoCombo.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum produto encontrado</div>}
+                    </div>
+                  )}
+                </div>
                 <div className="flex space-x-2">
                   <input type="number" min="1" value={tempQtd} onChange={e => setTempQtd(Number(e.target.value))} className="w-24 p-2 border border-gray-200 rounded-lg outline-none bg-gray-50 focus:bg-white focus:ring-2 focus:ring-purple-500" placeholder="Qtd" />
                   <button onClick={addItem} className="flex-1 bg-purple-600 text-white p-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition-colors shadow-sm">

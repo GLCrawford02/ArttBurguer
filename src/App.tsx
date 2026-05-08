@@ -7,7 +7,7 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
@@ -21,13 +21,14 @@ import ConfiguracoesGerais from './components/ConfiguracoesGerais';
 import AtualizacoesSistema from './components/AtualizacoesSistema';
 import ClientesManager from './components/ClientesManager';
 import DespachoManager from './components/DespachoManager';
+import MarketingManager from './components/MarketingManager';
 import { ref, onValue, set, push } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
@@ -71,7 +72,7 @@ export default function App() {
       const hash = window.location.hash.replace('#', '') as any; 
       console.log('🔗 URL mudou para a aba:', hash);
       
-      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'nova_aba'].includes(hash)) {
+      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing', 'nova_aba'].includes(hash)) {
         setActiveTab(hash as any);
       }
       setIsMobileMenuOpen(false);
@@ -113,7 +114,7 @@ export default function App() {
     });
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas') => {
+  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -132,7 +133,7 @@ export default function App() {
     const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
     if (isKdsOnly) return ['producao'];
 
-    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'];
+    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'];
 
     const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
     
@@ -151,6 +152,7 @@ export default function App() {
     if (hasPerm('funcionarios')) allowed.push('funcionarios');
     if (hasPerm('configuracoes')) allowed.push('configuracoes');
     if (hasPerm('tarefas')) allowed.push('tarefas');
+    if (hasPerm('marketing')) allowed.push('marketing');
     return allowed;
   };
 
@@ -392,7 +394,7 @@ export default function App() {
             }`}
           >
             <CheckCircle size={20} />
-            <span>Produção</span>
+            <span>KDS</span>
           </button>
           )}
 
@@ -429,6 +431,18 @@ export default function App() {
           >
             <Truck size={20} />
             <span>Clientes / Entregas</span>
+          </button>
+          )}
+
+          {allowedTabs.includes('marketing') && (
+          <button
+            onClick={() => handleTabChange('marketing')}
+            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+              activeTab === 'marketing' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+            }`}
+          >
+            <Megaphone size={20} />
+            <span>Marketing</span>
           </button>
           )}
 
@@ -541,6 +555,8 @@ export default function App() {
               {subTabLogistica === 'despacho' && <DespachoManager />}
             </div>
           )}
+
+          {activeTab === 'marketing' && <MarketingManager />}
 
           {activeTab === 'funcionarios' && (
             <div className="space-y-6">

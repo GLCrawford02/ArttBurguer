@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus } from 'lucide-react';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -20,6 +20,11 @@ export default function InsumosManager() {
   const [estoqueMaximo, setEstoqueMaximo] = useState('');
   const [estoqueAtual, setEstoqueAtual] = useState('');
   const [tipoUso, setTipoUso] = useState('');
+  const [searchTipoUso, setSearchTipoUso] = useState('');
+  const [showTipoUsoDropdown, setShowTipoUsoDropdown] = useState(false);
+  const [insumoVinculado, setInsumoVinculado] = useState('');
+  const [searchInsumoVinculado, setSearchInsumoVinculado] = useState('');
+  const [showInsumoVinculadoDropdown, setShowInsumoVinculadoDropdown] = useState(false);
 
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
 
@@ -60,7 +65,9 @@ export default function InsumosManager() {
     const unsubTipos = onValue(tiposRef, (snapshot) => {
       const data = snapshot.val();
       if (data) {
-        setTiposUsoDb(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+        const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setTiposUsoDb(list);
       } else {
         setTiposUsoDb([]);
       }
@@ -71,16 +78,20 @@ export default function InsumosManager() {
 
   const generateSku = (name: string): string => {
     if (!name) return '';
-    return `#${name.replace(/[^a-zA-Z0-9]/g, '').toLowerCase()}`;
+    
+    // Pega o nome exato, converte para minúsculas e remove tudo que não for letra ou número
+    const baseName = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+    
+    return `#${baseName.substring(0, 19)}`; // Máximo 20 caracteres (incluindo a #)
   };
 
   useEffect(() => {
-    if (!editId && nome) {
+    if (nome) {
       setSku(generateSku(nome));
-    } else if (!editId) {
+    } else {
       setSku('');
     }
-  }, [nome, editId]);
+  }, [nome]);
 
   const handleAddTipo = async () => {
     if (!novoTipoForm.trim()) return;
@@ -91,6 +102,28 @@ export default function InsumosManager() {
   const handleDeleteTipo = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir este tipo de uso?')) {
       await remove(ref(db, `tipos_uso/${id}`));
+    }
+  };
+
+  const handlePadronizarSkus = async () => {
+    if (!window.confirm('Deseja padronizar os SKUs de todos os insumos existentes?')) return;
+    
+    let atualizados = 0;
+    setLoading(true);
+    try {
+      const promessas = insumos.map(async (insumo) => {
+        const novoSku = generateSku(insumo.nome);
+        if ((insumo as any).sku !== novoSku) {
+          await update(ref(db, `insumos/${insumo.id}`), { sku: novoSku });
+          atualizados++;
+        }
+      });
+      await Promise.all(promessas);
+      showToast(`${atualizados} SKUs foram padronizados com sucesso!`, 'success');
+    } catch (error: any) {
+      showToast('Erro ao padronizar SKUs: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -131,6 +164,7 @@ export default function InsumosManager() {
         alertaMinimo: Number(alertaMinimo),
         estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
         tipoUso: tipoUso,
+        insumoVinculado: insumoVinculado || null,
       };
 
       await update(ref(db, `insumos/${editId}`), updateData);
@@ -148,6 +182,7 @@ export default function InsumosManager() {
         alertaMinimo: Number(alertaMinimo),
         estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
         tipoUso: tipoUso,
+        insumoVinculado: insumoVinculado || null,
         estoqueRotativo: 0,
         estoqueEstacionario: estoqueAtual ? Number(estoqueAtual) : 0,
       });
@@ -165,6 +200,7 @@ export default function InsumosManager() {
     setEstoqueMaximo('');
     setEstoqueAtual('');
     setTipoUso('');
+    setSearchTipoUso('');
     setShowForm(false);
   };
 
@@ -236,9 +272,10 @@ Formato esperado para cada objeto:
           existingInsumo = insumos.find(i => (i.nome || '').toLowerCase().trim() === (item.nome || '').toLowerCase().trim());
         }
 
-        const finalSku = item.sku || (existingInsumo ? (existingInsumo as any).sku : generateSku(item.nome || 'INSUMO'));
+        const finalSku = (item.sku ? String(item.sku).substring(0, 20) : null) || (existingInsumo ? (existingInsumo as any).sku : generateSku(item.nome || 'INSUMO'));
 
         if (existingInsumo) {
+          const isBulk = ['pc', 'fd', 'kg', 'L', 'cx'].includes(item.unidade || existingInsumo.unidade);
           const updateData: any = {
             nome: item.nome || existingInsumo.nome,
             sku: finalSku,
@@ -250,10 +287,12 @@ Formato esperado para cada objeto:
           if (item.estoqueMaximo) updateData.estoqueMaximo = Number(item.estoqueMaximo);
           if (item.estoqueAtual) updateData.estoqueEstacionario = (existingInsumo.estoqueEstacionario || 0) + Number(item.estoqueAtual);
           if (item.tipoUso) updateData.tipoUso = item.tipoUso;
+          if (!isBulk) updateData.insumoVinculado = null;
           
           await update(ref(db, `insumos/${existingInsumo.id}`), updateData);
           atualizados++;
         } else {
+          const isBulk = ['pc', 'fd', 'kg', 'L', 'cx'].includes(item.unidade || 'un');
           await set(push(ref(db, 'insumos')), {
             nome: item.nome || 'Sem Nome',
             sku: finalSku,
@@ -264,6 +303,7 @@ Formato esperado para cada objeto:
             alertaMinimo: Number(item.alertaMinimo) || 5,
             estoqueMaximo: item.estoqueMaximo ? Number(item.estoqueMaximo) : null,
             tipoUso: item.tipoUso || '',
+            insumoVinculado: null,
             estoqueRotativo: 0,
             estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
           });
@@ -294,6 +334,16 @@ Formato esperado para cada objeto:
     setAlertaMinimo(String(insumo.alertaMinimo || ''));
     setEstoqueMaximo(insumo.estoqueMaximo ? String(insumo.estoqueMaximo) : '');
     setTipoUso((insumo as any).tipoUso || '');
+    setSearchTipoUso((insumo as any).tipoUso || '');
+    setInsumoVinculado((insumo as any).insumoVinculado || '');
+    
+    const linkedId = (insumo as any).insumoVinculado || '';
+    if (linkedId) {
+      const vinculado = insumos.find(i => i.id === linkedId);
+      setSearchInsumoVinculado(vinculado ? vinculado.nome : '');
+    } else {
+      setSearchInsumoVinculado('');
+    }
     setShowForm(true);
   };
 
@@ -309,6 +359,10 @@ Formato esperado para cada objeto:
     setEstoqueMaximo('');
     setEstoqueAtual('');
     setTipoUso('');
+    setSearchTipoUso('');
+    setInsumoVinculado('');
+    setSearchInsumoVinculado('');
+    setSearchInsumoVinculado('');
     setShowForm(false);
   };
 
@@ -330,9 +384,14 @@ Formato esperado para cada objeto:
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Base de Insumos</h2>
-        <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center">
-          <Plus size={20} className="mr-2" /> Novo Insumo
-        </button>
+        <div className="flex flex-col sm:flex-row items-center gap-2">
+          <button onClick={handlePadronizarSkus} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center text-sm">
+            <RefreshCw size={16} className="mr-2" /> Padronizar SKUs
+          </button>
+          <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center">
+            <Plus size={20} className="mr-2" /> Novo Insumo
+          </button>
+        </div>
       </div>
       
       {showForm && (
@@ -369,14 +428,34 @@ Formato esperado para cada objeto:
                     <label className="text-xs font-bold text-gray-500 uppercase">Tipo de Uso</label>
                     <button type="button" onClick={() => setShowTiposModal(true)} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 uppercase leading-none pb-0.5">Gerenciar</button>
                   </div>
-                  <select value={tipoUso} onChange={e => setTipoUso(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white text-sm">
-                    <option value="">Selecione...</option>
-                    {tiposUsoDb.map(t => <option key={t.id} value={t.nome}>{t.nome}</option>)}
-                  </select>
+                  <div className="relative w-full">
+                    <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-green-500">
+                      <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                      <input 
+                        type="text" 
+                        value={searchTipoUso} 
+                        onChange={e => { setSearchTipoUso(e.target.value); setTipoUso(e.target.value); setShowTipoUsoDropdown(true); }}
+                        onFocus={() => setShowTipoUsoDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowTipoUsoDropdown(false), 200)}
+                        className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                        placeholder="Buscar ou digitar..."
+                      />
+                    </div>
+                    {showTipoUsoDropdown && tiposUsoDb.length > 0 && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {tiposUsoDb.filter(t => t.nome.toLowerCase().includes(searchTipoUso.toLowerCase())).map(t => (
+                          <div key={t.id} onClick={() => { setTipoUso(t.nome); setSearchTipoUso(t.nome); setShowTipoUsoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50">
+                            <span className="font-medium text-gray-800">{t.nome}</span>
+                          </div>
+                        ))}
+                        {tiposUsoDb.filter(t => t.nome.toLowerCase().includes(searchTipoUso.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
+                      </div>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-1 sm:col-span-3">
                   <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
-                  <input type="text" value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono bg-white text-sm" placeholder="Ex: #paobrioche" />
+                  <input type="text" maxLength={20} value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono bg-white text-sm" placeholder="Ex: #paobrioche" />
                 </div>
               </div>
             </div>
@@ -416,6 +495,40 @@ Formato esperado para cada objeto:
                   <label className="text-xs font-bold text-gray-500 uppercase">Qtd. na Embalagem</label>
                   <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" placeholder="1 = Unidade" />
                 </div>
+                {['pc', 'fd', 'kg', 'L', 'cx'].includes(unidade) && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Vincular Insumo (Quebra)</label>
+                    <div className="relative w-full">
+                      <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-green-500">
+                        <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                        <input 
+                          type="text" 
+                          value={searchInsumoVinculado} 
+                          onChange={e => {
+                            setSearchInsumoVinculado(e.target.value);
+                            setInsumoVinculado('');
+                            setShowInsumoVinculadoDropdown(true);
+                          }}
+                          onFocus={() => setShowInsumoVinculadoDropdown(true)}
+                          onBlur={() => setTimeout(() => setShowInsumoVinculadoDropdown(false), 200)}
+                          className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                          placeholder="Buscar insumo (Opcional)..."
+                        />
+                      </div>
+                      {showInsumoVinculadoDropdown && (
+                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                          {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).map(i => (
+                            <div key={i.id} onClick={() => { setInsumoVinculado(i.id); setSearchInsumoVinculado(i.nome); setShowInsumoVinculadoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
+                              <span className="font-medium text-gray-800">{i.nome}</span>
+                              <span className="text-gray-400 text-xs ml-2">{i.unidade}</span>
+                            </div>
+                          ))}
+                          {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum insumo encontrado</div>}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -566,7 +679,7 @@ Formato esperado para cada objeto:
               <button onClick={() => setShowTiposModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="flex space-x-2">
-              <input type="text" value={novoTipoForm} onChange={e => setNovoTipoForm(e.target.value)} placeholder="Novo tipo (ex: Embalagem)" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+              <input type="text" value={novoTipoForm} onChange={e => setNovoTipoForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTipo()} placeholder="Novo tipo (ex: Embalagem)" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm" />
               <button onClick={handleAddTipo} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors text-sm">Adicionar</button>
             </div>
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">

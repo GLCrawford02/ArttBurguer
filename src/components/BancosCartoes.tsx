@@ -26,15 +26,21 @@ export default function BancosCartoes() {
     const bancosRef = ref(db, 'bancos');
     const unsubB = onValue(bancosRef, snap => {
       const data = snap.val();
-      if (data) setBancos(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setBancos([]);
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setBancos(list);
+      } else setBancos([]);
     });
 
     const taxasRef = ref(db, 'taxas_cartoes');
     const unsubT = onValue(taxasRef, snap => {
       const data = snap.val();
-      if (data) setTaxas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setTaxas([]);
+      if (data) {
+        const list = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        setTaxas(list);
+      } else setTaxas([]);
     });
 
     return () => { unsubB(); unsubT(); };

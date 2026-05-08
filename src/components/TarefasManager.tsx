@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil } from 'lucide-react';
+import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil, Search } from 'lucide-react';
 
 export interface Tarefa {
   id: string;
@@ -47,6 +47,8 @@ export default function TarefasManager() {
   const [prioridade, setPrioridade] = useState<'Nenhuma' | 'Baixa' | 'Média' | 'Alta'>('Nenhuma');
   const [sinalizado, setSinalizado] = useState(false);
   const [categoria, setCategoria] = useState('Limpeza');
+  const [searchCategoria, setSearchCategoria] = useState('Limpeza');
+  const [showCategoriaDropdown, setShowCategoriaDropdown] = useState(false);
   const [categoriasDb, setCategoriasDb] = useState<{id: string, nome: string}[]>([]);
   const [showCategoriasModal, setShowCategoriasModal] = useState(false);
   const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
@@ -162,6 +164,7 @@ export default function TarefasManager() {
     setEditId(null);
     setTitulo(''); setDescricao(''); setUrl(''); setResponsaveisIds([]); setDataAgendada(''); setHoraAgendada('');
     setUrgente(false); setSinalizado(false); setPrioridade('Nenhuma'); setCategoria('Limpeza');
+    setSearchCategoria('Limpeza');
     setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
     setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
     setShowForm(false);
@@ -227,6 +230,7 @@ export default function TarefasManager() {
     setPrioridade(tarefa.prioridade || 'Nenhuma');
     setSinalizado(tarefa.sinalizado || false);
     setCategoria(tarefa.categoria || 'Limpeza');
+    setSearchCategoria(tarefa.categoria || 'Limpeza');
     setRecorrencia(tarefa.recorrencia || 'Nenhuma');
     setRecorrenciaCustomValor(tarefa.recorrenciaCustomValor || 1);
     setRecorrenciaCustomUnidade(tarefa.recorrenciaCustomUnidade || 'dia');
@@ -387,12 +391,28 @@ export default function TarefasManager() {
                 <label className="text-xs font-bold text-gray-500 flex items-center"><Tags size={14} className="mr-1"/> Categoria</label>
                 <button type="button" onClick={() => setShowCategoriasModal(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase leading-none pb-0.5">Gerenciar</button>
               </div>
-              <select value={categoria} onChange={e => setCategoria(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 font-medium">
-                <option value="">Selecione...</option>
-                {categoriasDb.map(c => (
-                  <option key={c.id} value={c.nome}>{c.nome}</option>
-                ))}
-              </select>
+              <div className="relative w-full">
+                <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 focus-within:bg-white focus-within:ring-2 focus-within:ring-indigo-500">
+                  <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                  <input 
+                    type="text" 
+                    value={searchCategoria} 
+                    onChange={e => { setSearchCategoria(e.target.value); setCategoria(e.target.value); setShowCategoriaDropdown(true); }}
+                    onFocus={() => setShowCategoriaDropdown(true)}
+                    onBlur={() => setTimeout(() => setShowCategoriaDropdown(false), 200)}
+                    className="w-full p-2.5 outline-none rounded-lg text-sm bg-transparent font-medium"
+                    placeholder="Buscar ou digitar..."
+                  />
+                </div>
+                {showCategoriaDropdown && categoriasDb.length > 0 && (
+                  <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                    {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).map(c => (
+                      <div key={c.id} onClick={() => { setCategoria(c.nome); setSearchCategoria(c.nome); setShowCategoriaDropdown(false); }} className="p-2 text-sm hover:bg-indigo-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{c.nome}</span></div>
+                    ))}
+                    {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhuma categoria encontrada</div>}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -672,7 +692,7 @@ export default function TarefasManager() {
               <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
             <div className="flex space-x-2">
-              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} placeholder="Nova categoria..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Nova categoria..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
               <button onClick={handleAddCategoria} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">Adicionar</button>
             </div>
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
