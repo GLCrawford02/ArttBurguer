@@ -3,8 +3,20 @@ import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp } from 'lucide-r
 export default function AtualizacoesSistema() {
   const updates = [
     {
+      versao: '1.1.10',
+      titulo: 'Otimização Extrema, Simulador Turbinado e KDS Inteligente',
+      descricao: 'Reduzimos o consumo de dados a quase zero, criamos filtros incríveis para a cozinha e detalhamos o lucro real no caixa.',
+      features: [
+        'Sincronização Delta (Robô): O bot do WhatsApp agora usa cache em tempo real, eliminando downloads redundantes e economizando gigabytes no Firebase.',
+        'Simulador de Conferência Melhorado: Adicione títulos customizados (Ex: Mesa 1 - 19:00) e edite as simulações já salvas.',
+        'Cálculo de Lucro Líquido Real: O PDV/Caixa agora desconta os custos de produção da ficha técnica para exibir seu lucro exato livre de taxas.',
+        'KDS com Filtros Dinâmicos: As telas da cozinha ganharam um menu suspenso de categorias, permitindo à equipe escolher o que ver de forma customizada.',
+        'Organização de Tarefas: O Calendário Financeiro ganhou um atalho unificado e agora exibe suas Tarefas programadas ao lado das contas.'
+      ],
+      icon: <Rocket className="text-purple-500" size={20} />
+    },
+    {
       versao: '1.1.9',
-      data: 'Lançamento Recente',
       titulo: 'Dashboard Integrado, Modais Rápidos e Gráficos Financeiros',
       descricao: 'O módulo financeiro agora está interligado ao PDV, possui gráficos de gastos e é incrivelmente ágil com os novos modais.',
       features: [
@@ -17,7 +29,6 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.8',
-      data: 'Atualização Anterior',
       titulo: 'Escala Fluida, Nova Tela de Compras e Robô Silencioso',
       descricao: 'Layout 100% adaptável, entrada profissional de mercadorias e envio de mensagens em segundo plano.',
       features: [
@@ -30,7 +41,6 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.7',
-      data: 'Atualização Antiga',
       titulo: 'Categorias Dinâmicas e IA para Produtos',
       descricao: 'Mais flexibilidade no cadastro de produtos e um assistente inteligente para agilizar seu trabalho.',
       features: [
@@ -43,7 +53,6 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.6',
-      data: 'Atualização Antiga',
       titulo: 'Integração PDV & Cozinha e Mapa de Mesas',
       descricao: 'Uma revolução na forma de atender seus clientes e produzir os lanches.',
       features: [
@@ -56,7 +65,6 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.5',
-      data: 'Atualização Antiga',
       titulo: 'Logística & Gestão de Equipe com IA',
       descricao: 'Controle total das entregas e inteligência artificial para o RH.',
       features: [
@@ -69,7 +77,6 @@ export default function AtualizacoesSistema() {
     },
     {
       versao: '1.1.4',
-      data: 'Base Sólida',
       titulo: 'Financeiro, Calendário & Permissões',
       descricao: 'Seu dinheiro e segurança controlados em um só lugar.',
       features: [
@@ -98,7 +105,7 @@ export default function AtualizacoesSistema() {
         {updates.map((update, idx) => (
           <div key={idx} className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 transition-all hover:border-blue-200">
             <div className="flex justify-between items-center mb-4 border-b border-gray-100 pb-4">
-              <div className="flex items-center space-x-3"><div className="p-2 bg-gray-50 rounded-lg">{update.icon}</div><div><span className="font-black text-gray-800 text-lg">Versão {update.versao}</span><p className="text-xs font-bold text-gray-400">{update.data}</p></div></div>
+              <div className="flex items-center space-x-3"><div className="p-2 bg-gray-50 rounded-lg">{update.icon}</div><div><span className="font-black text-gray-800 text-lg">Versão {update.versao}</span></div></div>
             </div>
             <h4 className="font-bold text-gray-700 mb-1">{update.titulo}</h4>
             <p className="text-sm text-gray-500 mb-4">{update.descricao}</p>

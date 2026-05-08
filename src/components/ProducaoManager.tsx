@@ -2,19 +2,32 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X } from 'lucide-react';
 
-export default function ProducaoManager() {
+export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
   const [view, setView] = useState<'kds' | 'manual'>('kds');
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [filtroCategoria, setFiltroCategoria] = useState('');
+  const [kdsFiltroCategorias, setKdsFiltroCategorias] = useState<string[]>([]);
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const [activeKds, setActiveKds] = useState<'Chapa' | 'Char Broiler' | 'Montagem' | 'Fritas' | 'Expedição' | 'Balcão'>('Montagem');
+  const [showFiltrosKds, setShowFiltrosKds] = useState(false);
+
+  const cargos = currentUser ? (Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || '']) : [];
+  const kdsRoles = cargos.filter((c: string) => c.toUpperCase().includes('KDS'));
+  const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
+
+  // Extrai apenas as telas que este funcionário KDS tem acesso (ex: "KDS Chapa" -> "Chapa")
+  const allowedStations = kdsRoles.length > 0 
+    ? kdsRoles.map((r: string) => r.replace(/KDS\s+/i, '').trim())
+    : ['Chapa', 'Char Broiler', 'Montagem', 'Porção', 'Balcão', 'Expedição'];
+
+  const [activeKds, setActiveKds] = useState<any>(allowedStations[0] || 'Montagem');
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -25,6 +38,33 @@ export default function ProducaoManager() {
     const interval = setInterval(() => setCurrentTime(Date.now()), 60000);
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    if (allowedStations.length > 0 && !allowedStations.includes(activeKds)) {
+      setActiveKds(allowedStations[0]);
+    }
+  }, [currentUser]);
+
+  useEffect(() => {
+    let defaults: string[] = [];
+    switch (activeKds) {
+      case 'Expedição':
+        defaults = ['Hambúrguer', 'Promoção / Combo', 'Porção'];
+        break;
+      case 'Chapa':
+      case 'Char Broiler':
+      case 'Montagem':
+        defaults = ['Hambúrguer', 'Promoção / Combo'];
+        break;
+      case 'Porção':
+        defaults = ['Porção'];
+        break;
+      case 'Balcão':
+        defaults = ['Bebida', 'Sobremesa', 'Outros'];
+        break;
+    }
+    setKdsFiltroCategorias(defaults);
+  }, [activeKds]);
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
@@ -173,31 +213,21 @@ export default function ProducaoManager() {
     ...promocoes.filter(checkPromocaoValida).map(p => ({ ...p, categoria: 'Promoção / Combo' }))
   ];
 
-  const filteredProdutos = allItems.filter(p => 
-    (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-    ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const categoriasExistentes = Array.from(new Set(allItems.map(p => p.categoria || 'Outros'))).sort();
+
+  const filteredProdutos = allItems.filter(p => {
+    const matchSearch = (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                        ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchCat = filtroCategoria ? (p.categoria || 'Outros') === filtroCategoria : true;
+    return matchSearch && matchCat;
+  });
 
   // Mapeia categorias para seus respectivos setores do KDS
   const filterItemsForKDS = (itens: any[], kds: string) => {
     return itens.map((item, idx) => ({ ...item, originalIdx: idx })).filter(item => {
       const prod = allItems.find(p => p.id === item.produtoId);
-      const cat = prod ? prod.categoria : 'Outros';
-
-      switch (kds) {
-        case 'Expedição':
-          return cat === 'Hambúrguer' || cat === 'Promoção / Combo' || cat === 'Porção';
-        case 'Chapa':
-        case 'Char Broiler':
-        case 'Montagem':
-          return cat === 'Hambúrguer' || cat === 'Promoção / Combo';
-        case 'Porção':
-          return cat === 'Porção';
-        case 'Balcão':
-          return cat === 'Bebida' || cat === 'Sobremesa' || cat === 'Outros';
-        default:
-          return true;
-      }
+      const cat = prod ? (prod.categoria || 'Outros') : 'Outros';
+      return kdsFiltroCategorias.includes(cat);
     });
   };
 
@@ -231,18 +261,21 @@ export default function ProducaoManager() {
          concluidoNoKds: ik.kdsStatus ? ik.kdsStatus[activeKds] : false
       }))
     }))
-    .filter(ped => ped.itensKds.length > 0 || activeKds === 'Expedição'); // Expedição sempre vê para dar baixa final
+    .filter(ped => ped.itensKds.length > 0); // Exibe apenas se houver itens que passaram no filtro de categoria
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      {!isKdsOnly && (
       <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
         <button onClick={() => setView('kds')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'kds' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Modo KDS (Telas)</button>
         <button onClick={() => setView('manual')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'manual' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Baixa Avulsa / Manual</button>
       </div>
+      )}
 
       {view === 'kds' && (
         <div className="space-y-6">
           {/* Navegação de Estações (Yooga Style) */}
+          {allowedStations.length > 1 && (
           <div className="flex overflow-x-auto gap-2 pb-2 scrollbar-hide border-b border-gray-200">
             {[
               { id: 'Chapa', icon: <Flame size={18} /> },
@@ -251,7 +284,7 @@ export default function ProducaoManager() {
               { id: 'Porção', icon: <UtensilsCrossed size={18} /> },
               { id: 'Balcão', icon: <Coffee size={18} /> },
               { id: 'Expedição', icon: <Package size={18} /> }
-            ].map(station => (
+            ].filter(s => allowedStations.includes(s.id)).map(station => (
               <button 
                 key={station.id}
                 onClick={() => setActiveKds(station.id as any)} 
@@ -261,9 +294,49 @@ export default function ProducaoManager() {
               </button>
             ))}
           </div>
+          )}
 
-          <div className="flex items-center justify-between mt-2">
-            <h2 className="text-xl font-bold text-gray-800 flex items-center"><MonitorPlay className="mr-2 text-indigo-600"/> Tela Ativa: {activeKds} ({pedidosKds.length} pedidos)</h2>
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mt-2 gap-4">
+            <h2 className="text-xl font-bold text-gray-800 flex items-center shrink-0"><MonitorPlay className="mr-2 text-indigo-600"/> Tela Ativa: {activeKds} ({pedidosKds.length} pedidos)</h2>
+            
+            <div className="relative">
+              <button 
+                onClick={() => setShowFiltrosKds(!showFiltrosKds)}
+                className="flex items-center px-4 py-2 text-sm font-bold bg-white border border-gray-200 rounded-lg text-gray-700 hover:bg-gray-50 shadow-sm transition-colors"
+              >
+                <Filter size={16} className="mr-2 text-gray-500" />
+                Filtros ({kdsFiltroCategorias.length})
+                <ChevronDown size={16} className={`ml-2 text-gray-400 transition-transform ${showFiltrosKds ? 'rotate-180' : ''}`} />
+              </button>
+              
+              {showFiltrosKds && (
+                <div className="absolute right-0 mt-2 w-64 bg-white border border-gray-200 rounded-xl shadow-lg z-50 p-3 flex flex-col gap-2">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-100 pb-2">
+                    <span className="text-xs font-bold text-gray-500 uppercase">Categorias Visíveis</span>
+                    <button onClick={() => setShowFiltrosKds(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
+                  </div>
+                  <div className="max-h-60 overflow-y-auto flex flex-col gap-1 pr-1">
+                    {categoriasExistentes.map(cat => {
+                      const isSelected = kdsFiltroCategorias.includes(cat as string);
+                      return (
+                        <label key={cat as string} className="flex items-center space-x-3 cursor-pointer p-2 hover:bg-gray-50 rounded-lg transition-colors">
+                          <input 
+                            type="checkbox" 
+                            checked={isSelected}
+                            onChange={() => {
+                              if (isSelected) setKdsFiltroCategorias(prev => prev.filter(c => c !== cat));
+                              else setKdsFiltroCategorias(prev => [...prev, cat as string]);
+                            }}
+                            className="rounded text-indigo-600 focus:ring-indigo-500 w-4 h-4 cursor-pointer"
+                          />
+                          <span className={`text-sm font-medium ${isSelected ? 'text-indigo-700' : 'text-gray-600'}`}>{cat as string}</span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
@@ -338,15 +411,25 @@ export default function ProducaoManager() {
             </h3>
             <p className="text-sm text-gray-500 mt-1">Informe a quantidade feita de cada produto para abater os produtos do estoque automaticamente.</p>
           </div>
-          <div className="relative w-full sm:w-auto">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-            <input
-              type="text"
-              placeholder="Buscar por nome ou SKU..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm w-full sm:w-64"
-            />
+          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+            <select 
+              value={filtroCategoria} 
+              onChange={(e) => setFiltroCategoria(e.target.value)}
+              className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white w-full sm:w-auto"
+            >
+              <option value="">Todas as Categorias</option>
+              {categoriasExistentes.map(c => <option key={c as string} value={c as string}>{c as string}</option>)}
+            </select>
+            <div className="relative w-full sm:w-auto">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+              <input
+                type="text"
+                placeholder="Buscar por nome ou SKU..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm w-full sm:w-64"
+              />
+            </div>
           </div>
         </div>
       </div>

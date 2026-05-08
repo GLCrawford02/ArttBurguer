@@ -10,6 +10,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
   const [cargos, setCargos] = useState<{id: string, nome: string}[]>([]);
   const [editId, setEditId] = useState<string | null>(null);
   const [historicoFuncionarioId, setHistoricoFuncionarioId] = useState<string | null>(null);
+  const [isRequestingLink, setIsRequestingLink] = useState(false);
   
   const [formData, setFormData] = useState<{nome: string, pin: string, cargo: string[], ativo: boolean, telefone: string}>({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '' });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -161,10 +162,14 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
 
   const solicitarVinculo = async (f: Funcionario | any) => {
     if (!f) return;
+    if (isRequestingLink) return;
+    
     if (!f.telefone) {
       showToast('O funcionário precisa ter um telefone cadastrado para receber a mensagem!', 'error');
       return;
     }
+    
+    setIsRequestingLink(true);
     let telLimpo = f.telefone.replace(/\D/g, '');
     if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
     
@@ -180,6 +185,8 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       showToast('A solicitação está sendo enviada pelo robô!', 'success');
     } catch (err) {
       showToast('Erro ao enviar solicitação.', 'error');
+    } finally {
+      setIsRequestingLink(false);
     }
   };
 
@@ -259,9 +266,11 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                           </div>
                       ) : (
                           editId ? (
-                            <button type="button" onClick={() => solicitarVinculo(funcionarios.find(f => f.id === editId))} className="bg-white px-3 py-1.5 rounded-lg border border-orange-300 flex items-center shadow-md hover:bg-orange-50 transition-colors group cursor-pointer">
+                            <button type="button" disabled={isRequestingLink} onClick={() => solicitarVinculo(funcionarios.find(f => f.id === editId))} className="bg-white px-3 py-1.5 rounded-lg border border-orange-300 flex items-center shadow-md hover:bg-orange-50 transition-colors group cursor-pointer disabled:opacity-60">
                                 <AlertTriangle size={16} className="text-orange-500 mr-2 group-hover:scale-110 transition-transform" />
-                                <span className="text-xs font-bold text-orange-700">Pendente (Solicitar via WhatsApp)</span>
+                                <span className="text-xs font-bold text-orange-700">
+                                  {isRequestingLink ? 'Enviando...' : 'Pendente (Solicitar via WhatsApp)'}
+                                </span>
                             </button>
                           ) : (
                             <div className="bg-white px-3 py-1.5 rounded-lg border border-gray-200 flex items-center shadow-sm opacity-60 cursor-not-allowed" title="Salve o cadastro primeiro">

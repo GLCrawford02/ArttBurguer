@@ -16,7 +16,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [pendingAction, setPendingAction] = useState<((func: Funcionario) => Promise<void>) | null>(null);
   const [contasPagar, setContasPagar] = useState<any[]>([]);
   const [contasReceber, setContasReceber] = useState<any[]>([]);
-  const [agendamentos, setAgendamentos] = useState<any[]>([]);
+  const [tarefas, setTarefas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<'insumos' | 'produtos' | 'baixos' | 'excedentes' | 'vencimentos' | null>(null);
   const [modalSearchTerm, setModalSearchTerm] = useState('');
@@ -77,11 +77,11 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       else setContasReceber([]);
     });
 
-    const agendRef = ref(db, 'agendamentos');
-    const unsubAgend = onValue(agendRef, (snap) => {
+    const tarefasRef = ref(db, 'tarefas');
+    const unsubTarefas = onValue(tarefasRef, (snap) => {
       const data = snap.val();
-      if (data) setAgendamentos(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setAgendamentos([]);
+      if (data) setTarefas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setTarefas([]);
     });
 
     return () => {
@@ -90,7 +90,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       unsubFunc();
       unsubPagar();
       unsubReceber();
-      unsubAgend();
+      unsubTarefas();
     };
   }, []);
 
@@ -321,26 +321,9 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     showToast('Exportação concluída!', 'success');
   };
 
-  const checkRecorrenciaAgendamento = (ag: any, dateStr: string) => {
-    if (!ag.recorrencia || ag.recorrencia === 'Nenhuma') return ag.data === dateStr;
-    if (dateStr < ag.data) return false;
-    if (ag.fimRecorrencia && dateStr > ag.fimRecorrencia) return false;
-
-    const d1 = new Date(ag.data + 'T12:00:00');
-    const d2 = new Date(dateStr + 'T12:00:00');
-
-    if (ag.recorrencia === 'Diária') return true;
-    if (ag.recorrencia === 'Semanal') {
-      const diff = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-      return diff % 7 === 0;
-    }
-    if (ag.recorrencia === 'Mensal') return d1.getDate() === d2.getDate();
-    if (ag.recorrencia === 'Anual') return d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth();
-    return false;
-  };
 
   const hojeDateStr = new Date().toISOString().split('T')[0];
-  const agendaHoje = agendamentos.filter(a => checkRecorrenciaAgendamento(a, hojeDateStr)).sort((a, b) => (a.horario || '23:59').localeCompare(b.horario || '23:59'));
+  const agendaHoje = tarefas.filter(t => t.dataAgendada === hojeDateStr && t.status === 'pendente').sort((a, b) => (a.horaAgendada || '23:59').localeCompare(b.horaAgendada || '23:59'));
   
   const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono');
   const isAdminOrDono = currentUser && (
@@ -417,9 +400,9 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   <h3 className="text-sm font-medium text-purple-800">Sua Agenda de Hoje</h3>
                   <div className="mt-2 text-sm text-purple-700 max-h-[150px] overflow-y-auto pr-2">
                     <ul className="list-disc pl-5 space-y-1">
-                      {agendaHoje.map((ag: any) => (
-                        <li key={ag.id}>
-                          <span className="font-bold">{ag.titulo}</span> {ag.horario && `- ${ag.horario}`}
+                  {agendaHoje.map((tar: any) => (
+                    <li key={tar.id}>
+                      <span className="font-bold">{tar.titulo}</span> {tar.horaAgendada && `- ${tar.horaAgendada}`}
                         </li>
                       ))}
                     </ul>

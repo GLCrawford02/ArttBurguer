@@ -34,7 +34,7 @@ export default function App() {
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
   const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes'>('gerais');
-  const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'permissoes'>('equipe');
+  const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes'>('equipe');
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes' | 'despacho'>('clientes');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -128,6 +128,10 @@ export default function App() {
   const getAllowedTabs = () => {
     if (!currentUser) return [];
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
+    
+    const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
+    if (isKdsOnly) return ['producao'];
+
     if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas'];
 
     const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
@@ -141,7 +145,7 @@ export default function App() {
     if (hasPerm('produtos') || hasPerm('promocoes')) allowed.push('cardapio');
     if (hasPerm('compras') || hasPerm('transferencias')) allowed.push('movimentacoes');
     if (hasPerm('clientes') || hasPerm('despacho')) allowed.push('logistica');
-    if (hasPerm('producao')) allowed.push('producao');
+    if (hasPerm('producao') || cargos.some((c: string) => c.toUpperCase().includes('KDS'))) allowed.push('producao');
     if (hasPerm('balanco')) allowed.push('balanco');
     if (hasPerm('relatorios')) allowed.push('financeiro');
     if (hasPerm('funcionarios')) allowed.push('funcionarios');
@@ -257,10 +261,16 @@ export default function App() {
   const allowedTabs = getAllowedTabs();
   const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono');
 
+  const isKdsOnly = currentUser && (() => {
+    const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
+    return cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
+  })();
+
   return (
     <div className="h-screen bg-gray-50 flex flex-col md:flex-row overflow-hidden" translate="no">
       <style>{`@media (min-width: 768px) { html { font-size: clamp(12px, 1vw + 4px, 20px); } }`}</style>
       {/* Mobile Header */}
+      {!isKdsOnly && (
       <div className="md:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">
         <div className="flex items-center space-x-2">
           <img src={logoImg} alt="ArttBurger" className="h-10 w-auto object-contain" />
@@ -273,9 +283,10 @@ export default function App() {
           <Menu size={24} />
         </button>
       </div>
+      )}
 
       {/* Mobile Overlay */}
-      {isMobileMenuOpen && (
+      {isMobileMenuOpen && !isKdsOnly && (
         <div 
           className="md:hidden fixed inset-0 bg-black/50 z-30" 
           onClick={() => setIsMobileMenuOpen(false)}
@@ -283,6 +294,7 @@ export default function App() {
       )}
 
       {/* Sidebar */}
+      {!isKdsOnly && (
       <aside className={`fixed inset-y-0 left-0 z-40 w-64 bg-gray-900 text-white flex flex-col transform transition-transform duration-300 ease-in-out ${isMobileMenuOpen ? 'translate-x-0' : '-translate-x-full'} md:relative md:translate-x-0 md:h-screen print:hidden`}>
         <div className="flex p-6 items-center justify-between border-b border-gray-800">
           <div className="flex items-center gap-3">
@@ -416,7 +428,7 @@ export default function App() {
             }`}
           >
             <Truck size={20} />
-            <span>Logística</span>
+            <span>Clientes / Entregas</span>
           </button>
           )}
 
@@ -428,7 +440,7 @@ export default function App() {
             }`}
           >
             <Users size={20} />
-            <span>Equipe</span>
+            <span>Gestão de Equipe</span>
           </button>
           )}
 
@@ -455,10 +467,11 @@ export default function App() {
           </div>
         </div>
       </aside>
+      )}
 
       {/* Main Content */}
-      <main className="flex-1 p-4 md:p-8 overflow-y-auto w-full max-w-[100vw]">
-        <header className="mb-8 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
+      <main className={`flex-1 overflow-y-auto w-full max-w-[100vw] ${isKdsOnly ? 'p-2 sm:p-4' : 'p-4 md:p-8'}`}>
+        <header className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden ${isKdsOnly ? 'mb-4' : 'mb-8'}`}>
           <div>
             <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema de Gestão</h2>
             <p className="text-gray-400 text-xs">Controle de estoque e custos de produção</p>
@@ -535,17 +548,19 @@ export default function App() {
                 <button onClick={() => setSubTabFuncionarios('equipe')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'equipe' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Equipe</button>
                 {(Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && (
                   <>
-                    <button onClick={() => setSubTabFuncionarios('gestao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'gestao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gestão de Equipe</button>
+                    <button onClick={() => setSubTabFuncionarios('gestao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'gestao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atribuições</button>
+                    <button onClick={() => setSubTabFuncionarios('ia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'ia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gestor IA</button>
                     <button onClick={() => setSubTabFuncionarios('permissoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'permissoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Cargos e Permissões</button>
                   </>
                 )}
               </div>
               {subTabFuncionarios === 'equipe' && <FuncionariosManager currentUser={currentUser} />}
-              {subTabFuncionarios === 'gestao' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager />}
+              {subTabFuncionarios === 'gestao' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager activeView="gestao" />}
+              {subTabFuncionarios === 'ia' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager activeView="ia" />}
               {subTabFuncionarios === 'permissoes' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <PermissoesManager />}
             </div>
           )}
-          {activeTab === 'producao' && <ProducaoManager />}
+          {activeTab === 'producao' && <ProducaoManager currentUser={currentUser} />}
           {activeTab === 'balanco' && <BalancoManager />}
 
           {activeTab === 'financeiro' && (

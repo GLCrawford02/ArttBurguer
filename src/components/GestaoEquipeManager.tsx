@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Funcionario } from '../types';
 import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save } from 'lucide-react';
 
-export default function GestaoEquipeManager() {
+export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeView?: 'gestao' | 'ia' }) {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [gestaoData, setGestaoData] = useState<Record<string, any>>({});
   const [selectedFuncId, setSelectedFuncId] = useState<string | null>(null);
@@ -152,8 +152,9 @@ export default function GestaoEquipeManager() {
   });
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
-      <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+    <div className="animate-in fade-in duration-300">
+      {activeView === 'gestao' && (
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><UserCircle className="mr-2 text-blue-600" size={24}/> Perfis da Equipe</h3>
         
         <div className="flex overflow-x-auto gap-2 pb-3 mb-2 border-b border-gray-100">
@@ -217,7 +218,9 @@ export default function GestaoEquipeManager() {
           <div className="mt-8 text-center text-gray-400 py-12 border-2 border-dashed border-gray-200 rounded-xl"><p>Selecione um funcionário acima para gerenciar os dados.</p></div>
         )}
       </div>
-      <div className="lg:col-span-5 bg-gradient-to-br from-gray-900 to-indigo-950 p-6 rounded-xl shadow-lg border border-gray-800 text-white flex flex-col h-full">
+      )}
+      {activeView === 'ia' && (
+      <div className="bg-gradient-to-br from-gray-900 to-indigo-950 p-6 rounded-xl shadow-lg border border-gray-800 text-white flex flex-col min-h-[500px]">
         <h3 className="text-xl font-bold mb-2 flex items-center"><Bot className="mr-2 text-indigo-400"/> Gestor IA</h3>
         <p className="text-gray-400 text-sm mb-6">A IA analisa as funções que você cadastrou para cada membro da equipe. Relate uma ausência, pico de movimento ou demissão, e veja uma sugestão tática imediata de cobertura.</p>
         
@@ -228,6 +231,7 @@ export default function GestaoEquipeManager() {
         
         {aiResponse && (<div className="mt-6 flex-1 bg-black/30 border border-indigo-500/20 p-5 rounded-lg overflow-y-auto"><h4 className="font-bold text-indigo-300 mb-3 text-xs uppercase tracking-widest border-b border-indigo-500/20 pb-2">Estratégia Operacional</h4><div className="text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">{aiResponse}</div></div>)}
       </div>
+      )}
 
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
     </div>

@@ -121,6 +121,12 @@ export default function TarefasManager() {
     return () => { unsubFunc(); unsubTarefas(); unsubCategorias(); };
   }, []);
 
+  useEffect(() => {
+    const handleOpenNew = () => { resetForm(); setShowForm(true); };
+    window.addEventListener('openNewTask', handleOpenNew);
+    return () => window.removeEventListener('openNewTask', handleOpenNew);
+  }, []);
+
   const handleAddCategoria = async () => {
     if (!novaCategoriaForm.trim()) return;
     await set(push(ref(db, 'configuracoes/categorias_tarefas')), { nome: novaCategoriaForm.trim() });

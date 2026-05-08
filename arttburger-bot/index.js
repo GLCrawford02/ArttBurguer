@@ -32,6 +32,9 @@ const client = new Client({
             '--disable-backgrounding-occluded-windows',
             '--disable-renderer-backgrounding'
         ]
+    },
+    webVersionCache: {
+        type: 'none' // Desativa o cache local da versão web para evitar o travamento no 100%
     }
 });
 
@@ -42,16 +45,41 @@ client.on('qr', (qr) => {
 
 client.on('loading_screen', (percent, message) => {
     console.log(`⏳ Carregando o WhatsApp: ${percent}% - ${message}`);
+    
+    // Se chegar em 100%, o WhatsApp abrir na tela, mas o bot não destravar em 15 segundos...
+    if (Number(percent) === 100 && !botReady && !autoReloaded) {
+        setTimeout(async () => {
+            if (!botReady && client.pupPage) {
+                console.log('🔄 O WhatsApp abriu, mas o robô não detectou. Dando um "F5" automático para destravar...');
+                autoReloaded = true;
+                try {
+                    await client.pupPage.reload();
+                } catch (err) {}
+            }
+        }, 15000);
+    }
 });
 
+let botReady = false;
+let autoReloaded = false;
+
 client.on('ready', () => {
+    if (botReady) return; // Impede a duplicidade caso a biblioteca dispare o evento mais de uma vez
+    botReady = true;
+    autoReloaded = false;
+
     console.log('✅ Bot do WhatsApp conectado e pronto para enviar mensagens!');
-    iniciarChecagemTarefas();
+    
+    // Dá um fôlego de 5 segundos para a interface do WhatsApp terminar de estabilizar (evita o "context destroyed")
+    setTimeout(() => {
+        iniciarChecagemTarefas();
+    }, 5000);
 });
 
 client.on('disconnected', async (reason) => {
     console.log(`❌ O bot do WhatsApp foi desconectado! Motivo: ${reason}`);
     console.log('🔄 Tentando reconectar automaticamente...');
+    botReady = false;
     try {
         // Destrói a instância travada antes de reiniciar
         await client.destroy();
@@ -62,8 +90,31 @@ client.on('disconnected', async (reason) => {
     client.initialize();
 });
 
+// Cache local Super Otimizado (Sincronização Delta - Baixa apenas o que mudou)
+let cacheTarefas = {};
+let cacheFuncionarios = {};
+let cacheFila = {};
+
+// Tarefas
+db.ref('tarefas').on('child_added', snap => cacheTarefas[snap.key] = snap.val());
+db.ref('tarefas').on('child_changed', snap => cacheTarefas[snap.key] = snap.val());
+db.ref('tarefas').on('child_removed', snap => delete cacheTarefas[snap.key]);
+
+// Funcionários
+db.ref('funcionarios').on('child_added', snap => cacheFuncionarios[snap.key] = snap.val());
+db.ref('funcionarios').on('child_changed', snap => cacheFuncionarios[snap.key] = snap.val());
+db.ref('funcionarios').on('child_removed', snap => delete cacheFuncionarios[snap.key]);
+
+// Fila de Mensagens
+db.ref('fila_mensagens').on('child_added', snap => cacheFila[snap.key] = snap.val());
+db.ref('fila_mensagens').on('child_changed', snap => cacheFila[snap.key] = snap.val());
+db.ref('fila_mensagens').on('child_removed', snap => delete cacheFila[snap.key]);
+
 // 4. Escutar Mensagens Recebidas
 client.on('message', async (msg) => {
+    // Ignora atualizações de status (stories) do WhatsApp para economizar processamento
+    if (msg.from === 'status@broadcast') return;
+
     // Imprime no console do bot a mensagem e o número de quem enviou
     console.log(`📩 Mensagem recebida de ${msg.from}: ${msg.body}`);
     
@@ -73,18 +124,19 @@ client.on('message', async (msg) => {
     const codigoMatch = textoLimpo.match(/#?(\d{4})/);
     const codigoInformado = codigoMatch ? codigoMatch[1] : null;
     const temPalavraConclusao = /(conclui|ok|pronto|feit)/.test(textoLimpo);
+    
+    const ehMensagemDeFalta = /passando mal|vou faltar|não vou|nao vou|doente|atestado|hospital|emergencia|emergência/.test(textoLimpo);
 
     // Verifica se é um comando válido do bot antes de consultar o banco
     const isComando = textoLimpo === 'ping' || textoLimpo.startsWith('vincular') || 
                       textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || 
                       (codigoInformado && temPalavraConclusao) ||
-                      textoLimpo.startsWith('assistente ');
+                      textoLimpo.startsWith('assistente ') || ehMensagemDeFalta;
 
     if (!isComando) return; // Ignora mensagens comuns (ex: clientes fazendo pedidos)
 
     // 1. Autenticação Global e Criação de Vínculo
-    const funcSnap = await db.ref('funcionarios').once('value');
-    const funcionarios = funcSnap.val() || {};
+    const funcionarios = cacheFuncionarios; // Uso imediato da RAM (Zero download)
     let funcionarioId = null;
     let funcionarioNome = '';
     let funcionarioCargo = 'Funcionário';
@@ -180,8 +232,7 @@ client.on('message', async (msg) => {
 
     if (textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || (codigoInformado && temPalavraConclusao)) {
         try {
-            const tarefasSnap = await db.ref('tarefas').once('value');
-            const tarefas = tarefasSnap.val() || {};
+            const tarefas = cacheTarefas; // Uso imediato da RAM (Zero download)
             let tarefaParaBaixar = null;
             let idDaTarefa = null;
 
@@ -247,11 +298,11 @@ client.on('message', async (msg) => {
             await msg.reply('Ocorreu um erro interno no sistema ao tentar baixar a tarefa.');
         }
     } 
-    // Lógica para Assistente IA (Ativado quando a mensagem começa com "assistente")
-    else if (textoLimpo.startsWith('assistente ')) {
+    // Lógica para Assistente IA (Lê todas as outras mensagens de funcionários vinculados)
+    else {
         try {
-            // Extrai apenas a pergunta feita após a palavra "assistente"
-            const pergunta = msg.body.substring(11).trim();
+            // Remove a palavra assistente caso o funcionário ainda a use por hábito
+            const pergunta = msg.body.replace(/^assistente\s+/i, '').trim();
             await msg.reply('🧠 *Assistente IA:* Estou pensando, só um instante...');
 
             const response = await fetch('https://api.x.ai/v1/chat/completions', {
@@ -260,14 +311,62 @@ client.on('message', async (msg) => {
                 body: JSON.stringify({
                     model: 'grok-3-mini',
                     messages: [
-                        { role: 'system', content: `Você é o Assistente Virtual Oficial da hamburgueria ArttBurger, atendendo via WhatsApp. Você está conversando com ${funcionarioNome}, cujo cargo é ${funcionarioCargo}. Seja prestativo, educado, curto e direto nas respostas. Se for um pedido de RH/DP (como atestado ou falta), oriente-o a avisar o gerente, mas diga que você registrou a intenção.` },
+                        { role: 'system', content: `Você é o Assistente Virtual Oficial da hamburgueria ArttBurger, atendendo via WhatsApp. Você está conversando com ${funcionarioNome}, cujo cargo é ${funcionarioCargo}. Seja prestativo, educado, curto e direto nas respostas. Se o funcionário relatar que vai faltar, que está doente ou passando mal, adicione EXATAMENTE a tag [REGISTRAR_FALTA] no final da sua resposta e explique de forma empática que você já registrou a ausência no sistema e avisou a gerência. Para conversas triviais ou outros assuntos, responda amigavelmente sem a tag.` },
                         { role: 'user', content: pergunta }
                     ]
                 })
             });
 
             const data = await response.json();
-            const respostaIA = data.choices?.[0]?.message?.content || 'Desculpe, tive um problema de conexão com meus servidores cerebrais.';
+            let respostaIA = data.choices?.[0]?.message?.content || 'Desculpe, tive um problema de conexão com meus servidores cerebrais.';
+
+            // Se a IA julgou que é realmente uma falta, interceptamos a tag e salvamos no banco de dados!
+            if (respostaIA.includes('[REGISTRAR_FALTA]')) {
+                respostaIA = respostaIA.replace('[REGISTRAR_FALTA]', '').trim();
+                
+                const dataSP = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+                const hojeStr = dataSP.getFullYear() + '-' + String(dataSP.getMonth() + 1).padStart(2, '0') + '-' + String(dataSP.getDate()).padStart(2, '0');
+                
+                await db.ref(`gestao_equipe/${funcionarioId}/faltas`).push({
+                    data: hojeStr,
+                    motivo: pergunta, // Salva o que a pessoa escreveu ("To passando mal, não vou hoje")
+                    timestamp: Date.now()
+                });
+                console.log(`✅ Falta automática registrada para ${funcionarioNome}.`);
+
+                // 🔔 NOTIFICAR DONOS E GERENTES
+                let mensagemAlerta = `🚨 *ALERTA DE FALTA (Bot)*\n\nO funcionário *${funcionarioNome}* (${funcionarioCargo}) acabou de avisar pelo WhatsApp que vai faltar.\n\n*Mensagem original:* "${pergunta}"`;
+                
+                for (const [idAlvo, funcAlvo] of Object.entries(funcionarios)) {
+                    // Evita notificar o próprio funcionário que está faltando (caso ele seja gerente/dono)
+                    if (idAlvo === funcionarioId) continue;
+
+                    const cargosAlvo = Array.isArray(funcAlvo.cargo) ? funcAlvo.cargo : [funcAlvo.cargo || ''];
+                    const isGestor = cargosAlvo.some(c => c.toLowerCase() === 'dono' || c.toLowerCase() === 'gerente' || c.toLowerCase() === 'administrador');
+                    
+                    if (isGestor) {
+                        if (funcAlvo.whatsappId) {
+                            try {
+                                await client.sendMessage(funcAlvo.whatsappId, mensagemAlerta);
+                                console.log(`📲 Aviso de falta enviado diretamente para o gestor ${funcAlvo.nome}`);
+                            } catch (err) {
+                                console.error(`❌ Erro ao avisar gestor ${funcAlvo.nome}:`, err);
+                            }
+                        } else if (funcAlvo.telefone) {
+                            let telLimpo = funcAlvo.telefone.replace(/\D/g, '');
+                            if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+                            await db.ref('fila_mensagens').push({
+                                telefone: telLimpo,
+                                mensagem: mensagemAlerta,
+                                status: 'pendente',
+                                timestamp: Date.now()
+                            });
+                            console.log(`📩 Aviso de falta enfileirado para o gestor ${funcAlvo.nome}`);
+                        }
+                    }
+                }
+            }
+
             await msg.reply(`🤖 *Assistente ArttBurger:*\n\n${respostaIA}`);
         } catch (error) {
             console.error('❌ Erro na IA:', error);
@@ -279,25 +378,28 @@ client.on('message', async (msg) => {
 client.initialize();
 
 // 5. Lógica de Checagem Automática (Roda a cada 5 segundos)
+let checagemInterval = null;
 function iniciarChecagemTarefas() {
     console.log('⏳ Iniciando monitoramento de tarefas...');
     
+    if (checagemInterval) clearInterval(checagemInterval);
+
     let rastreadorDePendentes = -1;
+    let isRunning = false;
     
-    // 5000 milissegundos = 5 segundos
-    setInterval(async () => {
+    checagemInterval = setInterval(async () => {
+        if (isRunning) return;
+        isRunning = true;
+
         try {
             // Força o fuso horário de Brasília para evitar bugs de UTC no servidor/Node
             const dataSP = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
             const hojeStr = dataSP.getFullYear() + '-' + String(dataSP.getMonth() + 1).padStart(2, '0') + '-' + String(dataSP.getDate()).padStart(2, '0');
             const horaAtualStr = String(dataSP.getHours()).padStart(2, '0') + ':' + String(dataSP.getMinutes()).padStart(2, '0');
 
-            // Busca as tarefas e funcionários do banco
-            const tarefasSnap = await db.ref('tarefas').once('value');
-            const tarefas = tarefasSnap.val() || {}; // <-- CORREÇÃO: Força a leitura mesmo se o banco estiver vazio
-
-            const funcionariosSnap = await db.ref('funcionarios').once('value');
-            const funcionarios = funcionariosSnap.val() || {};
+            // Usa o cache sincronizado em tempo real ao invés de baixar do banco a cada 5 segundos
+            const tarefas = cacheTarefas;
+            const funcionarios = cacheFuncionarios;
 
             // RASTREADOR: Avisa no console sempre que o número de tarefas mudar, para podermos diagnosticar
             const tarefasAguardando = Object.values(tarefas).filter(t => t.status && t.status.trim().toLowerCase() === 'pendente' && !t.notificadoWhatsApp);
@@ -400,11 +502,20 @@ function iniciarChecagemTarefas() {
             }
 
             // --- LÓGICA DA FILA DE MENSAGENS DIRETAS (EX: PEDIDO DE REPOSIÇÃO) ---
-            const filaSnap = await db.ref('fila_mensagens').once('value');
-            const fila = filaSnap.val() || {};
+            const fila = cacheFila;
             
             for (const [idMsg, itemMsg] of Object.entries(fila)) {
+                // Limpeza Automática: Remove mensagens processadas (enviadas ou com erro) há mais de 7 dias
+                if (itemMsg.status === 'enviada' || itemMsg.status === 'erro') {
+                    if (itemMsg.timestamp && (Date.now() - itemMsg.timestamp > 7 * 24 * 60 * 60 * 1000)) {
+                        await db.ref(`fila_mensagens/${idMsg}`).remove();
+                        console.log(`🧹 Mensagem antiga removida da fila automaticamente (7 dias).`);
+                        continue;
+                    }
+                }
+
                 if (itemMsg.status === 'pendente') {
+                    await db.ref(`fila_mensagens/${idMsg}`).update({ status: 'processando' });
                     console.log(`📤 Robô disparando mensagem avulsa para ${itemMsg.telefone}...`);
                     try {
                         let numberId = await client.getNumberId(itemMsg.telefone);
@@ -434,6 +545,8 @@ function iniciarChecagemTarefas() {
             }
         } catch (error) {
             console.error('❌ Erro ao processar tarefas:', error);
+        } finally {
+            isRunning = false;
         }
     }, 5000); 
 }

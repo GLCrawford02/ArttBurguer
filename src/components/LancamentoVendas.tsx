@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil } from 'lucide-react';
 
 export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'conferencia'>('pdv');
@@ -29,6 +29,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
 
   const [showConfModal, setShowConfModal] = useState(false);
+  const [editConfId, setEditConfId] = useState<string | null>(null);
   const [confCarrinho, setConfCarrinho] = useState<Record<string, { nome: string, preco: number, qtd: number }>>({});
   const [confPagamentos, setConfPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [confDescricao, setConfDescricao] = useState('');
@@ -206,6 +207,13 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
     });
 
+    let custoPedido = 0;
+    Object.entries(pdvCarrinho).forEach(([id, item]) => {
+      const prod = produtos.find(p => p.id === id) || promocoes.find(p => p.id === id);
+      if (prod) custoPedido += (prod.custoTotal || 0) * item.qtd;
+    });
+    valorLiquidoTotal -= custoPedido;
+
     let ident = 'Balcão';
     if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
     else if (pdvTipoPedido === 'Mesa') ident = `Mesa ${mesaSelecionada}`;
@@ -260,19 +268,52 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
     });
 
-    await set(push(ref(db, 'lancamentos_vendas')), {
+    let custoPedido = 0;
+    Object.entries(confCarrinho).forEach(([id, item]) => {
+      const prod = produtos.find(p => p.id === id) || promocoes.find(p => p.id === id);
+      if (prod) custoPedido += (prod.custoTotal || 0) * item.qtd;
+    });
+    valorLiquidoTotal -= custoPedido;
+
+    const lancamentoData = {
       valor: totalConf,
       valorLiquido: valorLiquidoTotal,
       pagamentos: pagamentosProcessados,
       taxaId: pagamentosProcessados[0].taxaId,
       nomeTaxa: pagamentosProcessados.length > 1 ? 'Múltiplos' : pagamentosProcessados[0].nomeTaxa,
-      descricao: confDescricao || 'Simulação Financeira',
+      descricao: confDescricao || 'Simulação Avulsa',
       itens: Object.entries(confCarrinho).map(([id, item]) => ({ id, ...item })),
-      timestamp: Date.now()
-    });
+      timestamp: editConfId ? (lancamentos.find(l => l.id === editConfId)?.timestamp || Date.now()) : Date.now()
+    };
 
-    setConfCarrinho({}); setConfDescricao(''); setConfPagamentos([{ taxaId: '', valor: 0 }]); setShowConfModal(false);
-    showToast('Conferência registrada com sucesso!', 'success');
+    if (editConfId) {
+      await update(ref(db, `lancamentos_vendas/${editConfId}`), lancamentoData);
+      showToast('Conferência atualizada com sucesso!', 'success');
+    } else {
+      await set(push(ref(db, 'lancamentos_vendas')), lancamentoData);
+      showToast('Conferência registrada com sucesso!', 'success');
+    }
+
+    setConfCarrinho({}); setConfDescricao(''); setConfPagamentos([{ taxaId: '', valor: 0 }]); setShowConfModal(false); setEditConfId(null);
+  };
+
+  const handleEditConf = (l: any) => {
+    setEditConfId(l.id);
+    setConfDescricao(l.descricao || '');
+    
+    const restoredCarrinho: Record<string, any> = {};
+    if (l.itens && Array.isArray(l.itens)) {
+      l.itens.forEach((i: any) => restoredCarrinho[i.id] = { nome: i.nome, preco: i.preco || 0, qtd: i.qtd || 1 });
+    }
+    setConfCarrinho(restoredCarrinho);
+    
+    if (l.pagamentos && Array.isArray(l.pagamentos)) {
+      setConfPagamentos(l.pagamentos.map((p: any) => ({ taxaId: p.taxaId, valor: p.valor })));
+    } else {
+      setConfPagamentos([{ taxaId: l.taxaId || '', valor: l.valor || 0 }]);
+    }
+    
+    setShowConfModal(true);
   };
 
   const calcularConferencia = () => {
@@ -294,7 +335,14 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
   const todosItens = [...produtos.map(p => ({ ...p, tipoItem: 'Produto' })), ...promocoes.map(p => ({ ...p, tipoItem: 'Promoção' }))];
   
-  const pdvFilteredItems = todosItens.filter(i => (i.nome || '').toLowerCase().includes(pdvSearchProd.toLowerCase()));
+  const pdvFilteredItems = todosItens.filter(i => {
+    const nome = i.nome || '';
+    if (!nome.toLowerCase().includes(pdvSearchProd.toLowerCase())) return false;
+    const nomeTrimmed = nome.trimStart();
+    if (pdvTipoPedido === 'Entrega' && nomeTrimmed.startsWith('%')) return false;
+    if (pdvTipoPedido !== 'Entrega' && nomeTrimmed.startsWith('/')) return false;
+    return true;
+  });
   const confFilteredItems = todosItens.filter(i => (i.nome || '').toLowerCase().includes(confSearchProd.toLowerCase()));
   const pdvFilteredClientes = clientes.filter(c => (c.nome || '').toLowerCase().includes(pdvSearchCliente.toLowerCase()) || (c.telefone || '').includes(pdvSearchCliente));
 
@@ -534,12 +582,12 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
             <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
               <p className="text-sm font-bold text-gray-500 uppercase">Total Lançado (Simulação Admin)</p>
               <h4 className="text-2xl font-black text-green-600 mt-2">R$ {totalLancado.toFixed(2)}</h4>
-              <p className="text-xs text-green-600 font-bold mt-1">Líquido na Conta (Após Taxas): R$ {totalLiquido.toFixed(2)}</p>
+              <p className="text-xs text-green-600 font-bold mt-1">Lucro Líquido (Após Custos e Taxas): R$ {totalLiquido.toFixed(2)}</p>
             </div>
             <div className={`bg-white p-6 rounded-xl shadow-sm border ${diferenca === 0 ? 'border-green-100' : diferenca > 0 ? 'border-blue-100' : 'border-red-100'}`}>
               <p className="text-sm font-bold text-gray-500 uppercase">Diferença de Caixa</p>
               <h4 className={`text-2xl font-black mt-2 ${diferenca === 0 ? 'text-green-600' : diferenca > 0 ? 'text-blue-600' : 'text-red-600'}`}>
-                R$ {Math.abs(diferenca).toFixed(2)} {diferenca > 0 ? '(Sobra Físico)' : diferenca < 0 ? '(Falta / Quebra)' : ''}
+                R$ {Math.abs(diferenca).toFixed(2)} {diferenca > 0 ? '' : diferenca < 0 ? '(Falta / Quebra)' : ''}
               </h4>
               <p className="text-xs text-gray-400 mt-1">Lançado / Físico vs Vendido (PDV)</p>
             </div>
@@ -554,7 +602,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
                 <h3 className="text-xl font-bold text-gray-800">Bater Gaveta</h3>
                 <p className="text-sm text-gray-500 mt-2">Pegue as vias de cartão e o dinheiro físico da gaveta e lance aqui para o sistema verificar o fechamento.</p>
               </div>
-              <button onClick={() => { setConfCarrinho({}); setConfPagamentos([{ taxaId: '', valor: 0 }]); setConfDescricao(''); setShowConfModal(true); }} className="w-full bg-gray-800 text-white p-3 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center mt-4">
+              <button onClick={() => { setEditConfId(null); setConfCarrinho({}); setConfPagamentos([{ taxaId: '', valor: 0 }]); setConfDescricao(''); setShowConfModal(true); }} className="w-full bg-gray-800 text-white p-3 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center mt-4">
                 <Plus size={20} className="mr-2" /> Simular Valores Físicos
               </button>
             </div>
@@ -569,10 +617,13 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
                 )}
               </div>
               <div className="divide-y divide-gray-50 max-h-[400px] overflow-y-auto">
-                {lancamentosHoje.map(l => (
+                {lancamentosHoje.map((l, index) => (
                   <div key={l.id} className="p-4 flex items-center justify-between hover:bg-gray-50">
                     <div>
-                      <p className="font-bold text-gray-800">{l.descricao || 'Simulação'}</p>
+                      <p className="font-bold text-gray-800 flex items-center">
+                        <span className="text-xs bg-gray-200 text-gray-600 px-1.5 py-0.5 rounded font-mono mr-2">#{lancamentosHoje.length - index}</span>
+                        {l.descricao || 'Simulação Avulsa'}
+                      </p>
                       {l.itens && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{l.itens.map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}</p>}
                       {l.pagamentos ? (
                         <p className="text-[10px] text-gray-500 mt-1 font-bold">{l.pagamentos.map((p: any) => `${p.nomeTaxa} (R$ ${p.valor.toFixed(2)})`).join(' + ')} • {new Date(l.timestamp).toLocaleTimeString('pt-BR')}</p>
@@ -580,7 +631,13 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
                         <p className="text-[10px] text-gray-400 mt-1 font-bold">{l.nomeTaxa} • {new Date(l.timestamp).toLocaleTimeString('pt-BR')}</p>
                       )}
                     </div>
-                    <div className="flex items-center space-x-4"><div className="text-right"><p className="font-bold text-green-600">R$ {l.valor.toFixed(2)}</p><p className="text-[10px] text-gray-400 font-bold">Líquido: R$ {l.valorLiquido.toFixed(2)}</p></div><button onClick={() => { if(confirm('Excluir?')) remove(ref(db, `lancamentos_vendas/${l.id}`)); }} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button></div>
+                    <div className="flex items-center space-x-4">
+                      <div className="text-right">
+                        <p className="font-bold text-green-600">R$ {l.valor.toFixed(2)}</p>
+                        <p className="text-[10px] text-gray-400 font-bold">Lucro: R$ {l.valorLiquido.toFixed(2)}</p>
+                      </div>
+                      <div className="flex space-x-1"><button onClick={() => handleEditConf(l)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button><button onClick={() => { if(confirm('Excluir?')) remove(ref(db, `lancamentos_vendas/${l.id}`)); }} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button></div>
+                    </div>
                   </div>
                 ))}
                 {lancamentosHoje.length === 0 && <p className="p-8 text-center text-gray-400">Nenhum lançamento no simulador hoje.</p>}
@@ -597,7 +654,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
           <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
               <h3 className="font-bold text-lg text-gray-800 flex items-center"><Calculator size={20} className="mr-2 text-gray-600"/> Simulador de Recebimento</h3>
-              <button onClick={() => setShowConfModal(false)} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1"><X size={20}/></button>
+              <button onClick={() => { setShowConfModal(false); setEditConfId(null); }} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1"><X size={20}/></button>
             </div>
             
             <div className="p-4 flex-1 overflow-hidden flex flex-col md:flex-row gap-6">
@@ -666,9 +723,12 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
                     )}
                   </div>
                   
-                  <input type="text" placeholder="Observação (Opcional)" value={confDescricao} onChange={e=>setConfDescricao(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-gray-500" />
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold text-gray-500 uppercase">Identificador da Venda (Título da Nota)</label>
+                    <input type="text" placeholder="Ex: Mesa 1 - 19:00" value={confDescricao} onChange={e=>setConfDescricao(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-gray-500 font-bold text-gray-800" />
+                  </div>
                   
-                  <button onClick={handleConfSalvar} disabled={totalConf <= 0 || confPagamentos.some(p => !p.taxaId) || Math.abs(restanteConf) > 0.05} className="w-full bg-gray-800 text-white p-3 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm disabled:opacity-50">Registrar Conferência</button>
+                  <button onClick={handleConfSalvar} disabled={totalConf <= 0 || confPagamentos.some(p => !p.taxaId) || Math.abs(restanteConf) > 0.05} className="w-full bg-gray-800 text-white p-3 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm disabled:opacity-50">{editConfId ? 'Atualizar Conferência' : 'Registrar Conferência'}</button>
                 </div>
               </div>
             </div>

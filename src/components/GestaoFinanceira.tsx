@@ -1,9 +1,8 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare } from 'lucide-react';
 import ModalContas from './ModalContas';
-import ModalAgendamentos from './ModalAgendamentos';
 import TabFornecedores from './TabFornecedores';
 
 interface Fornecedor {
@@ -48,7 +47,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
-  const [agendamentos, setAgendamentos] = useState<Agendamento[]>([]);
+  const [tarefas, setTarefas] = useState<any[]>([]);
   const [funcionarios, setFuncionarios] = useState<any[]>([]);
   const [historicoVendas, setHistoricoVendas] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -56,7 +55,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [modalAberto, setModalAberto] = useState<'pagar' | 'receber' | 'agendamento' | null>(null);
+  const [modalAberto, setModalAberto] = useState<'pagar' | 'receber' | null>(null);
   const [itemEdit, setItemEdit] = useState<any>(null);
 
   const [showCategoriasModal, setShowCategoriasModal] = useState(false);
@@ -69,7 +68,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const fornRef = ref(db, 'fornecedores');
     const pagarRef = ref(db, 'contas_pagar');
     const receberRef = ref(db, 'contas_receber');
-    const agendRef = ref(db, 'agendamentos');
+    const tarefasRef = ref(db, 'tarefas');
     const funcRef = ref(db, 'funcionarios');
     const vendasRef = ref(db, 'historico_vendas');
 
@@ -91,10 +90,10 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       else setContasReceber([]);
     });
 
-    const unsubA = onValue(agendRef, (snapshot) => {
+    const unsubT = onValue(tarefasRef, (snapshot) => {
       const data = snapshot.val();
-      if (data) setAgendamentos(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setAgendamentos([]);
+      if (data) setTarefas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setTarefas([]);
       setLoading(false);
     });
 
@@ -126,7 +125,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
       else setCategoriasDespesa([]);
     });
 
-    return () => { unsubF(); unsubP(); unsubR(); unsubA(); unsubFunc(); unsubVendas(); unsubCat(); };
+    return () => { unsubF(); unsubP(); unsubR(); unsubT(); unsubFunc(); unsubVendas(); unsubCat(); };
   }, []);
 
   const showToast = (msg: string, type: 'success'|'error' = 'success') => {
@@ -262,38 +261,14 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
 
     const monthNames = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-    const checkRecorrenciaAgendamento = (ag: Agendamento, dateStr: string) => {
-      if (!ag.recorrencia || ag.recorrencia === 'Nenhuma') {
-        return ag.data === dateStr;
-      }
-      if (dateStr < ag.data) return false;
-      if (ag.fimRecorrencia && dateStr > ag.fimRecorrencia) return false;
-
-      const d1 = new Date(ag.data + 'T12:00:00');
-      const d2 = new Date(dateStr + 'T12:00:00');
-
-      if (ag.recorrencia === 'Diária') return true;
-      if (ag.recorrencia === 'Semanal') {
-        const diff = Math.floor((d2.getTime() - d1.getTime()) / (1000 * 60 * 60 * 24));
-        return diff % 7 === 0;
-      }
-      if (ag.recorrencia === 'Mensal') {
-        return d1.getDate() === d2.getDate();
-      }
-      if (ag.recorrencia === 'Anual') {
-        return d1.getDate() === d2.getDate() && d1.getMonth() === d2.getMonth();
-      }
-      return false;
-    };
-
     const eventosDoDia = (dateStr: string) => {
       const p = contasPagar.filter(c => c.vencimento === dateStr);
       const r = contasReceber.filter(c => c.vencimento === dateStr);
-      const a = agendamentos.filter(c => checkRecorrenciaAgendamento(c, dateStr));
-      return { p, r, a };
+      const t = tarefas.filter(c => c.dataAgendada === dateStr);
+      return { p, r, t };
     };
 
-    const selectedEvents = selectedDate ? eventosDoDia(selectedDate) : { p: [], r: [], a: [] };
+    const selectedEvents = selectedDate ? eventosDoDia(selectedDate) : { p: [], r: [], t: [] as any[] };
 
     return (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -314,7 +289,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
           <div className="grid grid-cols-7 gap-1 sm:gap-2">
             {days.map((date, idx) => {
               if (!date) return <div key={`empty-${idx}`} className="p-1 sm:p-2"></div>;
-              const { p, r, a } = eventosDoDia(date);
+              const { p, r, t } = eventosDoDia(date);
               const isSelected = date === selectedDate;
               const isToday = date === hoje;
 
@@ -328,7 +303,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                   <div className="flex flex-col gap-1">
                     {p.length > 0 && <span className="text-[9px] sm:text-[10px] bg-red-100 text-red-700 px-1 py-0.5 rounded font-medium truncate" title={`${p.length} a pagar`}>{p.length} pagar</span>}
                     {r.length > 0 && <span className="text-[9px] sm:text-[10px] bg-blue-100 text-blue-700 px-1 py-0.5 rounded font-medium truncate" title={`${r.length} a receber`}>{r.length} rec.</span>}
-                    {a.length > 0 && <span className="text-[9px] sm:text-[10px] bg-purple-100 text-purple-700 px-1 py-0.5 rounded font-medium truncate" title={`${a.length} eventos`}>{a.length} agend.</span>}
+                    {t.length > 0 && <span className="text-[9px] sm:text-[10px] bg-purple-100 text-purple-700 px-1 py-0.5 rounded font-medium truncate" title={`${t.length} tarefas`}>{t.length} tarefas</span>}
                   </div>
                 </div>
               );
@@ -365,22 +340,23 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
                     </div>
                   </div>
                 ))}
-                {selectedEvents.a.map(ag => (
-                  <div key={ag.id} className="flex justify-between items-center p-3 bg-purple-50 border border-purple-100 rounded-lg">
-                    <div className="flex items-center"><Clock size={16} className="text-purple-500 mr-2 min-w-4"/>
+                {selectedEvents.t.map((tar: any) => (
+                  <div key={tar.id} className={`flex justify-between items-center p-3 border rounded-lg ${tar.status === 'concluida' ? 'bg-gray-50 border-gray-200 opacity-60' : 'bg-purple-50 border-purple-100'}`}>
+                    <div className="flex items-center"><CheckSquare size={16} className={`${tar.status === 'concluida' ? 'text-gray-400' : 'text-purple-500'} mr-2 min-w-4`}/>
                       <div>
-                        <span className="font-bold text-gray-800 text-sm">{ag.titulo} {ag.recorrencia && ag.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{ag.recorrencia}{ag.fimRecorrencia ? ` até ${formatarData(ag.fimRecorrencia)}` : ''}</span>}</span>
-                        {ag.horario && <span className="text-xs font-bold text-purple-600 ml-2 bg-purple-100 px-1.5 py-0.5 rounded">{ag.horario}</span>}
-                        {ag.descricao && <p className="text-xs text-gray-600 mt-1">{ag.descricao}</p>}
+                        <span className={`font-bold text-sm ${tar.status === 'concluida' ? 'text-gray-500 line-through' : 'text-gray-800'}`}>{tar.titulo}</span>
+                        {tar.recorrencia && tar.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-200 text-purple-800 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{tar.recorrencia}{tar.fimRecorrencia ? ` até ${formatarData(tar.fimRecorrencia)}` : ''}</span>}
+                        {tar.horaAgendada && <span className="text-xs font-bold text-purple-600 ml-2 bg-purple-100 px-1.5 py-0.5 rounded">{tar.horaAgendada}</span>}
+                        {tar.descricao && <p className="text-xs text-gray-600 mt-1 line-clamp-1">{tar.descricao}</p>}
                       </div>
                     </div>
                     <div className="flex space-x-2">
-                      <button onClick={() => { setItemEdit(ag); setModalAberto('agendamento'); }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100"><Pencil size={16}/></button>
-                      <button onClick={() => excluir(`agendamentos/${ag.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100"><Trash2 size={16}/></button>
+                      <button onClick={() => { window.location.hash = 'tarefas'; }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100" title="Ver nas Tarefas"><CheckSquare size={16}/></button>
+                      <button onClick={() => excluir(`tarefas/${tar.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100" title="Excluir"><Trash2 size={16}/></button>
                     </div>
                   </div>
                 ))}
-                {selectedEvents.p.length === 0 && selectedEvents.r.length === 0 && selectedEvents.a.length === 0 && (
+                {selectedEvents.p.length === 0 && selectedEvents.r.length === 0 && selectedEvents.t.length === 0 && (
                   <p className="text-sm text-gray-500 italic text-center py-4">Nenhum evento programado para este dia.</p>
                 )}
               </div>
@@ -400,7 +376,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
           <div className="flex flex-wrap gap-3">
             <button onClick={() => setModalAberto('pagar')} className="bg-red-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-red-700 transition-colors shadow-sm flex items-center"><TrendingDown size={18} className="mr-2"/> Lançar Despesa (A Pagar)</button>
             <button onClick={() => setModalAberto('receber')} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center"><TrendingUp size={18} className="mr-2"/> Lançar Receita (A Receber)</button>
-            <button onClick={() => setModalAberto('agendamento')} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><Clock size={18} className="mr-2"/> Novo Agendamento</button>
+            <button onClick={() => { window.location.hash = 'tarefas'; setTimeout(() => window.dispatchEvent(new CustomEvent('openNewTask')), 150); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><CheckSquare size={18} className="mr-2"/> Nova Tarefa</button>
           </div>
           {renderCalendario()}
         </div>
@@ -421,14 +397,6 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
         itemEdit={itemEdit}
         setItemEdit={setItemEdit}
         loading={loading}
-      />
-
-      <ModalAgendamentos
-        isOpen={modalAberto === 'agendamento'}
-        onClose={resetForms}
-        itemEdit={itemEdit}
-        setItemEdit={setItemEdit}
-        showToast={showToast}
       />
 
       {showCategoriasModal && (
