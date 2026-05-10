@@ -228,13 +228,13 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   };
 
   const handleAddPdvItem = () => {
-    let basePrice = pdvItemModal.precoVenda || 0;
+    let basePrice = Number(pdvItemModal.precoVenda || 0);
     let adicionaisPrice = 0;
     const adicionaisDoProduto = pdvItemModal.opcoes?.adicionais || [];
     
     Object.entries(pdvItemOptions.adicionais).forEach(([addId, qtd]: [string, any]) => {
        const add = adicionaisDoProduto.find((a: any) => a.id === addId);
-       if (add) adicionaisPrice += (add.preco || 0) * qtd;
+       if (add) adicionaisPrice += Number(add.preco || 0) * qtd;
     });
     
     const unitPrice = basePrice + adicionaisPrice;
@@ -247,7 +247,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       pontoCarne: pdvItemOptions.pontoCarne,
       adicionais: Object.entries(pdvItemOptions.adicionais).map(([addId, qtd]: [string, any]) => {
         const add = adicionaisDoProduto.find((a: any) => a.id === addId);
-        return { id: add?.id, nome: add?.nome, qtd, preco: add?.preco || 0 };
+        return { id: add?.id, nome: add?.nome, qtd, preco: Number(add?.preco || 0) };
       }),
       restricoes: pdvItemOptions.restricoes,
       observacao: pdvItemOptions.observacao
@@ -287,7 +287,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     let custoPedido = 0;
     Object.entries(pdvCarrinho).forEach(([id, item]) => {
       const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
-      if (prod) custoPedido += (prod.custoTotal || 0) * item.qtd;
+      if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
     });
     valorLiquidoTotal -= custoPedido;
 
@@ -348,7 +348,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     let custoPedido = 0;
     Object.entries(confCarrinho).forEach(([id, item]) => {
       const prod = produtos.find(p => p.id === id) || promocoes.find(p => p.id === id);
-      if (prod) custoPedido += (prod.custoTotal || 0) * item.qtd;
+      if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
     });
     valorLiquidoTotal -= custoPedido;
 
@@ -825,7 +825,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
                  <button onClick={() => setPdvItemOptions({...pdvItemOptions, quantidade: pdvItemOptions.quantidade + 1})} className="px-4 py-1 text-gray-500 hover:text-green-500 font-bold text-lg">+</button>
                </div>
                <button onClick={handleAddPdvItem} className="w-full sm:w-auto bg-green-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-green-700 flex items-center justify-center shadow-md text-lg">
-                 Adicionar <span className="ml-3 bg-green-700 px-2.5 py-1.5 rounded-md text-sm">R$ {((pdvItemModal.precoVenda || 0) * pdvItemOptions.quantidade + Object.entries(pdvItemOptions.adicionais).reduce((acc,[id,qtd]: [string, any])=>acc+(((pdvItemModal.opcoes?.adicionais || []).find((a:any)=>a.id===id)?.preco||0)*qtd),0) * pdvItemOptions.quantidade).toFixed(2)}</span>
+                 Adicionar <span className="ml-3 bg-green-700 px-2.5 py-1.5 rounded-md text-sm">R$ {((Number(pdvItemModal.precoVenda) || 0) * pdvItemOptions.quantidade + Object.entries(pdvItemOptions.adicionais).reduce((acc,[id,qtd]: [string, any])=>acc+(Number((pdvItemModal.opcoes?.adicionais || []).find((a:any)=>a.id===id)?.preco)||0)*qtd,0) * pdvItemOptions.quantidade).toFixed(2)}</span>
                </button>
             </div>
           </div>

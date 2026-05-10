@@ -63,9 +63,10 @@ export default function BalancoManager() {
     await runTransaction(insumoRef, (currentData) => {
       if (currentData) {
         if (!isLegacy && currentData.lotes && currentData.lotes[loteId]) {
-          const oldQtd = currentData.lotes[loteId].quantidade;
+          const oldQtd = Number(currentData.lotes[loteId].quantidade || 0);
           currentData.lotes[loteId].quantidade = novoValor;
-          currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) - oldQtd + novoValor);
+          const estAtual = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          currentData.estoqueEstacionario = Math.max(0, estAtual - oldQtd + novoValor);
           
           if (novoValor === 0) delete currentData.lotes[loteId];
         } else if (isLegacy) {
@@ -115,14 +116,14 @@ export default function BalancoManager() {
     const headers = ['Insumo', 'Estoque Rotativo', 'Estoque Estacionado', 'Unidade', 'Preco Unitario (R$)', 'Detalhes dos Lotes (Estacionado)'];
     const rows = insumosExibidos.map(i => [
       i.nome,
-      i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0,
-      i.estoqueEstacionario ?? 0,
+      Number(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0),
+      Number(i.estoqueEstacionario ?? 0),
       i.unidade,
-      (i.precoPacote / (i.qtdPacote || 1)).toFixed(3).replace('.', ','),
+      (Number(i.precoPacote || 0) / Number(i.qtdPacote || 1)).toFixed(3).replace('.', ','),
       i.lotes
-        ? Object.values(i.lotes).map((l: any) => `${l.quantidade}${i.unidade} (Val: ${l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${l.lote || 'N/A'})`).join(' ; ')
+        ? Object.values(i.lotes).map((l: any) => `${Number(l.quantidade || 0)}${i.unidade} (Val: ${l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${l.lote || 'N/A'})`).join(' ; ')
         : i.validade || i.lote
-        ? `${i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0}${i.unidade} (Val: ${i.validade ? new Date(`${i.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${i.lote || 'N/A'})`
+        ? `${Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0)}${i.unidade} (Val: ${i.validade ? new Date(`${i.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${i.lote || 'N/A'})`
         : 'Sem lote registrado'
     ]);
     const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
@@ -207,8 +208,8 @@ export default function BalancoManager() {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {insumosExibidos.map(i => {
-              const rotativo = i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0;
-              const estacionario = i.estoqueEstacionario ?? 0;
+              const rotativo = Number(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
+              const estacionario = Number(i.estoqueEstacionario ?? 0);
               return (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
                 <td className="px-6 py-4 font-medium text-gray-900">
@@ -224,7 +225,7 @@ export default function BalancoManager() {
                           <div key={idx} className="text-xs flex items-center justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0 gap-4">
                             <div className="flex-1">
                               <span>{l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{l.lote && l.lote !== 'N/A' && ` (L: ${l.lote})`}</span>
-                              <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(l.quantidade, i.qtdPacote || 1, i.unidade)}</span>
+                              <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(Number(l.quantidade || 0), Number(i.qtdPacote || 1), i.unidade)}</span>
                             </div>
                             <div className="flex items-center space-x-1">
                               <input 
@@ -251,7 +252,7 @@ export default function BalancoManager() {
                     <div className="text-xs flex items-center justify-between border-b border-gray-50 pb-2 last:border-0 last:pb-0 gap-4">
                       <div className="flex-1">
                         <span>{i.validade ? new Date(`${i.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'}{i.lote && i.lote !== 'N/A' && ` (L: ${i.lote})`}</span>
-                        <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(estacionario, i.qtdPacote || 1, i.unidade)}</span>
+                        <span className="font-bold ml-2 text-gray-500">{formatarQtdJSX(estacionario, Number(i.qtdPacote || 1), i.unidade)}</span>
                       </div>
                       <div className="flex items-center space-x-1">
                         <input 
@@ -286,7 +287,7 @@ export default function BalancoManager() {
                 </td>
                 <td className="px-6 py-4">
                   <div className="flex flex-col gap-2">
-                    <span className="font-bold text-indigo-600">{formatarQtdJSX(estacionario, i.qtdPacote || 1, i.unidade)}</span>
+                    <span className="font-bold text-indigo-600">{formatarQtdJSX(estacionario, Number(i.qtdPacote || 1), i.unidade)}</span>
                     {!i.lotes && !i.validade && !i.lote ? (
                       <div className="flex items-center space-x-1">
                         <input type="number" value={novosEstoques[`${i.id}|est`] !== undefined ? novosEstoques[`${i.id}|est`] : ''} onChange={(e) => setNovosEstoques({...novosEstoques, [`${i.id}|est`]: e.target.value})} placeholder={String(estacionario)} className="w-16 p-1 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500" />

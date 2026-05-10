@@ -112,9 +112,9 @@ export default function ComprasManager() {
       const excedentes = carrinho.filter(item => {
         const targetId = (item.insumo as any).insumoVinculado || item.id;
         const targetInsumo = insumos.find(i => i.id === targetId) || item.insumo;
-        const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
-        const novoEstoque = (targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0) + (targetInsumo.estoqueRotativo ?? 0) + qtdAdicionar;
-        return targetInsumo.estoqueMaximo && novoEstoque > targetInsumo.estoqueMaximo;
+        const qtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
+        const novoEstoque = Number(targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0) + Number(targetInsumo.estoqueRotativo ?? 0) + qtdAdicionar;
+        return targetInsumo.estoqueMaximo && novoEstoque > Number(targetInsumo.estoqueMaximo);
       });
 
       if (excedentes.length > 0) {
@@ -129,17 +129,17 @@ export default function ComprasManager() {
     let sucessos = 0;
 
     for (const item of carrinho) {
-      const qtdAdicionar = item.qtd * (item.insumo.qtdPacote || 1);
+      const qtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
       const valorCompraTotal = Number(item.valorTotalStr) || 0;
       
       const targetId = (item.insumo as any).insumoVinculado || item.id;
       const insumoRef = ref(db, `insumos/${targetId}`);
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          const atualEstoque = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
-          const targetQtdPacote = currentData.qtdPacote || 1;
+          const atualEstoque = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const targetQtdPacote = Number(currentData.qtdPacote || 1);
           const atualEstoqueVols = atualEstoque / targetQtdPacote;
-          const atualPrecoMedio = currentData.precoPacote || 0;
+          const atualPrecoMedio = Number(currentData.precoPacote || 0);
           
           const qtdAdicionarLinkedVols = qtdAdicionar / targetQtdPacote;
           const totalVols = atualEstoqueVols + qtdAdicionarLinkedVols;
@@ -214,7 +214,7 @@ export default function ComprasManager() {
   };
 
   const enviarWhatsApp = async () => {
-    const precisandoReposicao = insumos.filter(i => ((i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + (i.estoqueRotativo ?? 0)) <= (i.alertaMinimo || 0));
+    const precisandoReposicao = insumos.filter(i => (Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + Number(i.estoqueRotativo ?? 0)) <= Number(i.alertaMinimo || 0));
     
     if (precisandoReposicao.length === 0) {
       showToast('Nenhum insumo está abaixo do estoque mínimo!', 'success');
@@ -227,17 +227,18 @@ export default function ComprasManager() {
     let estimativaTotal = 0;
 
     precisandoReposicao.forEach(i => {
-      const atual = (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + (i.estoqueRotativo ?? 0);
-      const max = i.estoqueMaximo || 0;
-      const tipoEmb = (i.qtdPacote || 1) > 1 ? 'Volume(s)' : 'Unidade(s)';
-      const precoMedio = i.precoPacote || 0;
-      const ultimoPreco = (i as any).ultimoPrecoCompra || precoMedio;
+      const atual = Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + Number(i.estoqueRotativo ?? 0);
+      const max = Number(i.estoqueMaximo || 0);
+      const pacote = Number(i.qtdPacote || 1);
+      const tipoEmb = pacote > 1 ? 'Volume(s)' : 'Unidade(s)';
+      const precoMedio = Number(i.precoPacote || 0);
+      const ultimoPreco = Number((i as any).ultimoPrecoCompra || precoMedio);
       
       let qtdComprarStr = 'Defina o Est. Máximo no cadastro';
       let qtdComprar = 0;
 
       if (max > atual) {
-        qtdComprar = Math.ceil((max - atual) / (i.qtdPacote || 1));
+        qtdComprar = Math.ceil((max - atual) / pacote);
         qtdComprarStr = `${qtdComprar} ${tipoEmb}`;
         estimativaTotal += qtdComprar * ultimoPreco;
       }
@@ -309,7 +310,7 @@ export default function ComprasManager() {
                  <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
                     <div>
                        <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
-                       <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0, i.qtdPacote || 1, i.unidade)}</p>
+                       <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
                     </div>
                     <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
                  </div>

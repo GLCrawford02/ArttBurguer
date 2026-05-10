@@ -76,8 +76,8 @@ export default function TransferenciaManager() {
       setQuantidades({ ...quantidades, [insumo.id]: 0 });
     } else {
       newSel.add(insumo.id);
-      const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
-      const qtdPacote = insumo.qtdPacote || 1;
+        const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
+        const qtdPacote = Number(insumo.qtdPacote || 1);
       const maxVal = qtdPacote > 1 ? Math.floor(estEstacionario / qtdPacote) : estEstacionario;
       setQuantidades({ ...quantidades, [insumo.id]: maxVal });
     }
@@ -91,15 +91,15 @@ export default function TransferenciaManager() {
         showToast('Informe a quantidade para transferir.', 'error');
         return;
       }
-      const qtdPacote = insumo.qtdPacote || 1;
+      const qtdPacote = Number(insumo.qtdPacote || 1);
       const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
 
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          const estEstacionario = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
-          const estRotativo = currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0;
+          const estEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const estRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
           if (estEstacionario >= unitsToTransfer) {
             currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
             currentData.estoqueRotativo = estRotativo + unitsToTransfer;
@@ -117,11 +117,12 @@ export default function TransferenciaManager() {
 
               for (const l of lotesArray) {
                 if (qtdRestante <= 0) break;
-                if (l.quantidade <= qtdRestante) {
-                  qtdRestante -= l.quantidade;
+                const lQtd = Number(l.quantidade || 0);
+                if (lQtd <= qtdRestante) {
+                  qtdRestante -= lQtd;
                   delete currentData.lotes[l.id];
                 } else {
-                  currentData.lotes[l.id].quantidade -= qtdRestante;
+                  currentData.lotes[l.id].quantidade = lQtd - qtdRestante;
                   qtdRestante = 0;
                 }
               }
@@ -164,14 +165,14 @@ export default function TransferenciaManager() {
         const insumo = insumos.find(i => i.id === id);
         if (!insumo) return;
 
-        const qtdPacote = insumo.qtdPacote || 1;
+        const qtdPacote = Number(insumo.qtdPacote || 1);
         const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
         const insumoRef = ref(db, `insumos/${id}`);
 
         const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
-            const estEstacionario = currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0;
-            const estRotativo = currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0;
+            const estEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+            const estRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
             if (estEstacionario >= unitsToTransfer) {
               currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
               currentData.estoqueRotativo = estRotativo + unitsToTransfer;
@@ -189,11 +190,12 @@ export default function TransferenciaManager() {
 
                 for (const l of lotesArray) {
                   if (qtdRestante <= 0) break;
-                  if (l.quantidade <= qtdRestante) {
-                    qtdRestante -= l.quantidade;
+                  const lQtd = Number(l.quantidade || 0);
+                  if (lQtd <= qtdRestante) {
+                    qtdRestante -= lQtd;
                     delete currentData.lotes[l.id];
                   } else {
-                    currentData.lotes[l.id].quantidade -= qtdRestante;
+                    currentData.lotes[l.id].quantidade = lQtd - qtdRestante;
                     qtdRestante = 0;
                   }
                 }
@@ -288,9 +290,9 @@ export default function TransferenciaManager() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
         {filteredInsumos.map(insumo => {
-          const estEstacionario = insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0;
-          const estRotativo = insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0;
-          const qtdPacote = insumo.qtdPacote || 1;
+          const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
+          const estRotativo = Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
+          const qtdPacote = Number(insumo.qtdPacote || 1);
           const maxVal = qtdPacote > 1 ? (estEstacionario / qtdPacote) : estEstacionario;
           const inputPlaceholder = qtdPacote > 1 ? `Qtd (Volumes)` : `Qtd (${insumo.unidade})`;
           
