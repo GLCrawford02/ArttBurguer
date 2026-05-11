@@ -1,8 +1,14 @@
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode-terminal');
 const admin = require('firebase-admin');
+const readline = require('readline');
 
 const serviceAccount = require('./serviceAccountKey.json');
+
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -38,9 +44,37 @@ const client = new Client({
     }
 });
 
-client.on('qr', (qr) => {
-    qrcode.generate(qr, { small: true });
-    console.log('🤖 Escaneie o QR Code acima com o WhatsApp da Arttburger.');
+let hasPrompted = false;
+
+client.on('qr', async (qr) => {
+    if (!hasPrompted) {
+        hasPrompted = true;
+        console.log('\n==================================================');
+        console.log('🤖 CONEXÃO DO ROBÔ COM O WHATSAPP');
+        console.log('==================================================');
+        rl.question('Deseja conectar usando o Número de Telefone (Código)? (s/n): ', async (resposta) => {
+            if (resposta.toLowerCase() === 's') {
+                rl.question('Digite o número do WhatsApp com DDD (Ex: 38999999999): ', async (numero) => {
+                    let numLimpo = numero.replace(/\D/g, '');
+                    if (!numLimpo.startsWith('55')) numLimpo = '55' + numLimpo;
+                    console.log(`⏳ Gerando código para ${numLimpo}...`);
+                    try {
+                        const code = await client.requestPairingCode(numLimpo);
+                        console.log(`\n==============================================`);
+                        console.log(`📲 CÓDIGO DE CONEXÃO: ${code}`);
+                        console.log(`Abra o WhatsApp no celular > Aparelhos Conectados > Conectar com Número de Telefone`);
+                        console.log(`==============================================\n`);
+                    } catch (e) {
+                        console.error('❌ Erro ao gerar código:', e.message);
+                        qrcode.generate(qr, { small: true });
+                    }
+                });
+            } else {
+                console.log('Exibindo QR Code...');
+                qrcode.generate(qr, { small: true });
+            }
+        });
+    }
 });
 
 client.on('loading_screen', (percent, message) => {

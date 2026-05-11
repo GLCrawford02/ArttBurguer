@@ -224,7 +224,7 @@ export default function App() {
 
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    const user = funcionarios.find(f => f.pin === pinInput);
+    const user = funcionarios.find(f => String(f.pin) === pinInput);
     if (user) {
       if ((user as any).ativo === false) {
         setLoginError('Usuário inativo. Acesso negado.');

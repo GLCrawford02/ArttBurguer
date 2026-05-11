@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot } from 'lucide-react';
 
 export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'conferencia'>('pdv');
@@ -40,6 +40,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [confPagamentos, setConfPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [confDescricao, setConfDescricao] = useState('');
   const [confSearchProd, setConfSearchProd] = useState('');
+  
+  const [showIaModal, setShowIaModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -114,9 +119,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   ];
 
 
-  const totalPdv = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
-  const pagoPdv = pdvPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
-  const restantePdv = totalPdv - pagoPdv;
+  const rawTotalPdv = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  const totalPdv = Number(rawTotalPdv.toFixed(2));
+  const rawPagoPdv = pdvPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+  const pagoPdv = Number(rawPagoPdv.toFixed(2));
+  const restantePdv = Number((totalPdv - pagoPdv).toFixed(2));
 
   useEffect(() => {
     if (pdvPagamentos.length === 1 && totalPdv > 0) setPdvPagamentos([{ ...pdvPagamentos[0], valor: totalPdv }]);
@@ -124,9 +131,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   }, [totalPdv]);
 
 
-  const totalConf = Object.values(confCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
-  const pagoConf = confPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
-  const restanteConf = totalConf - pagoConf;
+  const rawTotalConf = Object.values(confCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  const totalConf = Number(rawTotalConf.toFixed(2));
+  const rawPagoConf = confPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
+  const pagoConf = Number(rawPagoConf.toFixed(2));
+  const restanteConf = Number((totalConf - pagoConf).toFixed(2));
 
   useEffect(() => {
     if (confPagamentos.length === 1 && totalConf > 0) setConfPagamentos([{ ...confPagamentos[0], valor: totalConf }]);
@@ -279,7 +288,8 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const pagamentosProcessados = pagamentosValidos.map(p => {
       const taxa = taxasComPadroes.find(t => t.id === p.taxaId);
       const perc = taxa ? Number(taxa.percentual || 0) : 0;
-      const liq = Number(p.valor) - (Number(p.valor) * (perc / 100));
+      const rawLiq = Number(p.valor) - (Number(p.valor) * (perc / 100));
+      const liq = Number(rawLiq.toFixed(2));
       valorLiquidoTotal += liq;
       return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
     });
@@ -289,7 +299,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
       if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
     });
-    valorLiquidoTotal -= custoPedido;
+    valorLiquidoTotal = Number((valorLiquidoTotal - custoPedido).toFixed(2));
 
     let ident = 'Balcão';
     if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
@@ -340,7 +350,8 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const pagamentosProcessados = pagamentosValidos.map(p => {
       const taxa = taxasComPadroes.find(t => t.id === p.taxaId);
       const perc = taxa ? Number(taxa.percentual || 0) : 0;
-      const liq = Number(p.valor) - (Number(p.valor) * (perc / 100));
+      const rawLiq = Number(p.valor) - (Number(p.valor) * (perc / 100));
+      const liq = Number(rawLiq.toFixed(2));
       valorLiquidoTotal += liq;
       return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
     });
@@ -350,7 +361,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       const prod = produtos.find(p => p.id === id) || promocoes.find(p => p.id === id);
       if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
     });
-    valorLiquidoTotal -= custoPedido;
+    valorLiquidoTotal = Number((valorLiquidoTotal - custoPedido).toFixed(2));
 
     const lancamentoData = {
       valor: totalConf,
@@ -401,10 +412,13 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
     const vendasHoje = vendasPdv.filter(v => v.timestamp >= inicioHoje);
 
-    const totalLancado = lancamentosHoje.reduce((acc, l) => acc + l.valor, 0);
-    const totalLiquido = lancamentosHoje.reduce((acc, l) => acc + l.valorLiquido, 0);
-    const totalSistema = vendasHoje.reduce((acc, v) => acc + v.valor, 0);
-    const diferenca = totalLancado - totalSistema;
+    const rawTotalLancado = lancamentosHoje.reduce((acc, l) => acc + l.valor, 0);
+    const totalLancado = Number(rawTotalLancado.toFixed(2));
+    const rawTotalLiquido = lancamentosHoje.reduce((acc, l) => acc + l.valorLiquido, 0);
+    const totalLiquido = Number(rawTotalLiquido.toFixed(2));
+    const rawTotalSistema = vendasHoje.reduce((acc, v) => acc + v.valor, 0);
+    const totalSistema = Number(rawTotalSistema.toFixed(2));
+    const diferenca = Number((totalLancado - totalSistema).toFixed(2));
 
     return { totalLancado, totalLiquido, totalSistema, diferenca, lancamentosHoje };
   };
@@ -422,6 +436,69 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   });
   const confFilteredItems = todosItens.filter(i => (i.nome || '').toLowerCase().includes(confSearchProd.toLowerCase()));
   const pdvFilteredClientes = clientes.filter(c => (c.nome || '').toLowerCase().includes(pdvSearchCliente.toLowerCase()) || (c.telefone || '').includes(pdvSearchCliente));
+
+  const handlePedidoIA = async () => {
+    if (!aiPrompt.trim()) return showToast('Descreva o pedido do cliente.', 'error');
+    setIsGenerating(true);
+    try {
+      const availableItems = todosItens.map(i => `${i.nome} (ID: ${i.id}, Preço: ${i.precoVenda})`).join('\n');
+
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${grokKey}` },
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          stream: false,
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um garçom anotando o pedido. Extraia os itens solicitados do texto e cruze com os itens do cardápio disponíveis. Responda APENAS com um array JSON com a estrutura solicitada.
+Cardápio Disponível:
+${availableItems}
+
+Formato esperado:
+[{
+  "produtoId": "ID exato do produto correspondente do cardápio",
+  "nome": "Nome do Produto",
+  "preco": preco (número),
+  "qtd": quantidade (número),
+  "observacao": "Alguma observação, restrição ou adicional solicitado para este item específico"
+}]`
+            },
+            { role: 'user', content: aiPrompt }
+          ]
+        })
+      });
+      const data = await response.json();
+      const jsonText = data.choices?.[0]?.message?.content;
+      if (!jsonText) throw new Error('Resposta inválida da IA.');
+      const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const itensPedido = JSON.parse(cleanJson);
+      
+      const novosItens: any = { ...pdvCarrinho };
+      let addCount = 0;
+      for (const item of itensPedido) {
+        const prod = todosItens.find(i => i.id === item.produtoId);
+        if (prod) {
+          const cartItemId = `${prod.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+          novosItens[cartItemId] = {
+            produtoId: prod.id,
+            nome: prod.nome,
+            preco: Number(item.preco) || Number(prod.precoVenda) || 0,
+            qtd: Number(item.qtd) || 1,
+            enviadoCozinha: 0,
+            opcoes: item.observacao ? { observacao: item.observacao } : null
+          };
+          addCount++;
+        }
+      }
+      setPdvCarrinho(novosItens);
+      showToast(`Garçom IA adicionou ${addCount} itens ao carrinho!`, 'success');
+      setAiPrompt('');
+      setShowIaModal(false);
+    } catch (e: any) { showToast('Erro IA: ' + e.message, 'error'); } 
+    finally { setIsGenerating(false); }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -481,10 +558,15 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
       {activeView === 'pdv' && pdvView === 'caixa' && (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-left-4 duration-300">
-          <div className="lg:col-span-8 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[750px]">
-            <div className="relative mb-6">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input type="text" placeholder="Buscar hambúrguer, bebida ou combo..." value={pdvSearchProd} onChange={(e) => setPdvSearchProd(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-lg" />
+          <div className="lg:col-span-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[60vh] min-h-[400px] lg:h-[750px]">
+            <div className="flex items-center gap-2 mb-6">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <input type="text" placeholder="Buscar hambúrguer, bebida ou combo..." value={pdvSearchProd} onChange={(e) => setPdvSearchProd(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-lg" />
+              </div>
+              <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-3 rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm shrink-0" title="Garçom IA">
+                <Sparkles size={24} />
+              </button>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4">
               {pdvFilteredItems.map(item => (
@@ -500,7 +582,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
             </div>
           </div>
 
-          <div className="lg:col-span-4 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[750px]">
+          <div className="lg:col-span-4 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[85vh] min-h-[500px] lg:h-[750px]">
             <h3 className="font-bold text-gray-800 flex items-center mb-6 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
             
             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg items-center">
@@ -833,7 +915,36 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       )}
 
 
-      {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
+      {showIaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[110] p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center"><Bot size={20} className="mr-2 text-indigo-600"/> Garçom IA</h3>
+              <button onClick={() => setShowIaModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="bg-indigo-50 p-3 rounded border border-indigo-100 shadow-sm text-xs text-indigo-800">
+              <p>Descreva o pedido como o cliente falou e a IA vai lançar no carrinho. Exemplo:</p>
+              <p className="font-mono mt-1">"O cliente quer 2 combos de smash duplo sem cebola e um x-salada com extra de bacon"</p>
+            </div>
+            <textarea 
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="Descreva o pedido aqui..."
+              className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-h-[120px] resize-y bg-gray-50"
+            />
+            <button onClick={handlePedidoIA} disabled={isGenerating} className="w-full bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-70">
+              {isGenerating ? <><Loader2 size={18} className="mr-2 animate-spin"/> Lendo Cardápio...</> : <><Sparkles size={18} className="mr-2"/> Adicionar ao Carrinho</>}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md p-4 rounded-xl shadow-2xl text-white font-bold flex items-start z-[100] transition-all animate-in slide-in-from-bottom-5 duration-300 ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.type === 'success' ? <CheckCircle className="mr-3 shrink-0 mt-0.5" size={20} /> : <AlertTriangle className="mr-3 shrink-0 mt-0.5" size={20} />}
+          <span className="whitespace-pre-line break-words text-sm flex-1">{toast.message}</span>
+        </div>
+      )}
 
       {showConfModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">

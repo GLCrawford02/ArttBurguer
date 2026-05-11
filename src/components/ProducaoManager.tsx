@@ -119,8 +119,10 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
     const checks = (produto.ingredientes || []).map((ing: any) => {
       const insumo = insumos.find(i => i.id === ing.insumoId);
-      const qtdNecessaria = Number(ing.quantidade) * multiplicador;
-      const tem = insumo ? Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0) : 0;
+      const rawQtdNecessaria = Number(ing.quantidade) * multiplicador;
+      const qtdNecessaria = Number(rawQtdNecessaria.toFixed(4));
+      const rawTem = insumo ? Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0) : 0;
+      const tem = Number(rawTem.toFixed(4));
       if (!insumo || tem < qtdNecessaria) {
         return { ok: false, nome: insumo?.nome || 'Desconhecido', precisa: qtdNecessaria, tem: tem, unidade: insumo?.unidade || '' };
       }
@@ -137,10 +139,12 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
     for (const ing of (produto.ingredientes || [])) {
       const insumoRef = ref(db, `insumos/${ing.insumoId}`);
-      const qtdNecessaria = Number(ing.quantidade) * multiplicador;
+      const rawQtdNecessaria = Number(ing.quantidade) * multiplicador;
+      const qtdNecessaria = Number(rawQtdNecessaria.toFixed(4));
       await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          currentData.estoqueRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - qtdNecessaria;
+          const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+          currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
         }
         return currentData;
       });
@@ -204,7 +208,9 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
           const insumoRef = ref(db, `insumos/${ing.insumoId}`);
           await runTransaction(insumoRef, (currentData) => {
             if (currentData) {
-              currentData.estoqueRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - (Number(ing.quantidade) * multiplicador);
+              const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+              const qtdNecessaria = Number(ing.quantidade) * multiplicador;
+              currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
             }
             return currentData;
           });
@@ -219,7 +225,9 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               const insumoRef = ref(db, `insumos/${insumoAdicional.id}`);
               await runTransaction(insumoRef, (currentData) => {
                 if (currentData) {
-                  currentData.estoqueRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0) - (Number(add.qtd) * multiplicador);
+                  const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+                  const qtdNecessaria = Number(add.qtd) * multiplicador;
+                  currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
                 }
                 return currentData;
               });

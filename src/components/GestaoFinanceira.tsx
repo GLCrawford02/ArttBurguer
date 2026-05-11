@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare, Sparkles, Loader2, Bot } from 'lucide-react';
 import ModalContas from './ModalContas';
 import TabFornecedores from './TabFornecedores';
 
@@ -63,6 +63,11 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
   const [editCategoriaId, setEditCategoriaId] = useState<string | null>(null);
   const [editCategoriaNome, setEditCategoriaNome] = useState('');
+  
+  const [showIaModal, setShowIaModal] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   useEffect(() => {
     const fornRef = ref(db, 'fornecedores');
@@ -142,6 +147,51 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   };
 
   useEffect(() => { resetForms(); }, [activeTab]);
+
+  const handleCadastroIA = async () => {
+    if (!aiPrompt.trim()) return showToast('Descreva as despesas ou receitas.', 'error');
+    setIsGenerating(true);
+    try {
+      const response = await fetch('https://api.x.ai/v1/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${grokKey}` },
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          stream: false,
+          messages: [
+            {
+              role: 'system',
+              content: `Você é um assistente financeiro. Extraia os lançamentos do texto. Responda APENAS com um array JSON.
+Formato:
+[{
+  "tipoConta": "pagar" ou "receber",
+  "descricao": "Nome da despesa ou receita",
+  "valor": numero,
+  "vencimento": "YYYY-MM-DD" (se omitido, use a data de hoje: ${hoje}),
+  "status": "Pago", "Recebido" ou "Pendente",
+  "tipoDespesa": "Nome da Categoria" (ex: Impostos, Insumos - Apenas se for "pagar")
+}]`
+            },
+            { role: 'user', content: aiPrompt }
+          ]
+        })
+      });
+      const data = await response.json();
+      const jsonText = data.choices?.[0]?.message?.content;
+      if (!jsonText) throw new Error('Resposta inválida da IA.');
+      const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
+      const lancamentos = JSON.parse(cleanJson);
+      let p=0, r=0;
+      for (const item of lancamentos) {
+        if (item.tipoConta === 'pagar') { await set(push(ref(db, 'contas_pagar')), { descricao: item.descricao, valor: Number(item.valor), vencimento: item.vencimento || hoje, status: item.status || 'Pendente', tipo: item.tipoDespesa || 'Outros', fornecedorId: '', recorrencia: 'Nenhuma', fimRecorrencia: '' }); p++; }
+        else { await set(push(ref(db, 'contas_receber')), { descricao: item.descricao, valor: Number(item.valor), vencimento: item.vencimento || hoje, status: item.status || 'Pendente', recorrencia: 'Nenhuma', fimRecorrencia: '' }); r++; }
+      }
+      showToast(`Cadastrado: ${p} a pagar e ${r} a receber!`, 'success');
+      setAiPrompt('');
+      setShowIaModal(false);
+    } catch (e: any) { showToast('Erro IA: ' + e.message, 'error'); } 
+    finally { setIsGenerating(false); }
+  };
 
   const handleAddCategoria = async () => {
     if (!novaCategoriaForm.trim()) return;
@@ -380,6 +430,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
             <button onClick={() => setModalAberto('pagar')} className="bg-red-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-red-700 transition-colors shadow-sm flex items-center"><TrendingDown size={18} className="mr-2"/> Lançar Despesa (A Pagar)</button>
             <button onClick={() => setModalAberto('receber')} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center"><TrendingUp size={18} className="mr-2"/> Lançar Receita (A Receber)</button>
             <button onClick={() => { window.location.hash = 'tarefas'; setTimeout(() => window.dispatchEvent(new CustomEvent('openNewTask')), 150); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><CheckSquare size={18} className="mr-2"/> Nova Tarefa</button>
+            <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm flex items-center"><Sparkles size={18} className="mr-2"/> Assistente IA</button>
           </div>
           {renderCalendario()}
         </div>
@@ -435,6 +486,30 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
               ))}
               {categoriasDespesa.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhum tipo cadastrado.</p>}
             </div>
+          </div>
+        </div>
+      )}
+
+      {showIaModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center"><Bot size={20} className="mr-2 text-indigo-600"/> Lançamento Inteligente</h3>
+              <button onClick={() => setShowIaModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <div className="bg-indigo-50 p-3 rounded border border-indigo-100 shadow-sm text-xs text-indigo-800">
+              <p>Descreva os pagamentos ou recebimentos e a IA organizará tudo no calendário. Exemplo:</p>
+              <p className="font-mono mt-1">"Comprei 150 de insumos e já paguei. Tem 200 de luz para pagar amanhã. Recebi 300 de ifood hoje."</p>
+            </div>
+            <textarea 
+              value={aiPrompt}
+              onChange={e => setAiPrompt(e.target.value)}
+              placeholder="Descreva seus lançamentos aqui..."
+              className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm min-h-[120px] resize-y bg-gray-50"
+            />
+            <button onClick={handleCadastroIA} disabled={isGenerating} className="w-full bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-70">
+              {isGenerating ? <><Loader2 size={18} className="mr-2 animate-spin"/> Analisando...</> : <><Sparkles size={18} className="mr-2"/> Lançar Contas Automaticamente</>}
+            </button>
           </div>
         </div>
       )}

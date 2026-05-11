@@ -58,7 +58,7 @@ export default function TransferenciaManager() {
   };
 
   const handlePinSubmit = async () => {
-    const func = funcionarios.find(f => f.pin === pin);
+    const func = funcionarios.find(f => String(f.pin) === pin);
     if (!func) {
       showToast('PIN inválido!', 'error');
       return;
@@ -78,7 +78,7 @@ export default function TransferenciaManager() {
       newSel.add(insumo.id);
         const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
         const qtdPacote = Number(insumo.qtdPacote || 1);
-      const maxVal = qtdPacote > 1 ? Math.floor(estEstacionario / qtdPacote) : estEstacionario;
+      const maxVal = qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario;
       setQuantidades({ ...quantidades, [insumo.id]: maxVal });
     }
     setSelecionados(newSel);
@@ -92,17 +92,28 @@ export default function TransferenciaManager() {
         return;
       }
       const qtdPacote = Number(insumo.qtdPacote || 1);
-      const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
+      const rawUnitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
+      const unitsToTransfer = Number(rawUnitsToTransfer.toFixed(4));
+      const linkedId = (insumo as any).insumoVinculado;
+      const isVariavel = (insumo as any).isVariavel;
 
       const insumoRef = ref(db, `insumos/${insumo.id}`);
 
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          const estEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
-          const estRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+          const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const rawEstRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+          const estEstacionario = Number(rawEstEstacionario.toFixed(4));
+          const estRotativo = Number(rawEstRotativo.toFixed(4));
           if (estEstacionario >= unitsToTransfer) {
-            currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
-            currentData.estoqueRotativo = estRotativo + unitsToTransfer;
+            currentData.estoqueEstacionario = Number((estEstacionario - unitsToTransfer).toFixed(4));
+            if (!linkedId) {
+              if (isVariavel) {
+                currentData.estoqueRotativo = unitsToTransfer;
+              } else {
+                currentData.estoqueRotativo = Number((estRotativo + unitsToTransfer).toFixed(4));
+              }
+            }
 
 
             if (currentData.lotes) {
@@ -117,12 +128,12 @@ export default function TransferenciaManager() {
 
               for (const l of lotesArray) {
                 if (qtdRestante <= 0) break;
-                const lQtd = Number(l.quantidade || 0);
+                const lQtd = Number(Number(l.quantidade || 0).toFixed(4));
                 if (lQtd <= qtdRestante) {
-                  qtdRestante -= lQtd;
+                  qtdRestante = Number((qtdRestante - lQtd).toFixed(4));
                   delete currentData.lotes[l.id];
                 } else {
-                  currentData.lotes[l.id].quantidade = lQtd - qtdRestante;
+                  currentData.lotes[l.id].quantidade = Number((lQtd - qtdRestante).toFixed(4));
                   qtdRestante = 0;
                 }
               }
@@ -137,6 +148,23 @@ export default function TransferenciaManager() {
       });
 
       if (result.committed) {
+        let linkedName = '';
+        if (linkedId) {
+          const linkedInsumo = insumos.find(i => i.id === linkedId);
+          linkedName = linkedInsumo ? linkedInsumo.nome : 'Unidade Base';
+          const linkedRef = ref(db, `insumos/${linkedId}`);
+          await runTransaction(linkedRef, (linkedData) => {
+            if (linkedData) {
+              const rawEstRotativo = Number(linkedData.estoqueRotativo ?? linkedData.estoqueAtual ?? 0);
+              if (isVariavel) {
+                linkedData.estoqueRotativo = unitsToTransfer;
+              } else {
+                linkedData.estoqueRotativo = Number((rawEstRotativo + unitsToTransfer).toFixed(4));
+              }
+            }
+            return linkedData;
+          });
+        }
         const transRef = ref(db, 'historico_transferencias');
         await set(push(transRef), {
           insumoId: insumo.id,
@@ -146,7 +174,11 @@ export default function TransferenciaManager() {
           funcionarioNome: func.nome,
           timestamp: Date.now()
         });
-        showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
+        if (linkedId) {
+          showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido! Rotativo de ${linkedName} abastecido.`, 'success');
+        } else {
+          showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
+        }
         setQuantidades({ ...quantidades, [insumo.id]: 0 });
       } else {
         showToast(`Erro: Quantidade insuficiente no Estoque Estacionado!`, 'error');
@@ -158,6 +190,7 @@ export default function TransferenciaManager() {
     confirmWithPin(async (func: Funcionario) => {
       if (selecionados.size === 0) return;
       let sucessoCount = 0;
+      let linkedCount = 0;
       
       const promessas = Array.from(selecionados).map(async (id) => {
         const numVolumesTransferir = quantidades[id];
@@ -166,16 +199,27 @@ export default function TransferenciaManager() {
         if (!insumo) return;
 
         const qtdPacote = Number(insumo.qtdPacote || 1);
-        const unitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
+        const rawUnitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
+        const unitsToTransfer = Number(rawUnitsToTransfer.toFixed(4));
+        const linkedId = (insumo as any).insumoVinculado;
+        const isVariavel = (insumo as any).isVariavel;
         const insumoRef = ref(db, `insumos/${id}`);
 
         const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
-            const estEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
-            const estRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+            const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+            const rawEstRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+            const estEstacionario = Number(rawEstEstacionario.toFixed(4));
+            const estRotativo = Number(rawEstRotativo.toFixed(4));
             if (estEstacionario >= unitsToTransfer) {
-              currentData.estoqueEstacionario = estEstacionario - unitsToTransfer;
-              currentData.estoqueRotativo = estRotativo + unitsToTransfer;
+              currentData.estoqueEstacionario = Number((estEstacionario - unitsToTransfer).toFixed(4));
+              if (!linkedId) {
+                if (isVariavel) {
+                  currentData.estoqueRotativo = unitsToTransfer;
+                } else {
+                  currentData.estoqueRotativo = Number((estRotativo + unitsToTransfer).toFixed(4));
+                }
+              }
 
 
               if (currentData.lotes) {
@@ -190,12 +234,12 @@ export default function TransferenciaManager() {
 
                 for (const l of lotesArray) {
                   if (qtdRestante <= 0) break;
-                  const lQtd = Number(l.quantidade || 0);
+                  const lQtd = Number(Number(l.quantidade || 0).toFixed(4));
                   if (lQtd <= qtdRestante) {
-                    qtdRestante -= lQtd;
+                    qtdRestante = Number((qtdRestante - lQtd).toFixed(4));
                     delete currentData.lotes[l.id];
                   } else {
-                    currentData.lotes[l.id].quantidade = lQtd - qtdRestante;
+                    currentData.lotes[l.id].quantidade = Number((lQtd - qtdRestante).toFixed(4));
                     qtdRestante = 0;
                   }
                 }
@@ -210,6 +254,21 @@ export default function TransferenciaManager() {
         });
         
         if (result.committed) {
+          if (linkedId) {
+            const linkedRef = ref(db, `insumos/${linkedId}`);
+            await runTransaction(linkedRef, (linkedData) => {
+              if (linkedData) {
+                const rawEstRotativo = Number(linkedData.estoqueRotativo ?? linkedData.estoqueAtual ?? 0);
+                if (isVariavel) {
+                  linkedData.estoqueRotativo = unitsToTransfer;
+                } else {
+                  linkedData.estoqueRotativo = Number((rawEstRotativo + unitsToTransfer).toFixed(4));
+                }
+              }
+              return linkedData;
+            });
+            linkedCount++;
+          }
           const transRef = ref(db, 'historico_transferencias');
           await set(push(transRef), {
             insumoId: id,
@@ -226,7 +285,11 @@ export default function TransferenciaManager() {
       await Promise.all(promessas);
 
       if (sucessoCount > 0) {
-        showToast(`${sucessoCount} insumos transferidos para o Rotativo!`, 'success');
+        if (linkedCount > 0) {
+          showToast(`${sucessoCount} insumos transferidos! (${linkedCount} unidades base abastecidas)`, 'success');
+        } else {
+          showToast(`${sucessoCount} insumos transferidos para o Rotativo!`, 'success');
+        }
         const novasQtds = { ...quantidades };
         selecionados.forEach(id => novasQtds[id] = 0);
         setQuantidades(novasQtds);
@@ -293,7 +356,7 @@ export default function TransferenciaManager() {
           const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
           const estRotativo = Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
           const qtdPacote = Number(insumo.qtdPacote || 1);
-          const maxVal = qtdPacote > 1 ? (estEstacionario / qtdPacote) : estEstacionario;
+          const maxVal = qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario;
           const inputPlaceholder = qtdPacote > 1 ? `Qtd (Volumes)` : `Qtd (${insumo.unidade})`;
           
           return (
@@ -310,12 +373,12 @@ export default function TransferenciaManager() {
               </div>
               <div className="flex justify-between mt-2 text-sm">
                 <span className="text-gray-500">Estacionado: <span className="font-bold text-indigo-600">{formatarQtdJSX(estEstacionario, insumo.qtdPacote || 1, insumo.unidade)}</span></span>
-                <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span></span>
+                <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span> {(insumo as any).isVariavel && <span className="ml-1 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold uppercase">Variável</span>}</span>
               </div>
             </div>
             <div className="flex space-x-2">
               <input type="number" step="any" min="0.01" max={maxVal} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={inputPlaceholder} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxVal} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
+              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxVal + 0.0001} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
                 Transferir
               </button>
             </div>

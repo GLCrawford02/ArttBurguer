@@ -123,7 +123,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   };
 
   const handlePinSubmit = async () => {
-    const func = funcionarios.find(f => f.pin === pin);
+    const func = funcionarios.find(f => String(f.pin) === pin);
     if (!func) {
       showToast('PIN inválido!', 'error');
       return;

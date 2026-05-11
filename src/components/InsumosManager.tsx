@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw } from 'lucide-react';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -13,6 +13,7 @@ export default function InsumosManager() {
   const [nome, setNome] = useState('');
   const [sku, setSku] = useState('');
   const [unidade, setUnidade] = useState('g');
+  const [isVariavel, setIsVariavel] = useState(false);
   const [precoPacote, setPrecoPacote] = useState('0');
   const [qtdPacote, setQtdPacote] = useState('1');
   const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
@@ -86,12 +87,12 @@ export default function InsumosManager() {
   };
 
   useEffect(() => {
-    if (nome) {
+    if (nome && !editId) {
       setSku(generateSku(nome));
-    } else {
+    } else if (!nome && !editId) {
       setSku('');
     }
-  }, [nome]);
+  }, [nome, editId]);
 
   const handleAddTipo = async () => {
     if (!novoTipoForm.trim()) return;
@@ -122,6 +123,34 @@ export default function InsumosManager() {
       showToast(`${atualizados} SKUs foram padronizados com sucesso!`, 'success');
     } catch (error: any) {
       showToast('Erro ao padronizar SKUs: ' + error.message, 'error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSincronizarCustos = async () => {
+    if (!window.confirm('Deseja sincronizar os custos de todos os insumos vinculados? Isso repassará o custo atual dos pacotes/fardos para as suas unidades de quebra (Ex: O custo da Caixa atualizará o custo da Unidade).')) return;
+    
+    let atualizados = 0;
+    setLoading(true);
+    try {
+      const promessas = insumos.map(async (insumo) => {
+        const linkedId = (insumo as any).insumoVinculado;
+        if (linkedId) {
+          const linkedInsumo = insumos.find(i => i.id === linkedId);
+          if (linkedInsumo) {
+            const novoPreco = Number((insumo.precoPacote / (insumo.qtdPacote || 1)).toFixed(4));
+            if (linkedInsumo.precoPacote !== novoPreco) {
+              await update(ref(db, `insumos/${linkedId}`), { precoPacote: novoPreco });
+              atualizados++;
+            }
+          }
+        }
+      });
+      await Promise.all(promessas);
+      showToast(`${atualizados} insumos vinculados tiveram seus custos sincronizados!`, 'success');
+    } catch (error: any) {
+      showToast('Erro ao sincronizar custos: ' + error.message, 'error');
     } finally {
       setLoading(false);
     }
@@ -165,6 +194,7 @@ export default function InsumosManager() {
         estoqueMaximo: estoqueMaximo ? Number(estoqueMaximo) : null,
         tipoUso: tipoUso,
         insumoVinculado: insumoVinculado || null,
+        isVariavel,
       };
 
       await update(ref(db, `insumos/${editId}`), updateData);
@@ -184,6 +214,7 @@ export default function InsumosManager() {
         tipoUso: tipoUso,
         insumoVinculado: insumoVinculado || null,
         estoqueRotativo: 0,
+        isVariavel,
         estoqueEstacionario: estoqueAtual ? Number(estoqueAtual) : 0,
       });
       showToast('Insumo salvo com sucesso!', 'success');
@@ -237,7 +268,8 @@ Formato esperado para cada objeto:
   "alertaMinimo": numero (estoque mínimo),
   "estoqueMaximo": numero (estoque máximo, opcional),
   "estoqueAtual": numero (estoque atual, opcional),
-  "tipoUso": "texto" (opcional, ex: Matéria prima, Embalagem, Produto final)
+  "tipoUso": "texto" (opcional, ex: Matéria prima, Embalagem, Produto final),
+  "isVariavel": boolean (opcional, true se zera e substitui o rotativo na transferência)
 }]`
             },
             {
@@ -287,6 +319,7 @@ Formato esperado para cada objeto:
           if (item.estoqueMaximo) updateData.estoqueMaximo = Number(item.estoqueMaximo);
           if (item.estoqueAtual) updateData.estoqueEstacionario = (existingInsumo.estoqueEstacionario || 0) + Number(item.estoqueAtual);
           if (item.tipoUso) updateData.tipoUso = item.tipoUso;
+          if (item.isVariavel !== undefined) updateData.isVariavel = !!item.isVariavel;
           if (!isBulk) updateData.insumoVinculado = null;
           
           await update(ref(db, `insumos/${existingInsumo.id}`), updateData);
@@ -304,6 +337,7 @@ Formato esperado para cada objeto:
             estoqueMaximo: item.estoqueMaximo ? Number(item.estoqueMaximo) : null,
             tipoUso: item.tipoUso || '',
             insumoVinculado: null,
+            isVariavel: !!item.isVariavel,
             estoqueRotativo: 0,
             estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
           });
@@ -336,6 +370,7 @@ Formato esperado para cada objeto:
     setTipoUso((insumo as any).tipoUso || '');
     setSearchTipoUso((insumo as any).tipoUso || '');
     setInsumoVinculado((insumo as any).insumoVinculado || '');
+    setIsVariavel((insumo as any).isVariavel || false);
     
     const linkedId = (insumo as any).insumoVinculado || '';
     if (linkedId) {
@@ -358,8 +393,10 @@ Formato esperado para cada objeto:
     setAlertaMinimo('');
     setEstoqueMaximo('');
     setEstoqueAtual('');
+    setIsVariavel(false);
     setTipoUso('');
     setSearchTipoUso('');
+    setIsVariavel(false);
     setInsumoVinculado('');
     setSearchInsumoVinculado('');
     setSearchInsumoVinculado('');
@@ -385,6 +422,9 @@ Formato esperado para cada objeto:
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Base de Insumos</h2>
         <div className="flex flex-col sm:flex-row items-center gap-2">
+          <button onClick={handleSincronizarCustos} className="bg-blue-100 text-blue-700 px-4 py-2 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center text-sm">
+            <LinkIcon size={16} className="mr-2" /> Sincronizar Custos
+          </button>
           <button onClick={handlePadronizarSkus} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center text-sm">
             <RefreshCw size={16} className="mr-2" /> Padronizar SKUs
           </button>
@@ -422,6 +462,11 @@ Formato esperado para cada objeto:
                 <div className="space-y-1 sm:col-span-6">
                   <label className="text-xs font-bold text-gray-500 uppercase">Nome do Insumo</label>
                   <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" placeholder="Ex: Pão Brioche" />
+                  {sku !== generateSku(nome) && nome && (
+                    <button type="button" onClick={() => setSku(generateSku(nome))} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 flex items-center mt-1 transition-colors">
+                      <RefreshCw size={10} className="mr-1" /> Padronizar este SKU
+                    </button>
+                  )}
                 </div>
                 <div className="space-y-1 sm:col-span-3">
                   <div className="flex justify-between items-end">
@@ -456,6 +501,11 @@ Formato esperado para cada objeto:
                 <div className="space-y-1 sm:col-span-3">
                   <label className="text-xs font-bold text-gray-500 uppercase">SKU (Automático)</label>
                   <input type="text" maxLength={20} value={sku} onChange={e => setSku(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 font-mono bg-white text-sm" placeholder="Ex: #paobrioche" />
+                  {sku !== generateSku(nome) && nome && (
+                    <button type="button" onClick={() => setSku(generateSku(nome))} className="text-[10px] font-bold text-blue-500 hover:text-blue-700 flex items-center mt-1 transition-colors">
+                      <RefreshCw size={10} className="mr-1" /> Padronizar este SKU
+                    </button>
+                  )}
                 </div>
               </div>
             </div>
@@ -558,6 +608,12 @@ Formato esperado para cada objeto:
                   </div>
                 )}
               </div>
+              <div className="pt-2">
+                <label className="flex items-center space-x-2 cursor-pointer w-fit">
+                  <input type="checkbox" checked={isVariavel} onChange={e => setIsVariavel(e.target.checked)} className="rounded text-green-600 focus:ring-green-500 w-4 h-4 cursor-pointer" />
+                  <span className="text-sm font-bold text-gray-700">Insumo Variável (Zera e substitui o estoque rotativo na transferência)</span>
+                </label>
+              </div>
             </div>
 
             <div className="pt-4 border-t flex gap-2">
@@ -642,7 +698,8 @@ Formato esperado para cada objeto:
                   {(i as any).tipoUso && <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span>}
                 </div>
                 <p className="text-sm text-gray-500 font-medium">
-                  Custo: <span className="text-blue-600">R$ {(i.precoPacote / (i.qtdPacote || 1)).toFixed(3)}</span> por {i.unidade}
+                  Custo: <span className="text-blue-600">R$ {Number(i.precoPacote).toFixed(i.qtdPacote > 1 ? 2 : 3)}</span> por {i.unidade}
+                  {i.qtdPacote > 1 && <span className="ml-1 text-xs text-gray-400">(R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un)</span>}
                 </p>
               </div>
               <div className="flex space-x-2">

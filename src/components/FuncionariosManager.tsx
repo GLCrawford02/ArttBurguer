@@ -104,7 +104,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       return;
     }
 
-    if (funcionarios.some(f => f.pin === formData.pin && f.id !== editId)) {
+    if (funcionarios.some(f => String(f.pin) === String(formData.pin) && f.id !== editId)) {
       showToast('Este PIN já está em uso por outro funcionário. Escolha outro.', 'error');
       return;
     }

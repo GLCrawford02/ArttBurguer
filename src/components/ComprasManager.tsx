@@ -110,10 +110,13 @@ export default function ComprasManager() {
 
     if (!isConfirmedAdmin) {
       const excedentes = carrinho.filter(item => {
-        const targetId = (item.insumo as any).insumoVinculado || item.id;
-        const targetInsumo = insumos.find(i => i.id === targetId) || item.insumo;
-        const qtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
-        const novoEstoque = Number(targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0) + Number(targetInsumo.estoqueRotativo ?? 0) + qtdAdicionar;
+        const targetId = item.id;
+        const targetInsumo = item.insumo;
+        const rawQtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
+        const qtdAdicionar = Number(rawQtdAdicionar.toFixed(4));
+        const estEstacionario = Number(Number(targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0).toFixed(4));
+        const estRotativo = Number(Number(targetInsumo.estoqueRotativo ?? 0).toFixed(4));
+        const novoEstoque = Number((estEstacionario + estRotativo + qtdAdicionar).toFixed(4));
         return targetInsumo.estoqueMaximo && novoEstoque > Number(targetInsumo.estoqueMaximo);
       });
 
@@ -129,14 +132,16 @@ export default function ComprasManager() {
     let sucessos = 0;
 
     for (const item of carrinho) {
-      const qtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
+      const rawQtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
+      const qtdAdicionar = Number(rawQtdAdicionar.toFixed(4));
       const valorCompraTotal = Number(item.valorTotalStr) || 0;
       
-      const targetId = (item.insumo as any).insumoVinculado || item.id;
+      const targetId = item.id;
       const insumoRef = ref(db, `insumos/${targetId}`);
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          const atualEstoque = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const rawAtualEstoque = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const atualEstoque = Number(rawAtualEstoque.toFixed(4));
           const targetQtdPacote = Number(currentData.qtdPacote || 1);
           const atualEstoqueVols = atualEstoque / targetQtdPacote;
           const atualPrecoMedio = Number(currentData.precoPacote || 0);
@@ -146,7 +151,7 @@ export default function ComprasManager() {
           const custoAntigo = atualEstoqueVols * atualPrecoMedio;
           const novoPreco = totalVols > 0 ? (custoAntigo + valorCompraTotal) / totalVols : 0;
 
-          currentData.estoqueEstacionario = atualEstoque + qtdAdicionar;
+          currentData.estoqueEstacionario = Number((atualEstoque + qtdAdicionar).toFixed(4));
           currentData.precoPacote = Number(novoPreco.toFixed(4));
           currentData.ultimoPrecoCompra = Number((valorCompraTotal / qtdAdicionarLinkedVols).toFixed(4));
           
@@ -166,12 +171,22 @@ export default function ComprasManager() {
       });
 
       if (result.committed) {
+        if ((item.insumo as any).insumoVinculado) {
+          const linkedId = (item.insumo as any).insumoVinculado;
+          const unitRef = ref(db, `insumos/${linkedId}`);
+          await runTransaction(unitRef, (linkedData) => {
+            if (linkedData) {
+              const fardoQtd = Number(item.insumo.qtdPacote || 1);
+              const fardoData = result.snapshot.val();
+              linkedData.precoPacote = Number((fardoData.precoPacote / fardoQtd).toFixed(4));
+              linkedData.ultimoPrecoCompra = Number((fardoData.ultimoPrecoCompra / fardoQtd).toFixed(4));
+            }
+            return linkedData;
+          });
+        }
         const tipoEmb = (item.insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
         
-        let nomeInsumoLog = item.insumo.nome;
-        if (targetId !== item.id && result.snapshot.val()) {
-           nomeInsumoLog = `${item.insumo.nome} (Quebra p/ ${result.snapshot.val().nome})`;
-        }
+        const nomeInsumoLog = item.insumo.nome;
 
         await set(push(ref(db, 'historico_compras')), {
           insumoId: targetId,
@@ -200,7 +215,7 @@ export default function ComprasManager() {
   };
 
   const handlePinSubmit = async () => {
-    const func = funcionarios.find(f => f.pin === pin);
+    const func = funcionarios.find(f => String(f.pin) === pin);
     if (!func) return showToast('PIN inválido!', 'error');
     const isAdminOrGerente = Array.isArray(func.cargo) ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c)) : ['Administrador', 'Gerente', 'Dono'].includes(func.cargo as string);
     if (!isAdminOrGerente) {

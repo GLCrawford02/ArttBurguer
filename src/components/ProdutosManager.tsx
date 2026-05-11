@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
-import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2, X } from 'lucide-react';
+import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2, X, Settings } from 'lucide-react';
 
 export default function ProdutosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -50,6 +50,7 @@ export default function ProdutosManager() {
   const [showProdutoCopiaDropdown, setShowProdutoCopiaDropdown] = useState(false);
   const [searchCategoria, setSearchCategoria] = useState('');
   const [showCategoriaDropdown, setShowCategoriaDropdown] = useState(false);
+  const [editModeIng, setEditModeIng] = useState<Record<number, boolean>>({});
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
@@ -118,6 +119,14 @@ export default function ProdutosManager() {
 
   const removeIngrediente = (index: number) => {
     setIngredientesSelecionados(ingredientesSelecionados.filter((_, i) => i !== index));
+    setEditModeIng({});
+  };
+
+  const handleUpdateIngrediente = (idx: number, newQtd: number) => {
+    const newIngs = [...ingredientesSelecionados];
+    newIngs[idx].quantidade = newQtd;
+    setIngredientesSelecionados(newIngs);
+    setEditModeIng(prev => { const n = {...prev}; delete n[idx]; return n; });
   };
 
   const handleAddCategoria = async () => {
@@ -276,6 +285,7 @@ export default function ProdutosManager() {
       setProdutoCopiaId('');
       setSearchProdutoCopia('');
       setSearchCategoria('');
+      setEditModeIng({});
       setCriarDuplo(false);
   
       showToast(editId ? 'Produto atualizado com sucesso!' : 'Produto salvo com sucesso!', 'success');
@@ -402,7 +412,9 @@ Formato esperado:
     setPontosCarne((produto as any).opcoes?.pontosCarne || []);
     setAdicionais((produto as any).opcoes?.adicionais || []);
     setSearchProdutoCopia('');
+      setEditModeIng({});
     setCriarDuplo(false);
+    setEditModeIng({});
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -418,7 +430,9 @@ Formato esperado:
     setPontosCarne([]);
     setAdicionais([]);
     setProdutoCopiaId('');
+    setEditModeIng({});
     setSearchProdutoCopia('');
+    setEditModeIng({});
   };
 
   const excluirProduto = async (id: string) => {
@@ -704,14 +718,33 @@ Formato esperado:
               <div className="divide-y divide-gray-100 border border-gray-200 bg-white rounded-lg max-h-[300px] overflow-y-auto">
                 {ingredientesSelecionados.map((ing, idx) => {
                   const insumo = insumos.find(i => i.id === ing.insumoId);
+                  const isEditing = editModeIng[idx];
                   return (
                     <div key={idx} className="flex justify-between items-center p-3 text-sm">
-                      <span className="font-medium text-gray-800">{insumo?.nome} <span className="text-gray-500 font-normal ml-1">- {ing.quantidade}{insumo?.unidade}</span></span>
+                      <span className="font-medium text-gray-800">{insumo?.nome} {!isEditing && <span className="text-gray-500 font-normal ml-1">- {ing.quantidade}{insumo?.unidade}</span>}</span>
                       <div className="flex items-center space-x-4">
                         <span className="text-gray-500 font-medium">R$ {calcularCustoIngrediente(ing).toFixed(2)}</span>
-                        <button onClick={() => removeIngrediente(idx)} className="text-red-500 hover:bg-red-50 p-1.5 rounded transition-colors">
-                          <Trash2 size={16} />
-                        </button>
+                        {!isEditing ? (
+                          <button onClick={() => setEditModeIng(prev => ({...prev, [idx]: true}))} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors" title="Editar">
+                            <Settings size={16} />
+                          </button>
+                        ) : (
+                          <div className="flex items-center space-x-2 animate-in fade-in zoom-in duration-200">
+                            <input 
+                              type="number" 
+                              step="any"
+                              value={ing.quantidade || ''} 
+                              onChange={(e) => handleUpdateIngrediente(idx, Number(e.target.value))} 
+                              className="w-20 p-1 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-blue-500 text-xs" 
+                            />
+                            <button onClick={() => removeIngrediente(idx)} className="p-1.5 text-red-500 hover:bg-red-50 rounded transition-colors" title="Remover">
+                              <Trash2 size={16} />
+                            </button>
+                            <button onClick={() => setEditModeIng(prev => ({...prev, [idx]: false}))} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded transition-colors" title="Concluir Edição">
+                              <X size={16} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
