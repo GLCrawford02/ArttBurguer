@@ -2,9 +2,10 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, set, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Scale, Save, Download, CalendarClock, CheckCircle, Search, Settings, X, RefreshCw } from 'lucide-react';
+import { Scale, Save, Download, CalendarClock, CheckCircle, Search, Settings, X, RefreshCw, ChevronUp, ChevronDown } from 'lucide-react';
+import CalculadoraFlutuante from './CalculadoraFlutuante';
 
-export default function BalancoManager() {
+export default function BalancoManager({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [novosEstoques, setNovosEstoques] = useState<Record<string, string>>({});
   const [novosCustos, setNovosCustos] = useState<Record<string, string>>({});
@@ -15,6 +16,15 @@ export default function BalancoManager() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -177,15 +187,47 @@ export default function BalancoManager() {
     return false;
   };
 
-  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+  const isGestor = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(currentUser.cargo as string)
+  );
 
-  const insumosExibidos = insumos.filter(i => {
+  const insumosPermitidos = insumos.filter(i => isGestor || !(i as any).restrito);
+  const tiposExistentes = Array.from(new Set(insumosPermitidos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  const insumosExibidos = insumosPermitidos.filter(i => {
     const matchSearch = searchTerm
       ? i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
       : true;
     const matchVencimento = filtroVencimento ? isProximoVencimento(i) : true;
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchVencimento && matchTipo;
+  });
+
+  const sortedInsumosExibidos = [...insumosExibidos].sort((a, b) => {
+    if (!sortConfig) return a.nome.localeCompare(b.nome);
+    const { key, direction } = sortConfig;
+    
+    let valA: any = '';
+    let valB: any = '';
+
+    if (key === 'nome') {
+       valA = a.nome.toLowerCase();
+       valB = b.nome.toLowerCase();
+    } else if (key === 'estoque') {
+       if (activeTab === 'estacionado') {
+         valA = Number(a.estoqueEstacionario ?? 0);
+         valB = Number(b.estoqueEstacionario ?? 0);
+       } else {
+         valA = Number(a.estoqueRotativo ?? (a as any).estoqueAtual ?? 0);
+         valB = Number(b.estoqueRotativo ?? (b as any).estoqueAtual ?? 0);
+       }
+    }
+    
+    if (valA < valB) return direction === 'asc' ? -1 : 1;
+    if (valA > valB) return direction === 'asc' ? 1 : -1;
+    return 0;
   });
 
   const exportarExcel = () => {
@@ -282,17 +324,17 @@ export default function BalancoManager() {
         <div className="max-h-[600px] overflow-y-auto">
           <table className="w-full text-left border-collapse min-w-[600px]">
           <thead className="sticky top-0 z-10 shadow-sm">
-            <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
-              <th className="px-6 py-3">Insumo</th>
+            <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100 select-none">
+              <th className="px-6 py-3 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('nome')}><div className="flex items-center">Insumo {sortConfig?.key === 'nome' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
               {activeTab === 'estacionado' ? (
-                <th className="px-6 py-3">Estoque Estacionado (Lotes / Físico)</th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('estoque')}><div className="flex items-center">Estoque Estacionado (Lotes / Físico) {sortConfig?.key === 'estoque' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
               ) : (
-                <th className="px-6 py-3">Estoque Rotativo (Em uso na Cozinha)</th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('estoque')}><div className="flex items-center">Estoque Rotativo (Em uso na Cozinha) {sortConfig?.key === 'estoque' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
               )}
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100">
-            {insumosExibidos.map(i => {
+            {sortedInsumosExibidos.map(i => {
               const rotativo = Number(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
               const estacionario = Number(i.estoqueEstacionario ?? 0);
               return (
@@ -491,8 +533,8 @@ export default function BalancoManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {historicoBalanco.map((h, idx) => (
-                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                {[...historicoBalanco].sort((a, b) => a.nome.localeCompare(b.nome)).map((h) => (
+                  <tr key={h.id} className="hover:bg-gray-50 transition-colors">
                     <td className="px-4 py-3 font-bold text-gray-800">{h.nome}</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{h.tipo} {h.detalhe ? `(${h.detalhe})` : ''}</td>
                     <td className="px-4 py-3 text-gray-500">{h.qtdAntiga} {h.unidade}</td>
@@ -519,6 +561,8 @@ export default function BalancoManager() {
         <span className="whitespace-pre-line">{toast.message}</span>
       </div>
     )}
+
+    <CalculadoraFlutuante />
     </div>
   );
 }

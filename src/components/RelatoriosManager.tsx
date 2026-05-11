@@ -14,6 +14,8 @@ interface CompraLog {
   qtdUnidadesAdicionadas?: number;
   unidadeBase?: string;
   custoTotal: number;
+  fornecedorId?: string;
+  fornecedorNome?: string;
   timestamp: number;
 }
 
@@ -116,10 +118,11 @@ export default function RelatoriosManager() {
     let filename = '';
 
     if (activeTab === 'despesas') {
-      headers = ['Data / Hora', 'Insumo', 'Qtd Comprada', 'Custo Total (R$)'];
+      headers = ['Data / Hora', 'Insumo', 'Fornecedor', 'Qtd Comprada', 'Custo Total (R$)'];
       rows = historico.map(h => [
         new Date(h.timestamp).toLocaleString('pt-BR'),
         h.nome,
+        h.fornecedorNome || '-',
         `${h.qtdEmbalagens || h.qtdPacotes || 0} ${h.tipoEmbalagem || 'Volume(s)'} (${h.qtdUnidadesAdicionadas || '?'} ${h.unidadeBase || 'un'})`,
         h.custoTotal.toFixed(2).replace('.', ',')
       ]);
@@ -231,13 +234,40 @@ export default function RelatoriosManager() {
       </div>
 
       {activeTab === 'despesas' ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-3 print:gap-2">
+        <div className="space-y-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 print:grid-cols-3 print:gap-2">
           <CardRelatorio titulo="Gasto Diário" valor={gastos.diario} descricao="Compras realizadas hoje" />
           <CardRelatorio titulo="Gasto Semanal" valor={gastos.semanal} descricao="Últimos 7 dias" />
           <CardRelatorio titulo="Fins de Semana" valor={gastos.fimDeSemana} descricao="Sábados e Domingos (Este mês)" />
           <CardRelatorio titulo="Gasto Quinzenal" valor={gastos.quinzenal} descricao="Últimos 15 dias" />
           <CardRelatorio titulo="Gasto Mensal" valor={gastos.mensal} descricao="Acumulado deste mês" />
           <CardRelatorio titulo="Capital em Estoque" valor={valorEstoque} descricao="Valor investido em mercadorias" colorType="emerald" />
+        </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:border-none print:shadow-none">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
+                  <th className="px-6 py-4">Data / Hora</th>
+                  <th className="px-6 py-4">Fornecedor</th>
+                  <th className="px-6 py-4">Insumo Comprado</th>
+                  <th className="px-6 py-4">Quantidade</th>
+                  <th className="px-6 py-4">Custo Total</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {historico.sort((a, b) => b.timestamp - a.timestamp).slice(0, 100).map(h => (
+                  <tr key={h.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm text-gray-500">{new Date(h.timestamp).toLocaleString('pt-BR')}</td>
+                    <td className="px-6 py-4 font-bold text-indigo-600">{h.fornecedorNome || '-'}</td>
+                    <td className="px-6 py-4 font-medium text-gray-900">{h.nome}</td>
+                    <td className="px-6 py-4 text-gray-800">{h.qtdEmbalagens || h.qtdPacotes || 0} {h.tipoEmbalagem || 'Volume(s)'}</td>
+                    <td className="px-6 py-4 font-bold text-red-600">R$ {h.custoTotal.toFixed(2)}</td>
+                  </tr>
+                ))}
+                {historico.length === 0 && <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhum registro de compra.</td></tr>}
+              </tbody>
+            </table>
+          </div>
         </div>
       ) : activeTab === 'transferencias' ? (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:border-none print:shadow-none">

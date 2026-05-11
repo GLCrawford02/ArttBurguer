@@ -23,6 +23,10 @@ export default function ComprasManager() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
+  const [fornecedores, setFornecedores] = useState<any[]>([]);
+  const [selectedFornecedorId, setSelectedFornecedorId] = useState('');
+  const [searchFornecedor, setSearchFornecedor] = useState('');
+  const [showFornecedorDropdown, setShowFornecedorDropdown] = useState(false);
   const [pendingCart, setPendingCart] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -52,7 +56,14 @@ export default function ComprasManager() {
       else setFuncionarios([]);
     });
 
-    return () => { unsub(); unsubFunc(); };
+    const fornRef = ref(db, 'fornecedores');
+    const unsubForn = onValue(fornRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setFornecedores(Object.entries(data).map(([id, val]: any) => ({ id, ...val })).sort((a,b) => a.nome.localeCompare(b.nome)));
+      else setFornecedores([]);
+    });
+
+    return () => { unsub(); unsubFunc(); unsubForn(); };
   }, []);
 
   const gerarLoteData = () => {
@@ -101,6 +112,7 @@ export default function ComprasManager() {
   const handleFinalizarEntrada = async (isConfirmedAdmin = false) => {
     if (carrinho.length === 0) return showToast('A lista de entrada está vazia.', 'error');
 
+    const forn = fornecedores.find(f => f.id === selectedFornecedorId);
     for (const item of carrinho) {
       const valorTotal = Number(item.valorTotalStr) || 0;
       if (item.qtd <= 0) return showToast(`Informe a quantidade para ${item.insumo.nome}.`, 'error');
@@ -197,6 +209,8 @@ export default function ComprasManager() {
           qtdUnidadesAdicionadas: qtdAdicionar,
           unidadeBase: item.insumo.unidade,
           custoTotal: valorCompraTotal,
+          fornecedorId: selectedFornecedorId || null,
+          fornecedorNome: forn ? (forn.nomeFantasia || forn.nome) : null,
           precoMedioAtualizado: result.snapshot.val().precoPacote,
           lote: item.lote,
           validade: item.validade,
@@ -210,6 +224,8 @@ export default function ComprasManager() {
     if (sucessos > 0) {
       showToast(`Entrada de Mercadoria finalizada! ${sucessos} insumo(s) reabastecido(s).`, 'success');
       setCarrinho([]);
+      setSelectedFornecedorId('');
+      setSearchFornecedor('');
     }
     setPendingCart(false);
   };
@@ -217,7 +233,7 @@ export default function ComprasManager() {
   const handlePinSubmit = async () => {
     const func = funcionarios.find(f => String(f.pin) === pin);
     if (!func) return showToast('PIN inválido!', 'error');
-    const isAdminOrGerente = Array.isArray(func.cargo) ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c)) : ['Administrador', 'Gerente', 'Dono'].includes(func.cargo as string);
+    const isAdminOrGerente = Array.isArray(func.cargo) ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c)) : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(func.cargo as string);
     if (!isAdminOrGerente) {
       showToast('Autorização negada! Requer Gerente ou Administrador.', 'error');
       return;
@@ -401,11 +417,38 @@ export default function ComprasManager() {
 
         {carrinho.length > 0 && (
           <div className="bg-blue-50/50 border-t border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-center gap-4">
-             <div>
-               <p className="text-sm font-bold text-blue-600 uppercase tracking-wider">Total da Entrada</p>
-               <p className="text-3xl font-black text-gray-900">R$ {valorTotalEntrada.toFixed(2).replace('.', ',')}</p>
-               <p className="text-xs text-gray-500 mt-1 font-medium">{carrinho.length} item(ns) na lista aguardando salvar</p>
-             </div>
+           <div className="flex-1 flex flex-col sm:flex-row gap-4 w-full justify-between">
+               <div>
+                 <p className="text-sm font-bold text-blue-600 uppercase tracking-wider">Total da Entrada</p>
+                 <p className="text-3xl font-black text-gray-900">R$ {valorTotalEntrada.toFixed(2).replace('.', ',')}</p>
+                 <p className="text-xs text-gray-500 mt-1 font-medium">{carrinho.length} item(ns) na lista aguardando salvar</p>
+               </div>
+               <div className="sm:ml-8 flex-1 max-w-sm w-full">
+                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Fornecedor (Opcional)</label>
+                 <div className="relative w-full">
+                   <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500">
+                     <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                     <input 
+                       type="text" 
+                       value={searchFornecedor} 
+                       onChange={e => { setSearchFornecedor(e.target.value); setSelectedFornecedorId(''); setShowFornecedorDropdown(true); }}
+                       onFocus={() => setShowFornecedorDropdown(true)}
+                       onBlur={() => setTimeout(() => setShowFornecedorDropdown(false), 200)}
+                       className="w-full p-2.5 outline-none rounded-lg text-sm bg-transparent font-medium"
+                       placeholder="Buscar fornecedor..."
+                     />
+                   </div>
+                   {showFornecedorDropdown && (
+                     <div className="absolute bottom-full mb-1 z-50 w-full bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                       {fornecedores.filter(f => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).map(f => (
+                         <div key={f.id} onClick={() => { setSelectedFornecedorId(f.id); setSearchFornecedor(f.nomeFantasia || f.nome); setShowFornecedorDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{f.nomeFantasia || f.nome} {f.documento ? `(${f.documento})` : ''}</span></div>
+                       ))}
+                       {fornecedores.filter(f => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado</div>}
+                     </div>
+                   )}
+                 </div>
+               </div>
+           </div>
              <button onClick={() => handleFinalizarEntrada(false)} disabled={loading} className="w-full sm:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl disabled:opacity-70">
                 {loading ? <span className="animate-pulse">Salvando Estoque...</span> : <><CheckCircle size={24} className="mr-2"/> Confirmar Entrada de Mercadoria</>}
              </button>

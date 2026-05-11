@@ -376,7 +376,7 @@ client.on('message', async (msg) => {
                     if (idAlvo === funcionarioId) continue;
 
                     const cargosAlvo = Array.isArray(funcAlvo.cargo) ? funcAlvo.cargo : [funcAlvo.cargo || ''];
-                    const isGestor = cargosAlvo.some(c => c.toLowerCase() === 'dono' || c.toLowerCase() === 'gerente' || c.toLowerCase() === 'administrador');
+                    const isGestor = cargosAlvo.some(c => c.toLowerCase() === 'dono' || c.toLowerCase() === 'gerente' || c.toLowerCase() === 'administrador' || c.toLowerCase() === 'ti');
                     
                     if (isGestor) {
                         if (funcAlvo.whatsappId) {

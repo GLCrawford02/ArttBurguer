@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing, X, Download } from 'lucide-react';
+import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -20,6 +20,8 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<'insumos' | 'produtos' | 'baixos' | 'excedentes' | 'vencimentos' | null>(null);
   const [modalSearchTerm, setModalSearchTerm] = useState('');
+  const [vendas, setVendas] = useState<any[]>([]);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -84,19 +86,34 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       else setTarefas([]);
     });
 
+    const vendasRef = ref(db, 'vendas_pdv');
+    const unsubVendas = onValue(vendasRef, (snap) => {
+      const data = snap.val();
+      if (data) setVendas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
+      else setVendas([]);
+    });
+
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubFunc();
       unsubPagar();
       unsubReceber();
+      unsubVendas();
       unsubTarefas();
     };
   }, []);
 
 
-  const baixos = insumos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
-  const excedentes = insumos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
+  const isGestor = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(currentUser.cargo as string)
+  );
+
+  const insumosPermitidos = insumos.filter(i => isGestor || !(i as any).restrito);
+  const baixos = insumosPermitidos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
+  const excedentes = insumosPermitidos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
 
   const isVencido = (item: any) => {
     const hoje = new Date();
@@ -129,8 +146,8 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       return;
     }
     const isAdminOrGerente = Array.isArray(func.cargo)
-      ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono'].includes(c))
-      : ['Administrador', 'Gerente', 'Dono'].includes(func.cargo as string);
+      ? func.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(func.cargo as string);
     if (!isAdminOrGerente) {
       showToast('Autorização negada! Requer Gerente ou Administrador.', 'error');
       return;
@@ -182,15 +199,60 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     setShowPinModal(true);
   };
 
-  const filteredInsumos = insumos.filter(i => {
+  const filteredInsumos = insumosPermitidos.filter(i => {
     const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase());
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;
   });
 
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
+
+  const sortedInsumos = [...filteredInsumos].sort((a, b) => {
+    if (!sortConfig) return a.nome.localeCompare(b.nome);
+    const { key, direction } = sortConfig;
+    
+    let valA: any = '';
+    let valB: any = '';
+
+    if (key === 'nome') {
+       valA = a.nome.toLowerCase();
+       valB = b.nome.toLowerCase();
+    } else if (key === 'tipo') {
+       valA = ((a as any).tipoUso || '').toLowerCase();
+       valB = ((b as any).tipoUso || '').toLowerCase();
+    } else if (key === 'rotativo') {
+       valA = Number(a.estoqueRotativo ?? (a as any).estoqueAtual ?? 0);
+       valB = Number(b.estoqueRotativo ?? (b as any).estoqueAtual ?? 0);
+    } else if (key === 'estacionado') {
+       valA = Number(a.estoqueEstacionario ?? 0);
+       valB = Number(b.estoqueEstacionario ?? 0);
+    } else if (key === 'preco') {
+       valA = Number(a.precoPacote) / Number(a.qtdPacote || 1);
+       valB = Number(b.precoPacote) / Number(b.qtdPacote || 1);
+    } else if (key === 'validade') {
+       const getEarliest = (item: any) => {
+          if (item.lotes) return Math.min(...Object.values(item.lotes).map((l: any) => l.validade ? new Date(`${l.validade}T00:00:00`).getTime() : Infinity));
+          if ((item as any).validade) return new Date(`${(item as any).validade}T00:00:00`).getTime();
+          return Infinity;
+       };
+       valA = getEarliest(a);
+       valB = getEarliest(b);
+    }
+    
+    if (valA < valB) return direction === 'asc' ? -1 : 1;
+    if (valA > valB) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   const validadeProxima: any[] = [];
   
-  insumos.forEach(i => {
+  insumosPermitidos.forEach(i => {
     const diasAviso = (i as any).diasAvisoValidade !== undefined ? (i as any).diasAvisoValidade : 7;
     
     if (i.lotes) {
@@ -322,14 +384,33 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   };
 
 
+  const getLast7Days = () => {
+    const days = [];
+    for (let i = 6; i >= 0; i--) {
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      d.setHours(0, 0, 0, 0);
+      days.push(d);
+    }
+    return days;
+  };
+  const dias = getLast7Days();
+  const vendasPorDia = dias.map(d => {
+    const nextDay = new Date(d);
+    nextDay.setDate(nextDay.getDate() + 1);
+    const total = vendas.filter(v => v.timestamp >= d.getTime() && v.timestamp < nextDay.getTime()).reduce((acc, v) => acc + (v.valorLiquido || v.valor || 0), 0);
+    return { dia: d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''), total };
+  });
+  const maxVenda = Math.max(...vendasPorDia.map(v => v.total), 1);
+
   const hojeDateStr = new Date().toISOString().split('T')[0];
   const agendaHoje = tarefas.filter(t => t.dataAgendada === hojeDateStr && t.status === 'pendente').sort((a, b) => (a.horaAgendada || '23:59').localeCompare(b.horaAgendada || '23:59'));
   
-  const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono');
+  const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI');
   const isAdminOrDono = currentUser && (
     Array.isArray(currentUser.cargo) 
-      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') 
-      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono'
+      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono' || c === 'TI') 
+      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
   );
 
   return (
@@ -513,6 +594,26 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
         </div>
       )}
 
+      <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden mb-6">
+        <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
+          <h3 className="font-bold text-gray-800 flex items-center"><BarChart2 className="mr-2 text-green-500"/> Faturamento Diário (Últimos 7 Dias)</h3>
+        </div>
+        <div className="p-6">
+          <div className="flex h-48 items-end gap-2 sm:gap-4">
+            {vendasPorDia.map((v, idx) => (
+              <div key={idx} className="flex-1 flex flex-col items-center group relative h-full justify-end">
+                <div className="w-full bg-green-100 rounded-t-md relative flex justify-center hover:bg-green-200 transition-colors" style={{ height: `${(v.total / maxVenda) * 100}%`, minHeight: v.total > 0 ? '4px' : '0' }}>
+                   <div className="opacity-0 group-hover:opacity-100 absolute -top-8 bg-gray-800 text-white text-[10px] font-bold px-2 py-1 rounded transition-opacity whitespace-nowrap z-10">
+                     R$ {v.total.toFixed(2)}
+                   </div>
+                </div>
+                <span className="text-[10px] sm:text-xs font-bold text-gray-500 mt-2 uppercase">{v.dia}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
         <div className="px-6 py-4 border-b border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <h3 className="font-bold text-gray-800">Lista de Insumos</h3>
@@ -552,18 +653,32 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
           ) : (
             <table className="w-full text-left border-collapse">
             <thead className="sticky top-0 z-10 shadow-sm">
-              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider">
-                <th className="px-6 py-3">Insumo</th>
-                <th className="px-6 py-3">Tipo</th>
-                <th className="px-6 py-3">Rotativo</th>
-                <th className="px-6 py-3">Estacionado</th>
-                <th className="px-6 py-3">Preço Unit.</th>
-                <th className="px-6 py-3">Validade</th>
-                <th className="px-6 py-3">Status</th>
+              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider select-none">
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('nome')}>
+                  <div className="flex items-center">Insumo {sortConfig?.key === 'nome' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('tipo')}>
+                  <div className="flex items-center">Tipo {sortConfig?.key === 'tipo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('rotativo')}>
+                  <div className="flex items-center">Rotativo {sortConfig?.key === 'rotativo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('estacionado')}>
+                  <div className="flex items-center">Estacionado {sortConfig?.key === 'estacionado' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('preco')}>
+                  <div className="flex items-center">Preço Unit. {sortConfig?.key === 'preco' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3 cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => handleSort('validade')}>
+                  <div className="flex items-center">Validade {sortConfig?.key === 'validade' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-3">
+                  <div className="flex items-center">Status</div>
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
-              {filteredInsumos.map(i => {
+              {sortedInsumos.map(i => {
                 return (
                 <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">
                   <td className="px-6 py-4 font-medium text-gray-900">{i.nome}</td>

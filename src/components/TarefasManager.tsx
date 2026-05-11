@@ -29,9 +29,10 @@ export interface Tarefa {
   terminarRepeticao?: 'nunca' | 'em_data';
   dataFimRepeticao?: string;
   lembreteAntecipado?: number; // minutos
+  criadoPor?: string | null;
 }
 
-export default function TarefasManager() {
+export default function TarefasManager({ currentUser }: { currentUser?: any }) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   
@@ -194,6 +195,7 @@ export default function TarefasManager() {
       terminarRepeticao,
       dataFimRepeticao,
       lembreteAntecipado,
+      criadoPor: currentUser?.id || null,
     };
 
     try {
@@ -284,6 +286,7 @@ export default function TarefasManager() {
         novaTarefa.dataAgendada = nextDateStr;
         novaTarefa.notificadoWhatsApp = false;
         novaTarefa.notificadoAntecipado = false;
+        novaTarefa.criadoPor = tarefa.criadoPor || null;
         novaTarefa.timestamp = Date.now();
         
         await set(push(ref(db, 'tarefas')), novaTarefa);
@@ -299,12 +302,26 @@ export default function TarefasManager() {
     }
   };
 
-  const pendentes = tarefas.filter(t => t.status === 'pendente');
-  const concluidas = tarefas.filter(t => t.status === 'concluida');
+  const isGlobalViewer = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Dono', 'TI'].includes(c)) 
+      : ['Administrador', 'Dono', 'TI'].includes(currentUser.cargo as string)
+  );
+
+  const tarefasVisiveis = tarefas.filter(t => {
+    if (isGlobalViewer) return true;
+    if (t.criadoPor === currentUser?.id) return true;
+    if (t.responsaveisIds?.includes(currentUser?.id)) return true;
+    if (t.responsavelId === currentUser?.id) return true;
+    return false;
+  });
+
+  const pendentes = tarefasVisiveis.filter(t => t.status === 'pendente');
+  const concluidas = tarefasVisiveis.filter(t => t.status === 'concluida');
 
   // Calculo de Produtividade
   const userStats = funcionarios.map(f => {
-    const userTasks = tarefas.filter(t => (t.responsaveisIds && t.responsaveisIds.includes(f.id)) || t.responsavelId === f.id);
+    const userTasks = tarefasVisiveis.filter(t => (t.responsaveisIds && t.responsaveisIds.includes(f.id)) || t.responsavelId === f.id);
     const pends = userTasks.filter(t => t.status === 'pendente').length;
     const concs = userTasks.filter(t => t.status === 'concluida').length;
     return { ...f, pendentes: pends, concluidas: concs, total: pends + concs };

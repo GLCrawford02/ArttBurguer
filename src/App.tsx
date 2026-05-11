@@ -12,6 +12,7 @@ import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
 import TransferenciaManager from './components/TransferenciaManager';
+import VisibilidadeManager from './components/VisibilidadeManager';
 import GestaoFinanceira from './components/GestaoFinanceira';
 import FuncionariosManager from './components/FuncionariosManager';
 import GestaoEquipeManager from './components/GestaoEquipeManager';
@@ -31,7 +32,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
-  const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia'>('compras');
+  const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
   const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes'>('gerais');
@@ -55,6 +56,20 @@ export default function App() {
       sessionStorage.removeItem('arttburger_session');
     }
   }, [currentUser]);
+
+  // Mantém a sessão do usuário atualizada em tempo real caso os cargos sejam alterados
+  useEffect(() => {
+    if (currentUser && funcionarios.length > 0) {
+      const updatedUser = funcionarios.find(f => f.id === currentUser.id);
+      if (updatedUser) {
+        const currentCargoStr = Array.isArray(currentUser.cargo) ? [...currentUser.cargo].sort().join(',') : currentUser.cargo;
+        const updatedCargoStr = Array.isArray(updatedUser.cargo) ? [...updatedUser.cargo].sort().join(',') : updatedUser.cargo;
+        if (currentCargoStr !== updatedCargoStr || (updatedUser as any).ativo !== (currentUser as any).ativo) {
+          setCurrentUser(updatedUser);
+        }
+      }
+    }
+  }, [funcionarios]);
 
   useEffect(() => {
     document.title = 'ArttBurger';
@@ -122,7 +137,7 @@ export default function App() {
   const temPermissao = (modulo: string) => {
     if (!currentUser) return false;
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-    if (cargos.includes('Administrador') || cargos.includes('Dono')) return true;
+    if (cargos.includes('Administrador') || cargos.includes('Dono') || cargos.includes('TI')) return true;
     return cargos.some(c => permissoes[c]?.[modulo]?.visualizar);
   };
 
@@ -133,7 +148,7 @@ export default function App() {
     const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
     if (isKdsOnly) return ['producao'];
 
-    if (cargos.includes('Administrador') || cargos.includes('Dono')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'];
+    if (cargos.includes('Administrador') || cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'];
 
     const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
     
@@ -163,7 +178,7 @@ export default function App() {
         handleTabChange(allowed[0] as any);
       }
       
-      const checkIsDono = Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono';
+      const checkIsDono = Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI';
 
       // Redireciona a sub-aba automaticamente se ele perder o acesso
       const allowedCadastrosSubTabs: ('insumos' | 'fornecedores')[] = [];
@@ -202,7 +217,7 @@ export default function App() {
 
     const isExempt = currentUser && (() => {
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono'].includes(c) || c.toUpperCase().includes('KDS'));
+      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c) || c.toUpperCase().includes('KDS'));
     })();
 
     if (currentUser && !isExempt) {
@@ -261,7 +276,7 @@ export default function App() {
   }
 
   const allowedTabs = getAllowedTabs();
-  const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') : currentUser.cargo === 'Dono');
+  const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI');
 
   const isKdsOnly = currentUser && (() => {
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
@@ -504,7 +519,7 @@ export default function App() {
         <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
           
-          {activeTab === 'tarefas' && <TarefasManager />}
+          {activeTab === 'tarefas' && <TarefasManager currentUser={currentUser} />}
           
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
@@ -539,9 +554,13 @@ export default function App() {
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('compras') && <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Entrada de Mercadoria</button>}
                 {temPermissao('transferencias') && <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>}
+                {(Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c)) : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(currentUser.cargo as string)) && (
+                  <button onClick={() => setSubTabMovimentacoes('visibilidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'visibilidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visibilidade de Estoque</button>
+                )}
               </div>
               {subTabMovimentacoes === 'compras' && <ComprasManager />}
-              {subTabMovimentacoes === 'transferencia' && <TransferenciaManager />}
+              {subTabMovimentacoes === 'transferencia' && <TransferenciaManager currentUser={currentUser} />}
+              {subTabMovimentacoes === 'visibilidade' && <VisibilidadeManager />}
             </div>
           )}
 
@@ -577,7 +596,7 @@ export default function App() {
             </div>
           )}
           {activeTab === 'producao' && <ProducaoManager currentUser={currentUser} />}
-          {activeTab === 'balanco' && <BalancoManager />}
+          {activeTab === 'balanco' && <BalancoManager currentUser={currentUser} />}
 
           {activeTab === 'financeiro' && (
             <div className="space-y-6">

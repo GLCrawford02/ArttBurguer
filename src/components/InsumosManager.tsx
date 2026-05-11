@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
-import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon } from 'lucide-react';
+import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon, ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function InsumosManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -42,6 +42,15 @@ export default function InsumosManager() {
   const [showForm, setShowForm] = useState(false);
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -416,6 +425,21 @@ Formato esperado para cada objeto:
     return matchSearch && matchTipo;
   });
 
+  const sortedInsumos = [...filteredInsumos].sort((a, b) => {
+    if (!sortConfig) return a.nome.localeCompare(b.nome);
+    const { key, direction } = sortConfig;
+    let valA: any = ''; let valB: any = '';
+
+    if (key === 'nome') { valA = a.nome.toLowerCase(); valB = b.nome.toLowerCase(); }
+    else if (key === 'sku') { valA = ((a as any).sku || '').toLowerCase(); valB = ((b as any).sku || '').toLowerCase(); }
+    else if (key === 'tipo') { valA = ((a as any).tipoUso || '').toLowerCase(); valB = ((b as any).tipoUso || '').toLowerCase(); }
+    else if (key === 'custo') { valA = Number(a.precoPacote) / Number(a.qtdPacote || 1); valB = Number(b.precoPacote) / Number(b.qtdPacote || 1); }
+
+    if (valA < valB) return direction === 'asc' ? -1 : 1;
+    if (valA > valB) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
 
@@ -678,47 +702,53 @@ Formato esperado para cada objeto:
           </div>
         </div>
         
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pr-2">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 h-[80px] animate-pulse flex flex-col justify-center gap-3">
-                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/3"></div>
-              </div>
-            ))}
-          </div>
-        ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
-          {filteredInsumos.map(i => (
-            <div key={i.id} className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
-              <div>
-                <div className="flex items-center space-x-2 mb-1">
-                  <h4 className="font-bold text-gray-900">{i.nome}</h4>
-                  <span className="text-[10px] font-mono px-2 py-0.5 bg-gray-100 text-gray-600 rounded-full">{ (i as any).sku || 'N/A'}</span>
-                  {(i as any).tipoUso && <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span>}
-                </div>
-                <p className="text-sm text-gray-500 font-medium">
-                  Custo: <span className="text-blue-600">R$ {Number(i.precoPacote).toFixed(i.qtdPacote > 1 ? 2 : 3)}</span> por {i.unidade}
-                  {i.qtdPacote > 1 && <span className="ml-1 text-xs text-gray-400">(R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un)</span>}
-                </p>
-              </div>
-              <div className="flex space-x-2">
-                <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
-                  <Pencil size={18} />
-                </button>
-                <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                  <Trash2 size={18} />
-                </button>
-              </div>
-            </div>
-          ))}
-          {filteredInsumos.length === 0 && (
-            <div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200">
-              <p className="text-gray-400">Nenhum insumo encontrado.</p>
-            </div>
-          )}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto max-h-[500px]">
+          <table className="w-full text-left border-collapse min-w-[600px]">
+            <thead className="sticky top-0 z-10 shadow-sm bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase font-bold tracking-wider select-none">
+              <tr>
+                <th className="px-6 py-4 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('nome')}>
+                  <div className="flex items-center">Insumo {sortConfig?.key === 'nome' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('sku')}>
+                  <div className="flex items-center">SKU {sortConfig?.key === 'sku' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('tipo')}>
+                  <div className="flex items-center">Tipo {sortConfig?.key === 'tipo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('custo')}>
+                  <div className="flex items-center">Custo Unitário {sortConfig?.key === 'custo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
+                </th>
+                <th className="px-6 py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            {loading ? (
+              <tbody>{[...Array(5)].map((_, i) => (<tr key={i} className="animate-pulse"><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td></tr>))}</tbody>
+            ) : (
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {sortedInsumos.map(i => (
+                <tr key={i.id} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-6 py-4 font-bold text-gray-900">{i.nome}</td>
+                  <td className="px-6 py-4 text-gray-500 font-mono text-xs">{(i as any).sku || 'N/A'}</td>
+                  <td className="px-6 py-4">
+                    {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-1 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400">-</span>}
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="font-medium text-gray-800">
+                      Custo: <span className="text-blue-600">R$ {Number(i.precoPacote).toFixed(i.qtdPacote > 1 ? 2 : 3)}</span> por {i.unidade}
+                    </div>
+                    {i.qtdPacote > 1 && <div className="text-xs text-gray-400 mt-1">(R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un)</div>}
+                  </td>
+                  <td className="px-6 py-4 flex justify-end space-x-2">
+                    <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors"><Pencil size={18} /></button>
+                    <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                  </td>
+                </tr>
+              ))}
+              {sortedInsumos.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">Nenhum insumo encontrado.</td></tr>}
+            </tbody>
+            )}
+          </table>
         </div>
-        )}
       </div>
 
       {toast && (

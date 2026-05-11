@@ -107,7 +107,7 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
     setAiResponse('');
     const teamContext = funcionarios.filter(f => {
       const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-      return (f as any).ativo !== false && !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono');
+      return (f as any).ativo !== false && !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono' || c === 'TI');
     }).map(f => {
       const g = gestaoData[f.id] || {};
       const cargosStr = Array.isArray(f.cargo) ? f.cargo.join(', ') : (f.cargo || 'Não definido');
@@ -148,7 +148,7 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
 
   const funcionariosGerenciaveis = funcionarios.filter(f => {
     const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-    return !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono');
+    return !cargos.every(c => c === 'Administrador' || c === 'Gerente' || c === 'Dono' || c === 'TI');
   });
 
   return (

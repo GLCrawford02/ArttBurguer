@@ -64,6 +64,9 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
         if (!list.some(c => c.nome === 'Dono')) {
           push(ref(db, 'cargos'), { nome: 'Dono' });
         }
+        if (!list.some(c => c.nome === 'TI')) {
+          push(ref(db, 'cargos'), { nome: 'TI' });
+        }
         list.sort((a, b) => a.nome.localeCompare(b.nome));
         setCargos(list);
       } else {
@@ -153,8 +156,8 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
 
   const isAdminOrDono = currentUser && (
     Array.isArray(currentUser.cargo)
-      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono')
-      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono'
+      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono' || c === 'TI')
+      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
   );
 
   const funcHistorico = transferencias.filter(t => t.funcionarioId === historicoFuncionarioId);

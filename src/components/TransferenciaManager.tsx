@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Insumo, Funcionario, LoteDados } from '../types';
 import { ArrowRightLeft, Search, CheckCircle, AlertTriangle, CheckSquare } from 'lucide-react';
 
-export default function TransferenciaManager() {
+export default function TransferenciaManager({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -298,9 +298,16 @@ export default function TransferenciaManager() {
     });
   };
 
-  const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+  const isGestor = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(currentUser.cargo as string)
+  );
 
-  const filteredInsumos = insumos.filter(i => {
+  const insumosPermitidos = insumos.filter(i => isGestor || !(i as any).restrito);
+  const tiposExistentes = Array.from(new Set(insumosPermitidos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
+
+  const filteredInsumos = insumosPermitidos.filter(i => {
     const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;

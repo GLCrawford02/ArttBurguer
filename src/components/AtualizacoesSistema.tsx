@@ -1,7 +1,20 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
+    {
+      versao: '1.1.12',
+      titulo: 'Tabelas Interativas, Calculadora Flutuante e Privacidade de Estoque',
+      descricao: 'Melhorias massivas na experiência de uso: ordenação em tabelas, cálculos rápidos sem sair da tela e maior controle sobre o que a equipe acessa.',
+      features: [
+        'Calculadora Inteligente: Ferramenta flutuante com suporte ao teclado numérico para conferências rápidas no Balanço e no Financeiro.',
+        'Ordenação Dinâmica: Clique nos cabeçalhos das tabelas (Nome, Custo, Rotativo, Vencimento) para classificar os dados em ordem crescente ou decrescente.',
+        'Visibilidade de Insumos: Gestores agora podem ocultar itens específicos, limpando a visão dos funcionários nas Transferências e no Dashboard.',
+        'Fornecedores por CNPJ: Preenchimento automático de dados e busca com dropdown inteligente na tela de Compras e Contas a Pagar.',
+        'Insumo Variável e Refatoração: Novo controle de substituição de estoque diário e separação do sistema em modais independentes para maior agilidade.'
+      ],
+      icon: <Calculator className="text-emerald-500" size={20} />
+    },
     {
       versao: '1.1.11',
       titulo: 'Quebra de Estoque, Buscas Inteligentes e Opções por Produto',

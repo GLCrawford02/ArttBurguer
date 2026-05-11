@@ -55,8 +55,8 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
   const isAdminOrGerente = currentUser && (
     Array.isArray(currentUser.cargo) 
-      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Gerente' || c === 'Dono')
-      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente' || currentUser.cargo === 'Dono'
+      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Gerente' || c === 'Dono' || c === 'TI')
+      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
   );
 
   useEffect(() => {

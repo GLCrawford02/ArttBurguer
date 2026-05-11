@@ -3,6 +3,7 @@ import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao, ItemCombo, IngredienteReceita } from '../types';
 import { Tag, Trash2, Search, CheckCircle, AlertTriangle, Pencil, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import React from 'react';
 
 export default function PromocoesManager() {
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -28,6 +29,15 @@ export default function PromocoesManager() {
   const [showProdutoComboDropdown, setShowProdutoComboDropdown] = useState(false);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const handleSort = (key: string) => {
+    let direction: 'asc' | 'desc' = 'asc';
+    if (sortConfig && sortConfig.key === key && sortConfig.direction === 'asc') {
+      direction = 'desc';
+    }
+    setSortConfig({ key, direction });
+  };
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -194,6 +204,20 @@ export default function PromocoesManager() {
 
   const filteredPromocoes = promocoes.filter(p => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()));
 
+  const sortedPromocoes = [...filteredPromocoes].sort((a, b) => {
+    if (!sortConfig) return a.nome.localeCompare(b.nome);
+    const { key, direction } = sortConfig;
+    let valA: any = ''; let valB: any = '';
+
+    if (key === 'nome') { valA = a.nome.toLowerCase(); valB = b.nome.toLowerCase(); }
+    else if (key === 'custo') { valA = Number(a.custoTotal || 0); valB = Number(b.custoTotal || 0); }
+    else if (key === 'venda') { valA = Number((a as any).precoVenda || 0); valB = Number((b as any).precoVenda || 0); }
+
+    if (valA < valB) return direction === 'asc' ? -1 : 1;
+    if (valA > valB) return direction === 'asc' ? 1 : -1;
+    return 0;
+  });
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
 
@@ -348,41 +372,47 @@ export default function PromocoesManager() {
           </div>
         </div>
         {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 pr-2">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 h-[100px] animate-pulse flex flex-col justify-center gap-3">
-                <div className="h-4 bg-gray-200 rounded w-2/3"></div>
-                <div className="h-3 bg-gray-200 rounded w-1/3"></div>
-              </div>
-            ))}
-          </div>
+          <div className="animate-pulse space-y-4"><div className="h-12 bg-gray-200 rounded"></div><div className="h-12 bg-gray-200 rounded"></div></div>
         ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[450px] overflow-y-auto pr-2">
-          {filteredPromocoes.map(p => (
-            <div key={p.id} className="bg-white p-4 rounded-xl shadow-sm border border-purple-100 flex flex-col">
-              <div className="flex justify-between items-center">
-                <div>
-                  <h4 className="font-bold text-gray-900 mb-1">{p.nome}</h4>
-                  <p className="text-sm text-gray-500 font-medium">Custo: <span className="text-red-500">R$ {(p.custoTotal || 0).toFixed(2)}</span> | Venda: <span className="text-green-600">R$ {(p.precoVenda || 0).toFixed(2)}</span></p>
-                  {(p.dataInicio || p.dataFim || p.horarioInicio || p.horarioFim) && (
-                    <p className="text-[10px] text-gray-400 mt-0.5 font-medium">
-                      {p.dataInicio && `De ${p.dataInicio.split('-').reverse().join('/')} `}
-                      {p.dataFim && `até ${p.dataFim.split('-').reverse().join('/')} `}
-                      {p.horarioInicio && `das ${p.horarioInicio} `}
-                      {p.horarioFim && `às ${p.horarioFim}`}
-                    </p>
-                  )}
-                  <div className="flex items-center mt-1"><button onClick={() => setExpandedPromocaoId(expandedPromocaoId === p.id ? null : p.id)} className="text-xs text-purple-600 hover:text-purple-800 font-bold flex items-center transition-colors">{(p.itens || []).length} produtos inclusos {expandedPromocaoId === p.id ? <ChevronUp size={14} className="ml-1" /> : <ChevronDown size={14} className="ml-1" />}</button></div>
-                </div>
-                <div className="flex space-x-2">
-                  <button onClick={() => handleEdit(p)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg"><Pencil size={18} /></button>
-                  <button onClick={() => excluirPromocao(p.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={18} /></button>
-                </div>
-              </div>
-              {expandedPromocaoId === p.id && (<div className="mt-4 pt-4 border-t border-purple-50"><p className="text-xs font-bold text-purple-500 uppercase mb-2">Composição:</p><ul className="space-y-1">{(p.itens || []).map((item, idx) => { const prod = produtos.find(prod => prod.id === item.produtoId); return (<li key={idx} className="text-sm flex justify-between"><span className="text-gray-700">{prod?.nome || 'Produto removido'}</span><span className="text-gray-500 font-medium">x{item.quantidade}</span></li>); })}</ul></div>)}
-            </div>
-          ))}
-          {filteredPromocoes.length === 0 && (<div className="text-center py-12 bg-gray-50 rounded-xl border-2 border-dashed border-gray-200"><p className="text-gray-400">Nenhuma promoção encontrada.</p></div>)}
+        <div className="bg-white rounded-xl shadow-sm border border-purple-100 overflow-x-auto max-h-[500px]">
+          <table className="w-full text-left border-collapse min-w-[600px]">
+            <thead className="sticky top-0 z-10 shadow-sm bg-purple-50 border-b border-purple-100 text-xs text-gray-500 uppercase font-bold tracking-wider select-none">
+              <tr>
+                <th className="px-6 py-4 cursor-pointer hover:bg-purple-100 transition-colors" onClick={() => handleSort('nome')}><div className="flex items-center">Combo / Promoção {sortConfig?.key === 'nome' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-purple-100 transition-colors" onClick={() => handleSort('custo')}><div className="flex items-center">Custo {sortConfig?.key === 'custo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
+                <th className="px-6 py-4 cursor-pointer hover:bg-purple-100 transition-colors" onClick={() => handleSort('venda')}><div className="flex items-center">Preço Venda {sortConfig?.key === 'venda' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div></th>
+                <th className="px-6 py-4 text-center">Itens Inclusos</th>
+                <th className="px-6 py-4 text-right">Ações</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100 text-sm">
+              {sortedPromocoes.map(p => (
+                <React.Fragment key={p.id}>
+                <tr className="hover:bg-purple-50/30 transition-colors">
+                  <td className="px-6 py-4"><div className="font-bold text-gray-900">{p.nome}</div>{(p.dataInicio || p.dataFim || p.horarioInicio || p.horarioFim) && (<div className="text-[10px] text-gray-400 mt-1 font-medium bg-gray-50 px-2 py-0.5 rounded inline-block">{p.dataInicio && `De ${p.dataInicio.split('-').reverse().join('/')} `}{p.dataFim && `até ${p.dataFim.split('-').reverse().join('/')} `}{p.horarioInicio && `das ${p.horarioInicio} `}{p.horarioFim && `às ${p.horarioFim}`}</div>)}</td>
+                  <td className="px-6 py-4 text-red-500 font-bold">R$ {(p.custoTotal || 0).toFixed(2)}</td>
+                  <td className="px-6 py-4 text-green-600 font-bold">R$ {(p.precoVenda || 0).toFixed(2)}</td>
+                  <td className="px-6 py-4 text-center"><button onClick={() => setExpandedPromocaoId(expandedPromocaoId === p.id ? null : p.id)} className="text-xs text-purple-600 hover:text-purple-800 font-bold flex items-center justify-center transition-colors mx-auto">{(p.itens || []).length} Produtos {expandedPromocaoId === p.id ? <ChevronUp size={14} className="ml-1" /> : <ChevronDown size={14} className="ml-1" />}</button></td>
+                  <td className="px-6 py-4 flex justify-end space-x-2"><button onClick={() => handleEdit(p)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg"><Pencil size={18} /></button><button onClick={() => excluirPromocao(p.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg"><Trash2 size={18} /></button></td>
+                </tr>
+                {expandedPromocaoId === p.id && (
+                  <tr className="bg-purple-50/20">
+                    <td colSpan={5} className="px-6 py-4 border-t border-purple-50">
+                      <p className="text-xs font-bold text-purple-500 uppercase mb-2">Composição:</p>
+                      <ul className="space-y-1 grid grid-cols-1 md:grid-cols-2 gap-2">
+                        {(p.itens || []).map((item, idx) => { 
+                          const prod = produtos.find(prod => prod.id === item.produtoId); 
+                          return (<li key={idx} className="text-sm flex justify-between bg-white p-2 rounded border border-gray-100"><span className="text-gray-700">{prod?.nome || 'Produto removido'}</span><span className="text-gray-500 font-bold">x{item.quantidade}</span></li>); 
+                        })}
+                      </ul>
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+              ))}
+              {sortedPromocoes.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">Nenhuma promoção encontrada.</td></tr>}
+            </tbody>
+          </table>
         </div>
         )}
       </div>

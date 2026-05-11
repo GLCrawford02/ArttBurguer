@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare, Sparkles, Loader2, Bot } from 'lucide-react';
 import ModalContas from './ModalContas';
 import TabFornecedores from './TabFornecedores';
+import CalculadoraFlutuante from './CalculadoraFlutuante';
 
 interface Fornecedor {
   id: string;
@@ -230,7 +231,24 @@ Formato:
   };
 
   const excluir = async (caminho: string) => {
-    if (confirm('Tem certeza que deseja excluir este registro?')) await remove(ref(db, caminho));
+    if (confirm('Tem certeza que deseja excluir este registro?')) {
+      if (caminho.startsWith('contas_pagar/') || caminho.startsWith('contas_receber/')) {
+        const id = caminho.split('/')[1];
+        const isPagar = caminho.startsWith('contas_pagar');
+        const lista = isPagar ? contasPagar : contasReceber;
+        const conta = lista.find(c => c.id === id);
+        
+        if (conta) {
+          const prefixo = isPagar ? 'Pagar' : 'Receber';
+          const tituloExato = `${prefixo} Conta: ${conta.descricao}`;
+          const tarefasVinculadas = tarefas.filter(t => t.titulo === tituloExato && t.dataAgendada === conta.vencimento);
+          for (const t of tarefasVinculadas) {
+            await remove(ref(db, `tarefas/${t.id}`));
+          }
+        }
+      }
+      await remove(ref(db, caminho));
+    }
   };
 
 
@@ -274,28 +292,46 @@ Formato:
           </div>
         </div>
         
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-           <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><PieChart size={20} className="mr-2 text-indigo-500"/> Gastos por Categoria (A Pagar)</h3>
-           {categoriasUsadas.length > 0 ? (
-             <div className="space-y-4">
-               {categoriasUsadas.map(cat => {
-                 const percent = totalPagarGeral > 0 ? (cat.total / totalPagarGeral) * 100 : 0;
-                 return (
-                   <div key={cat.id}>
-                     <div className="flex justify-between text-sm mb-1">
-                       <span className="font-bold text-gray-700">{cat.nome}</span>
-                       <span className="text-gray-500 font-medium">{formatarMoeda(cat.total)} <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 ml-1">{percent.toFixed(1)}%</span></span>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+             <h3 className="text-lg font-bold text-gray-800 mb-4 flex items-center"><PieChart size={20} className="mr-2 text-indigo-500"/> Gastos por Categoria (A Pagar)</h3>
+             {categoriasUsadas.length > 0 ? (
+               <div className="space-y-4">
+                 {categoriasUsadas.map(cat => {
+                   const percent = totalPagarGeral > 0 ? (cat.total / totalPagarGeral) * 100 : 0;
+                   return (
+                     <div key={cat.id}>
+                       <div className="flex justify-between text-sm mb-1">
+                         <span className="font-bold text-gray-700">{cat.nome}</span>
+                         <span className="text-gray-500 font-medium">{formatarMoeda(cat.total)} <span className="text-xs bg-gray-100 px-1.5 py-0.5 rounded text-gray-500 ml-1">{percent.toFixed(1)}%</span></span>
+                       </div>
+                       <div className="w-full bg-gray-100 rounded-full h-2">
+                         <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${percent}%` }}></div>
+                       </div>
                      </div>
-                     <div className="w-full bg-gray-100 rounded-full h-2">
-                       <div className="bg-indigo-500 h-2 rounded-full" style={{ width: `${percent}%` }}></div>
-                     </div>
-                   </div>
-                 )
-               })}
+                   )
+                 })}
+               </div>
+             ) : (
+               <p className="text-sm text-gray-400">Nenhum gasto categorizado no momento.</p>
+             )}
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-center">
+             <h3 className="text-lg font-bold text-gray-800 mb-6 flex items-center"><TrendingUp size={20} className="mr-2 text-blue-500"/> Balanço Geral (Previsto vs Pendente)</h3>
+             <div className="space-y-6">
+               <div>
+                 <div className="flex justify-between text-sm mb-2"><span className="font-bold text-gray-700">Total a Receber + PDV</span><span className="text-blue-600 font-bold">{formatarMoeda(receberRecebido + receberPendente)}</span></div>
+                 <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-blue-500 h-3 rounded-full" style={{ width: `${Math.min(100, ((receberRecebido + receberPendente) / Math.max(receberRecebido + receberPendente + pagarPago + pagarPendente, 1)) * 100)}%` }}></div></div>
+               </div>
+               <div>
+                 <div className="flex justify-between text-sm mb-2"><span className="font-bold text-gray-700">Total a Pagar (Custos)</span><span className="text-red-600 font-bold">{formatarMoeda(pagarPago + pagarPendente)}</span></div>
+                 <div className="w-full bg-gray-100 rounded-full h-3"><div className="bg-red-500 h-3 rounded-full" style={{ width: `${Math.min(100, ((pagarPago + pagarPendente) / Math.max(receberRecebido + receberPendente + pagarPago + pagarPendente, 1)) * 100)}%` }}></div></div>
+               </div>
+               <div className="pt-4 border-t border-gray-100">
+                 <div className="flex justify-between items-center"><span className="font-bold text-gray-700">Saldo Final (Estimado)</span><span className={`text-xl font-black ${(receberRecebido + receberPendente) - (pagarPago + pagarPendente) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatarMoeda((receberRecebido + receberPendente) - (pagarPago + pagarPendente))}</span></div>
+               </div>
              </div>
-           ) : (
-             <p className="text-sm text-gray-400">Nenhum gasto categorizado no momento.</p>
-           )}
+          </div>
         </div>
       </div>
     );
@@ -372,7 +408,7 @@ Formato:
                     <div className="flex items-center"><TrendingDown size={16} className="text-red-500 mr-2"/><span className="font-bold text-gray-800 text-sm">{c.descricao}</span></div>
                     <div className="text-right flex items-center space-x-3">
                       <span className="font-bold text-red-600 text-sm">{formatarMoeda(c.valor)}</span>
-                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Pago' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Pago' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{c.status}</span>
                       <div className="flex space-x-1 ml-2">
                         <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('pagar'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
                         <button onClick={(e) => { e.stopPropagation(); excluir(`contas_pagar/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
@@ -385,7 +421,7 @@ Formato:
                     <div className="flex items-center"><TrendingUp size={16} className="text-blue-500 mr-2"/><span className="font-bold text-gray-800 text-sm">{c.descricao}</span></div>
                     <div className="text-right flex items-center space-x-3">
                       <span className="font-bold text-blue-600 text-sm">{formatarMoeda(c.valor)}</span>
-                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Recebido' ? 'bg-green-200 text-green-800' : 'bg-yellow-200 text-yellow-800'}`}>{c.status}</span>
+                      <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Recebido' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{c.status}</span>
                       <div className="flex space-x-1 ml-2">
                         <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('receber'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
                         <button onClick={(e) => { e.stopPropagation(); excluir(`contas_receber/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
@@ -519,6 +555,8 @@ Formato:
           <CheckCircle className="mr-2" size={20} /><span>{toast.message}</span>
         </div>
       )}
+
+      <CalculadoraFlutuante />
     </div>
   );
 }
