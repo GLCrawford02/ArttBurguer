@@ -9,6 +9,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
+  const [pedidosLoaded, setPedidosLoaded] = useState(false);
   const [kdsFiltroCategorias, setKdsFiltroCategorias] = useState<string[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -123,6 +124,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
         const list = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
         setPedidosCozinha(list);
       } else setPedidosCozinha([]);
+      setPedidosLoaded(true);
     });
 
     return () => {
