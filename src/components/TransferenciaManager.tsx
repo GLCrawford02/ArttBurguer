@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, LoteDados } from '../types';
-import { ArrowRightLeft, Search, CheckCircle, AlertTriangle, CheckSquare } from 'lucide-react';
+import { ArrowRightLeft, Search, CheckCircle, AlertTriangle, CheckSquare, History, User, Clock } from 'lucide-react';
 
 export default function TransferenciaManager({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -11,6 +11,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [ultimasTransferencias, setUltimasTransferencias] = useState<any[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   
   const [showPinModal, setShowPinModal] = useState(false);
@@ -45,9 +46,23 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
       }
     });
 
+    const transRef = ref(db, 'historico_transferencias');
+    const unsubTrans = onValue(transRef, (snap) => {
+      if (snap.val()) {
+        const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
+        const hoje = new Date();
+        hoje.setHours(0, 0, 0, 0);
+        const filtrado = list.filter(t => t.timestamp >= hoje.getTime()).sort((a, b) => b.timestamp - a.timestamp).slice(0, 50);
+        setUltimasTransferencias(filtrado);
+      } else {
+        setUltimasTransferencias([]);
+      }
+    });
+
     return () => {
       unsubInsumos();
       unsubFunc();
+      unsubTrans();
     };
   }, []);
 
@@ -392,6 +407,24 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
           </div>
         )})}
       </div>
+
+      {ultimasTransferencias.length > 0 && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col max-h-[400px] animate-in fade-in duration-300">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center mb-4"><History size={20} className="mr-2 text-indigo-600"/> Log de Transferências (Hoje)</h3>
+          <div className="overflow-y-auto pr-2 space-y-3">
+            {ultimasTransferencias.map(t => (
+              <div key={t.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
+                <div>
+                  <p className="font-bold text-gray-800 text-sm">{t.quantidade}x {t.nomeInsumo}</p>
+                  <p className="text-xs text-gray-500 flex items-center mt-1"><User size={12} className="mr-1"/> {t.funcionarioNome}</p>
+                </div>
+                <span className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded-md shadow-sm border border-gray-100 flex items-center"><Clock size={12} className="mr-1"/> {new Date(t.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span className="whitespace-pre-line">{toast.message}</span></div>)}
 
       {showPinModal && (

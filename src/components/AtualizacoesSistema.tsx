@@ -1,7 +1,20 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
+    {
+      versao: '1.1.13',
+      titulo: 'KDS Personalizado, Gestão de RH e Kanban de Tarefas',
+      descricao: 'Controle total da sua equipe com registro de ponto, organização visual de tarefas e KDS que salva suas preferências.',
+      features: [
+        'KDS na Nuvem: As preferências de praças e filtros agora são vinculadas ao usuário (Conta). As configurações acompanham o usuário!',
+        'Layout da Cozinha Otimizado: Nova exibição de comandas em formato "Grid / Colunas" otimizado para não perder espaço na tela.',
+        'Quadro Kanban: Suas Tarefas agora estão divididas visualmente em colunas automáticas (Atrasadas, Hoje, Próximas e Concluídas).',
+        'Segurança e CPF Obrigatório: O sistema passa a exigir CPF no cadastro para proteger e vincular o histórico do colaborador mesmo se for desligado.',
+        'Controle de Ponto e Folgas: Registre horários de entrada/saída, férias e atestados diretamente no perfil de cada membro da equipe.'
+      ],
+      icon: <Users className="text-blue-500" size={20} />
+    },
     {
       versao: '1.1.12',
       titulo: 'Tabelas Interativas, Calculadora Flutuante e Privacidade de Estoque',

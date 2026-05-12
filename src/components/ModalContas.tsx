@@ -42,7 +42,20 @@ export default function ModalContas({
 
   const formatarMoeda = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
   const formatarData = (d: string) => { const [ano, mes, dia] = d.split('-'); return `${dia}/${mes}/${ano}`; };
-  const hoje = new Date().toISOString().split('T')[0];
+
+  const getHojeComercialStr = () => {
+    const agora = new Date();
+    const limite = new Date(agora);
+    limite.setHours(6, 59, 59, 999);
+    if (agora.getTime() <= limite.getTime()) {
+      agora.setDate(agora.getDate() - 1);
+    }
+    const year = agora.getFullYear();
+    const month = String(agora.getMonth() + 1).padStart(2, '0');
+    const day = String(agora.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const hoje = getHojeComercialStr();
 
   useEffect(() => {
     if (itemEdit) {

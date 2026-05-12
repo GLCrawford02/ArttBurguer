@@ -12,7 +12,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
   const [historicoFuncionarioId, setHistoricoFuncionarioId] = useState<string | null>(null);
   const [isRequestingLink, setIsRequestingLink] = useState(false);
   
-  const [formData, setFormData] = useState<{nome: string, pin: string, cargo: string[], ativo: boolean, telefone: string}>({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '' });
+  const [formData, setFormData] = useState<{nome: string, pin: string, cargo: string[], ativo: boolean, telefone: string, cpf: string}>({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '', cpf: '' });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -96,6 +96,16 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     return v;
   };
 
+  const formatCpf = (v: string) => {
+    if (!v) return '';
+    let val = v.replace(/\D/g, '');
+    if (val.length > 11) val = val.substring(0, 11);
+    val = val.replace(/(\d{3})(\d)/, '$1.$2');
+    val = val.replace(/(\d{3})(\d)/, '$1.$2');
+    val = val.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    return val;
+  };
+
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (formData.pin.length !== 4 || !/^\d+$/.test(formData.pin)) {
@@ -112,21 +122,23 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       return;
     }
 
+    const dataToSave = { ...formData, cpf: formData.cpf.replace(/\D/g, '') };
+
     if (editId) {
-      await set(ref(db, `funcionarios/${editId}`), formData);
+      await set(ref(db, `funcionarios/${editId}`), dataToSave);
       setEditId(null);
       showToast('Funcionário atualizado!', 'success');
     } else {
-      await set(push(ref(db, 'funcionarios')), formData);
+      await set(push(ref(db, 'funcionarios')), dataToSave);
       showToast('Funcionário cadastrado!', 'success');
     }
-    setFormData({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '' });
+    setFormData({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '', cpf: '' });
   };
 
   const handleEdit = (f: Funcionario) => {
     setEditId(f.id);
     const cargosArr = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-    setFormData({ nome: f.nome, pin: f.pin, cargo: cargosArr, ativo: (f as any).ativo !== false, telefone: (f as any).telefone || '' });
+    setFormData({ nome: f.nome, pin: f.pin, cargo: cargosArr, ativo: (f as any).ativo !== false, telefone: (f as any).telefone || '', cpf: formatCpf((f as any).cpf || '') });
   };
 
   const toggleAtivo = async (f: Funcionario) => {
@@ -215,6 +227,10 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                 <input type="text" required value={formData.nome} onChange={e => setFormData({...formData, nome: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: João Silva" />
               </div>
               <div>
+                <label className="text-xs font-bold text-gray-500 uppercase">CPF</label>
+                <input type="text" value={formData.cpf} onChange={e => setFormData({...formData, cpf: formatCpf(e.target.value)})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="000.000.000-00" />
+              </div>
+              <div>
                 <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cargos</label>
                 <div className="flex flex-wrap gap-2 border border-gray-200 p-3 rounded-lg bg-white max-h-48 overflow-y-auto">
                   {cargos.map(c => {
@@ -290,7 +306,7 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                   <Save size={18} className="mr-2" /> Salvar
                 </button>
                 {editId && (
-                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: ['Atendente'], ativo: true, telefone: ''});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
+                  <button type="button" onClick={() => {setEditId(null); setFormData({nome:'', pin:'', cargo: ['Atendente'], ativo: true, telefone: '', cpf: ''});}} className="bg-gray-200 text-gray-700 p-2 rounded-lg font-bold hover:bg-gray-300">
                     <X size={20} />
                   </button>
                 )}
@@ -315,6 +331,9 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                         <span key={c} className={`text-[10px] font-bold px-2.5 py-1 rounded-md uppercase border shadow-sm ${getCargoColor(c)}`}>{c}</span>
                       ))}
                     </div>
+                    {(f as any).cpf && (
+                      <p className="text-xs text-gray-500 mt-1 font-mono">CPF: {formatCpf((f as any).cpf)}</p>
+                    )}
                     <p className="text-xs text-gray-500 font-mono">PIN: {isAdminOrDono ? f.pin : '****'}</p>
                   </div>
                   <div className="flex space-x-2">

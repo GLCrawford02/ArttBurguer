@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot } from 'lucide-react';
 
 export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
-  const [activeView, setActiveView] = useState<'pdv' | 'conferencia'>('pdv');
+  const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
   
   const [taxas, setTaxas] = useState<any[]>([]);
   const [lancamentos, setLancamentos] = useState<any[]>([]);
@@ -25,7 +25,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
   const [qtdMesas, setQtdMesas] = useState(30);
 
-  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, opcoes?: any }>>({});
+  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
   const [pdvPagamentos, setPdvPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [pdvDescricao, setPdvDescricao] = useState('');
   const [pdvSearchProd, setPdvSearchProd] = useState('');
@@ -40,6 +40,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [confPagamentos, setConfPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [confDescricao, setConfDescricao] = useState('');
   const [confSearchProd, setConfSearchProd] = useState('');
+  const [viewComanda, setViewComanda] = useState<any>(null);
   
   const [showIaModal, setShowIaModal] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -59,9 +60,16 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
   );
 
+  const canViewComandas = currentUser && (
+    Array.isArray(currentUser.cargo)
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(currentUser.cargo as string)
+  );
+
   useEffect(() => {
-    if (!isAdminOrGerente) setActiveView('pdv');
-  }, [isAdminOrGerente]);
+    if (!isAdminOrGerente && activeView === 'conferencia') setActiveView('pdv');
+    if (!canViewComandas && activeView === 'comandas') setActiveView('pdv');
+  }, [isAdminOrGerente, canViewComandas, activeView]);
 
   useEffect(() => {
     const taxasRef = ref(db, 'taxas_cartoes');
@@ -270,7 +278,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
         preco: unitPrice,
         qtd: pdvItemOptions.quantidade,
         opcoes: opcoesObj,
-        enviadoCozinha: 0
+        enviadoCozinha: 0,
+        adicionadoPor: currentUser?.nome || 'Sistema',
+        adicionadoEm: Date.now()
       }
     }));
     
@@ -404,9 +414,24 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     setShowConfModal(true);
   };
 
-  const calcularConferencia = () => {
+  const getInicioDiaComercial = () => {
     const agora = new Date();
-    const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+    const limiteStr = new Date(agora);
+    limiteStr.setHours(6, 59, 59, 999); // Limite de virada do dia (06:59:59 da manhã)
+    if (agora.getTime() <= limiteStr.getTime()) {
+      const ontem = new Date(agora);
+      ontem.setDate(ontem.getDate() - 1);
+      ontem.setHours(7, 0, 0, 0); // Considera como "Hoje Comercial" a partir de Ontem às 07:00
+      return ontem.getTime();
+    } else {
+      const hoje = new Date(agora);
+      hoje.setHours(7, 0, 0, 0); // Considera como "Hoje Comercial" a partir de Hoje às 07:00
+      return hoje.getTime();
+    }
+  };
+
+  const calcularConferencia = () => {
+    const inicioHoje = getInicioDiaComercial();
 
     const lancamentosHoje = lancamentos.filter(l => l.timestamp >= inicioHoje).sort((a, b) => b.timestamp - a.timestamp);
 
@@ -420,9 +445,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const totalSistema = Number(rawTotalSistema.toFixed(2));
     const diferenca = Number((totalLancado - totalSistema).toFixed(2));
 
-    return { totalLancado, totalLiquido, totalSistema, diferenca, lancamentosHoje };
+    return { totalLancado, totalLiquido, totalSistema, diferenca, lancamentosHoje, vendasHoje };
   };
-  const { totalLancado, totalLiquido, totalSistema, diferenca, lancamentosHoje } = calcularConferencia();
+  const { totalLancado, totalLiquido, totalSistema, diferenca, lancamentosHoje, vendasHoje } = calcularConferencia();
 
   const todosItens = [...produtos.map(p => ({ ...p, tipoItem: 'Produto' })), ...promocoes.map(p => ({ ...p, tipoItem: 'Promoção' }))];
   
@@ -487,7 +512,9 @@ Formato esperado:
             preco: Number(item.preco) || Number(prod.precoVenda) || 0,
             qtd: Number(item.qtd) || 1,
             enviadoCozinha: 0,
-            opcoes: item.observacao ? { observacao: item.observacao } : null
+            opcoes: item.observacao ? { observacao: item.observacao } : null,
+            adicionadoPor: `${currentUser?.nome || 'Sistema'} (IA)`,
+            adicionadoEm: Date.now()
           };
           addCount++;
         }
@@ -514,10 +541,15 @@ Formato esperado:
           </div>
         </div>
         
-        {isAdminOrGerente && (
+        {(canViewComandas || isAdminOrGerente) && (
           <div className="flex bg-gray-100 p-1 rounded-lg">
             <button onClick={() => setActiveView('pdv')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors ${activeView === 'pdv' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Frente de Caixa (PDV)</button>
-            <button onClick={() => setActiveView('conferencia')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'conferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Calculator size={16} className="mr-1"/> Conferência (Admin)</button>
+            {canViewComandas && (
+              <button onClick={() => setActiveView('comandas')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'comandas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Receipt size={16} className="mr-1"/> Comandas</button>
+            )}
+            {isAdminOrGerente && (
+              <button onClick={() => setActiveView('conferencia')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'conferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Calculator size={16} className="mr-1"/> Conferência (Admin)</button>
+            )}
           </div>
         )}
       </div>
@@ -648,6 +680,11 @@ Formato esperado:
                         {item.opcoes.observacao && <p><span className="font-bold text-gray-600">Obs:</span> {item.opcoes.observacao}</p>}
                       </div>
                     )}
+                    {item.adicionadoPor && (
+                      <p className="text-[9px] text-gray-400 mt-1.5 pl-12 flex items-center font-medium">
+                        <User size={10} className="mr-1"/> Add por {item.adicionadoPor} às {new Date(item.adicionadoEm || Date.now()).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
+                      </p>
+                    )}
                   </div>
                   <span className="font-bold text-gray-800 shrink-0 mt-1">R$ {(item.preco * item.qtd).toFixed(2)}</span>
                 </div>
@@ -763,8 +800,8 @@ Formato esperado:
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col items-center justify-center text-center space-y-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit flex flex-col items-center justify-center text-center space-y-4">
               <div className="bg-gray-100 p-4 rounded-full text-gray-600 mb-2">
                 <Calculator size={32} />
               </div>
@@ -777,7 +814,7 @@ Formato esperado:
               </button>
             </div>
 
-            <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+            <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto flex flex-col h-fit max-h-[500px]">
               <div className="p-4 border-b border-gray-100 flex justify-between items-center">
                 <h4 className="font-bold text-gray-800">Lançamentos de Conferência Hoje</h4>
                 {lancamentosHoje.length > 0 && (
@@ -812,6 +849,40 @@ Formato esperado:
                 ))}
                 {lancamentosHoje.length === 0 && <p className="p-8 text-center text-gray-400">Nenhum lançamento no simulador hoje.</p>}
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeView === 'comandas' && (
+        <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto flex flex-col h-fit max-h-[700px]">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+              <h4 className="font-bold text-gray-800 flex items-center"><Receipt className="mr-2 text-blue-500" size={18}/> Comandas (Dia Comercial Atual)</h4>
+            </div>
+            <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
+              {vendasHoje.sort((a: any, b: any) => b.timestamp - a.timestamp).map((v: any, index: number) => (
+                <div key={v.id} className="p-4 flex items-center justify-between hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => setViewComanda(v)}>
+                  <div>
+                    <p className="font-bold text-gray-800 flex items-center">
+                      <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-mono mr-2">#{vendasHoje.length - index}</span>
+                      {v.descricao || 'Venda Balcão'} {v.tipoPedido ? `(${v.tipoPedido})` : ''}
+                    </p>
+                    {v.itens && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{v.itens.map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}</p>}
+                    {v.pagamentos ? (
+                      <p className="text-[10px] text-gray-500 mt-1 font-bold">{v.pagamentos.map((p: any) => `${p.nomeTaxa} (R$ ${p.valor.toFixed(2)})`).join(' + ')} • {new Date(v.timestamp).toLocaleTimeString('pt-BR')}</p>
+                    ) : (
+                      <p className="text-[10px] text-gray-400 mt-1 font-bold">{v.nomeTaxa} • {new Date(v.timestamp).toLocaleTimeString('pt-BR')}</p>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-3">
+                    <div className="text-right">
+                      <p className="font-bold text-green-600">R$ {v.valor.toFixed(2)}</p>
+                    </div>
+                  </div>
+                </div>
+              ))}
+              {vendasHoje.length === 0 && <p className="p-8 text-center text-gray-400">Nenhuma venda registrada no período comercial atual.</p>}
             </div>
           </div>
         </div>
@@ -943,6 +1014,71 @@ Formato esperado:
         <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md p-4 rounded-xl shadow-2xl text-white font-bold flex items-start z-[100] transition-all animate-in slide-in-from-bottom-5 duration-300 ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.type === 'success' ? <CheckCircle className="mr-3 shrink-0 mt-0.5" size={20} /> : <AlertTriangle className="mr-3 shrink-0 mt-0.5" size={20} />}
           <span className="whitespace-pre-line break-words text-sm flex-1">{toast.message}</span>
+        </div>
+      )}
+
+      {viewComanda && (
+        <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4" onClick={() => setViewComanda(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
+              <h3 className="font-bold text-lg text-gray-800 flex items-center"><Receipt size={20} className="mr-2 text-gray-600"/> Comanda Virtual</h3>
+              <button onClick={() => setViewComanda(null)} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1"><X size={20}/></button>
+            </div>
+            <div className="p-6 flex-1 overflow-y-auto max-h-[70vh]">
+               <div className="text-center mb-6">
+                 <h2 className="text-2xl font-black text-gray-800 uppercase tracking-tighter italic">ARTT BURGER</h2>
+                 <p className="text-sm text-gray-500 mt-1">Venda: {new Date(viewComanda.timestamp).toLocaleString('pt-BR')}</p>
+                 <p className="text-sm font-bold text-gray-600 mt-1">{viewComanda.descricao || 'Venda Balcão'} {viewComanda.tipoPedido ? `(${viewComanda.tipoPedido})` : ''}</p>
+                 {viewComanda.clienteNome && <p className="text-sm text-gray-600">Cliente: {viewComanda.clienteNome}</p>}
+               </div>
+
+               <div className="border-t border-b border-gray-200 py-4 mb-4 space-y-3">
+                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Itens do Pedido</h4>
+                 {viewComanda.itens && viewComanda.itens.map((item: any, idx: number) => (
+                   <div key={idx} className="flex justify-between items-start text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                     <div className="flex-1 pr-2">
+                       <p className="font-bold text-gray-800">{item.qtd}x {item.nome}</p>
+                       {item.opcoes && (
+                         <div className="text-xs text-gray-500 pl-4 mt-1">
+                           {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && <p><span className="font-semibold text-gray-600">Montagem:</span> {Object.values(item.opcoes.montagem).join(', ')}</p>}
+                           {item.opcoes.pontoCarne && <p><span className="font-semibold text-gray-600">Ponto:</span> {item.opcoes.pontoCarne}</p>}
+                           {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).map((a:any, i:number) => <p key={i}>+ {a.qtd}x AD/ {a.nome}</p>)}
+                           {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && <p className="text-red-500 font-semibold">- Sem: {Object.values(item.opcoes.restricoes).join(', ')}</p>}
+                           {item.opcoes.observacao && <p><span className="font-semibold text-gray-600">Obs:</span> {item.opcoes.observacao}</p>}
+                         </div>
+                       )}
+                       {item.adicionadoPor && (
+                         <p className="text-[9px] text-gray-400 mt-1 pl-4 flex items-center font-medium">
+                           <User size={10} className="mr-1"/> Add por {item.adicionadoPor} às {new Date(item.adicionadoEm || Date.now()).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
+                         </p>
+                       )}
+                     </div>
+                     <span className="font-bold text-gray-800 shrink-0">R$ {(item.preco * item.qtd).toFixed(2)}</span>
+                   </div>
+                 ))}
+               </div>
+
+               <div className="space-y-2 mb-4">
+                 <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Pagamento</h4>
+                 {viewComanda.pagamentos ? viewComanda.pagamentos.map((p: any, idx: number) => (
+                   <div key={idx} className="flex justify-between text-sm">
+                     <span className="text-gray-600">{p.nomeTaxa}</span>
+                     <span className="font-bold text-gray-800">R$ {p.valor.toFixed(2)}</span>
+                   </div>
+                 )) : (
+                   <div className="flex justify-between text-sm">
+                     <span className="text-gray-600">{viewComanda.nomeTaxa}</span>
+                     <span className="font-bold text-gray-800">R$ {viewComanda.valor.toFixed(2)}</span>
+                   </div>
+                 )}
+               </div>
+
+               <div className="border-t border-gray-200 pt-4 flex justify-between items-center">
+                 <span className="font-bold text-gray-800 uppercase">Total</span>
+                 <span className="font-black text-2xl text-green-600">R$ {viewComanda.valor.toFixed(2)}</span>
+               </div>
+            </div>
+          </div>
         </div>
       )}
 

@@ -1,23 +1,20 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto, Promocao } from '../types';
 import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2 } from 'lucide-react';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
-  const [view, setView] = useState<'kds' | 'manual'>('kds');
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filtroCategoria, setFiltroCategoria] = useState('');
   const [kdsFiltroCategorias, setKdsFiltroCategorias] = useState<string[]>([]);
-  const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [showFiltrosKds, setShowFiltrosKds] = useState(false);
   const [expandedKdsOrderId, setExpandedKdsOrderId] = useState<string | null>(null);
+  const isUpdatingFiltersRef = useRef(false);
 
   const cargos = currentUser ? (Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || '']) : [];
   const kdsRoles = cargos.filter((c: string) => c.toUpperCase().includes('KDS'));
@@ -41,31 +38,55 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   }, []);
 
   useEffect(() => {
-    if (allowedStations.length > 0 && !allowedStations.includes(activeKds)) {
-      setActiveKds(allowedStations[0]);
-    }
-  }, [currentUser]);
+    if (!currentUser?.id) return;
+    const kdsRef = ref(db, `funcionarios/${currentUser.id}/preferenciasKds/activeKds`);
+    onValue(kdsRef, (snap) => {
+      const savedKds = snap.val();
+      if (savedKds && allowedStations.includes(savedKds)) {
+        setActiveKds(savedKds);
+      } else if (!allowedStations.includes(activeKds)) {
+        setActiveKds(allowedStations[0] || 'Montagem');
+      }
+    }, { onlyOnce: true });
+  }, [currentUser?.id]);
 
   useEffect(() => {
-    let defaults: string[] = [];
-    switch (activeKds) {
-      case 'Expedição':
-        defaults = ['Hambúrguer', 'Promoção / Combo', 'Porção'];
-        break;
-      case 'Chapa':
-      case 'Char Broiler':
-      case 'Montagem':
-        defaults = ['Hambúrguer', 'Promoção / Combo'];
-        break;
-      case 'Porção':
-        defaults = ['Porção'];
-        break;
-      case 'Balcão':
-        defaults = ['Bebida', 'Sobremesa', 'Outros'];
-        break;
+    if (currentUser?.id && activeKds) {
+      update(ref(db, `funcionarios/${currentUser.id}/preferenciasKds`), { activeKds });
     }
-    setKdsFiltroCategorias(defaults);
-  }, [activeKds]);
+  }, [activeKds, currentUser?.id]);
+
+  useEffect(() => {
+    if (!currentUser?.id || !activeKds) return;
+    
+    isUpdatingFiltersRef.current = true;
+
+    const filtrosRef = ref(db, `funcionarios/${currentUser.id}/preferenciasKds/filtros/${activeKds}`);
+    onValue(filtrosRef, (snap) => {
+      const savedFiltersStr = snap.val();
+      if (savedFiltersStr) {
+        if (savedFiltersStr === 'VAZIO') setKdsFiltroCategorias([]);
+        else setKdsFiltroCategorias(savedFiltersStr.split(','));
+      } else {
+        let defaults: string[] = [];
+        switch (activeKds) {
+          case 'Expedição': defaults = ['Hambúrguer', 'Promoção / Combo', 'Porção']; break;
+          case 'Chapa': case 'Char Broiler': case 'Montagem': defaults = ['Hambúrguer', 'Promoção / Combo']; break;
+          case 'Porção': defaults = ['Porção']; break;
+          case 'Balcão': defaults = ['Bebida', 'Sobremesa', 'Outros']; break;
+        }
+        setKdsFiltroCategorias(defaults);
+      }
+      setTimeout(() => { isUpdatingFiltersRef.current = false; }, 300);
+    }, { onlyOnce: true });
+  }, [activeKds, currentUser?.id]);
+
+  useEffect(() => {
+    if (currentUser?.id && activeKds && !isUpdatingFiltersRef.current) {
+      const filtersStr = kdsFiltroCategorias.length === 0 ? 'VAZIO' : kdsFiltroCategorias.join(',');
+      update(ref(db, `funcionarios/${currentUser.id}/preferenciasKds/filtros`), { [activeKds]: filtersStr });
+    }
+  }, [kdsFiltroCategorias, activeKds, currentUser?.id]);
 
   useEffect(() => {
     const insumosRef = ref(db, 'insumos');
@@ -111,48 +132,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
       unsubPedidos();
     };
   }, []);
-
-  const registrarProducao = async (produto: Produto | Promocao | any) => {
-    const multiplicador = quantidades[produto.id] || 1;
-    if (multiplicador <= 0) return;
-
-
-    const checks = (produto.ingredientes || []).map((ing: any) => {
-      const insumo = insumos.find(i => i.id === ing.insumoId);
-      const rawQtdNecessaria = Number(ing.quantidade) * multiplicador;
-      const qtdNecessaria = Number(rawQtdNecessaria.toFixed(4));
-      const rawTem = insumo ? Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0) : 0;
-      const tem = Number(rawTem.toFixed(4));
-      if (!insumo || tem < qtdNecessaria) {
-        return { ok: false, nome: insumo?.nome || 'Desconhecido', precisa: qtdNecessaria, tem: tem, unidade: insumo?.unidade || '' };
-      }
-      return { ok: true };
-    });
-
-    const falhas = checks.filter((c: any) => !c.ok);
-    if (falhas.length > 0) {
-      const msg = falhas.map((f: any) => `- ${f.nome}: Precisa ${f.precisa}${f.unidade}, mas só tem ${f.tem}${f.unidade}`).join('\n');
-      showToast(`ESTOQUE INSUFICIENTE!\n\n${msg}`, 'error');
-      return;
-    }
-
-
-    for (const ing of (produto.ingredientes || [])) {
-      const insumoRef = ref(db, `insumos/${ing.insumoId}`);
-      const rawQtdNecessaria = Number(ing.quantidade) * multiplicador;
-      const qtdNecessaria = Number(rawQtdNecessaria.toFixed(4));
-      await runTransaction(insumoRef, (currentData) => {
-        if (currentData) {
-          const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
-          currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
-        }
-        return currentData;
-      });
-    }
-
-    showToast(`Produção de ${multiplicador}x ${produto.nome} registrada com sucesso!\nO estoque foi atualizado.`, 'success');
-    setQuantidades({ ...quantidades, [produto.id]: 1 });
-  };
 
   const checkPromocaoValida = (promo: Promocao) => {
     const now = new Date();
@@ -249,13 +228,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const categoriasExistentes = Array.from(new Set(allItems.map(p => p.categoria || 'Outros'))).sort();
 
-  const filteredProdutos = allItems.filter(p => {
-    const matchSearch = (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
-                        ((p as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase());
-    const matchCat = filtroCategoria ? (p.categoria || 'Outros') === filtroCategoria : true;
-    return matchSearch && matchCat;
-  });
-
   // Mapeia categorias para seus respectivos setores do KDS
   const filterItemsForKDS = (itens: any[], kds: string) => {
     return itens.map((item, idx) => ({ ...item, originalIdx: idx })).filter(item => {
@@ -301,14 +273,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
-      {!isKdsOnly && (
-      <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-        <button onClick={() => setView('kds')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'kds' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Modo KDS (Telas)</button>
-        <button onClick={() => setView('manual')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${view === 'manual' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Baixa Avulsa / Manual</button>
-      </div>
-      )}
-
-      {view === 'kds' && (
         <div className="space-y-6">
           {/* Navegação de Estações (Yooga Style) */}
           {allowedStations.length > 1 && (
@@ -375,7 +339,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+          <div className="grid grid-rows-1 lg:grid-rows-2 grid-flow-col gap-4 overflow-x-auto pb-6 auto-cols-[90vw] sm:auto-cols-[340px] items-start min-h-[50vh] snap-x snap-mandatory [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:bg-gray-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {pedidosKds.map(ped => {
               const timeDiff = Math.floor((currentTime - ped.timestamp) / 60000);
               
@@ -387,7 +351,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               const allItemsDone = ped.itensKds.every((ik: any) => ik.concluidoNoKds);
 
               return (
-                <div key={ped.id} className={`bg-white rounded-xl shadow-md border-t-4 flex flex-col overflow-hidden transition-all ${borderColor}`}>
+                <div key={ped.id} className={`bg-white rounded-xl shadow-md border-t-4 flex flex-col overflow-hidden transition-all ${borderColor} snap-start`}>
                   <div className="p-3 border-b border-gray-100 flex flex-col gap-2 bg-gray-50">
                     <div className="flex justify-between items-start">
                       <span className="font-black text-gray-800 text-lg uppercase tracking-tight leading-none">{ped.identificador}</span>
@@ -458,7 +422,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               );
             })}
             {pedidosKds.length === 0 && (
-              <div className="col-span-full py-20 flex flex-col items-center justify-center text-gray-400 bg-white rounded-xl border border-gray-100 border-dashed">
+              <div className="w-[85vw] lg:w-[600px] py-20 flex flex-col items-center justify-center text-gray-400 bg-white rounded-xl border border-gray-100 border-dashed h-fit">
                 <UtensilsCrossed size={48} className="mb-4 opacity-30"/>
                 <p className="text-lg font-bold">Praça Livre</p>
                 <p className="text-sm">Nenhum item aguardando para o setor: {activeKds}</p>
@@ -524,67 +488,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
             </div>
           )}
         </div>
-      )}
-
-      {view === 'manual' && (
-        <>
-          <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-6">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h3 className="text-lg font-bold text-gray-800 flex items-center">
-              <ChefHat className="mr-2 text-gray-500" size={20} />
-              Baixa Manual de Estoque (Avulsa)
-            </h3>
-            <p className="text-sm text-gray-500 mt-1">Informe a quantidade feita de cada produto para abater os produtos do estoque automaticamente.</p>
-          </div>
-          <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-            <select 
-              value={filtroCategoria} 
-              onChange={(e) => setFiltroCategoria(e.target.value)}
-              className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white w-full sm:w-auto"
-            >
-              <option value="">Todas as Categorias</option>
-              {categoriasExistentes.map(c => <option key={c as string} value={c as string}>{c as string}</option>)}
-            </select>
-            <div className="relative w-full sm:w-auto">
-              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-              <input
-                type="text"
-                placeholder="Buscar por nome ou SKU..."
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-                className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm w-full sm:w-64"
-              />
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
-        {filteredProdutos.map(p => (
-          <div key={p.id} className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col justify-between">
-            <div className="mb-4">
-              <div className="flex justify-between items-start mb-1">
-                <h4 className="font-bold text-gray-900 text-lg leading-tight">{p.nome}</h4>
-                <span className="text-[10px] font-bold px-2 py-1 bg-gray-100 text-gray-600 rounded-full uppercase ml-2 whitespace-nowrap">{((p as any).categoria) || 'Outros'}</span>
-              </div>
-              <p className="text-xs text-gray-400">{(p.ingredientes || []).length} insumos totais descontados</p>
-            </div>
-            
-            <div className="flex flex-col space-y-2">
-              <label className="text-xs font-bold text-gray-500 uppercase">Qtd Produzida:</label>
-              <div className="flex space-x-2">
-                <input type="number" min="1" value={quantidades[p.id] || 1} onChange={(e) => setQuantidades({ ...quantidades, [p.id]: Number(e.target.value) })} className="w-20 p-2 border border-gray-200 rounded-lg outline-none text-center font-bold" />
-                <button onClick={() => registrarProducao(p)} className="flex-1 bg-gray-800 text-white p-2 rounded-lg font-bold hover:bg-gray-900 transition-colors flex items-center justify-center">
-                  <CheckCircle size={18} className="mr-2" /> Produzir
-                </button>
-              </div>
-            </div>
-          </div>
-        ))}
-      </div>
-        </>
-      )}
 
       {toast && (
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>

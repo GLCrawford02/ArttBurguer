@@ -1,13 +1,14 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set, push, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { Shield, Save, CheckCircle, AlertTriangle, Trash2 } from 'lucide-react';
+import { Shield, Save, CheckCircle, AlertTriangle, Trash2, Copy } from 'lucide-react';
 
 export default function PermissoesManager() {
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
   const [cargos, setCargos] = useState<{id: string, nome: string}[]>([]);
   const [novoCargo, setNovoCargo] = useState('');
   const [selectedCargo, setSelectedCargo] = useState('Gerente');
+  const [cargoToCopy, setCargoToCopy] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -17,19 +18,27 @@ export default function PermissoesManager() {
 
 
   const modulos = [
-    { id: 'insumos', nome: 'Insumos' },
-    { id: 'produtos', nome: 'Produtos e Combos' },
-    { id: 'producao', nome: 'Produção e Saídas' },
-    { id: 'compras', nome: 'Compras (Entrada)' },
-    { id: 'transferencias', nome: 'Transferências' },
-    { id: 'balanco', nome: 'Balanço e Auditoria' },
     { id: 'vendas', nome: 'PDV / Lançamento de Vendas' },
-    { id: 'relatorios', nome: 'Relatórios Financeiros' },
-    { id: 'funcionarios', nome: 'Equipe e Funcionários' },
-    { id: 'configuracoes', nome: 'Configurações Gerais' },
+    { id: 'insumos', nome: 'Insumos (Cadastros)' },
+    { id: 'fornecedores', nome: 'Fornecedores (Cadastros)' },
+    { id: 'produtos', nome: 'Produtos e Fichas Técnicas' },
+    { id: 'promocoes', nome: 'Promoções e Combos' },
+    { id: 'compras', nome: 'Entrada de Mercadoria (Compras)' },
+    { id: 'transferencias', nome: 'Transferências de Estoque' },
+    { id: 'visibilidade_estoque', nome: 'Visibilidade de Estoque' },
+    { id: 'descartes', nome: 'Descartes e Baixas' },
+    { id: 'producao', nome: 'KDS e Produção' },
+    { id: 'balanco', nome: 'Balanço e Auditoria de Estoque' },
+    { id: 'fechamento_caixa', nome: 'Fechamento do Dia' },
+    { id: 'relatorios', nome: 'Relatórios de Movimentações' },
     { id: 'clientes', nome: 'Cadastro de Clientes' },
     { id: 'despacho', nome: 'Despacho e Rotas (Logística)' },
-    { id: 'tarefas', nome: 'Tarefas e Delegações' },
+    { id: 'funcionarios', nome: 'Equipe e Funcionários' },
+    { id: 'tarefas', nome: 'Gerenciamento de Tarefas' },
+    { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal' },
+    { id: 'marketing', nome: 'Marketing e Campanhas' },
+    { id: 'configuracoes', nome: 'Configurações Gerais' },
+    { id: 'bancos_taxas', nome: 'Bancos e Taxas de Cartões' },
   ];
   
 
@@ -115,6 +124,26 @@ export default function PermissoesManager() {
     });
   };
 
+  const handleCopyPermissions = () => {
+    if (!cargoToCopy) return;
+    if (window.confirm(`Deseja substituir as permissões de ${selectedCargo} pelas permissões do cargo ${cargoToCopy}?`)) {
+      setPermissoes(prev => {
+        const newState = JSON.parse(JSON.stringify(prev));
+        if (['Administrador', 'Dono', 'TI'].includes(cargoToCopy)) {
+           newState[selectedCargo] = {};
+           modulos.forEach(m => {
+             newState[selectedCargo][m.id] = { visualizar: true, editar: true, apagar: true };
+           });
+        } else {
+           newState[selectedCargo] = newState[cargoToCopy] ? JSON.parse(JSON.stringify(newState[cargoToCopy])) : {};
+        }
+        return newState;
+      });
+      showToast(`Permissões copiadas com sucesso! Lembre-se de salvar.`, 'success');
+      setCargoToCopy('');
+    }
+  };
+
   const salvarPermissoes = async () => {
     try {
       await set(ref(db, 'permissoes'), permissoes);
@@ -187,12 +216,37 @@ export default function PermissoesManager() {
 
         {/* Painel de Matriz de Permissões */}
         <div className="flex-1 p-6">
-          <div className="mb-6">
-            <h4 className="text-xl font-bold text-gray-800">Acessos para: <span className="text-indigo-600">{selectedCargo}</span></h4>
-            {(selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI') && (
-              <p className="text-sm text-orange-600 font-bold mt-2 bg-orange-50 p-3 rounded-lg border border-orange-100">
-                Este cargo base possui acesso total (Leitura, Edição e Exclusão) a todos os módulos por padrão. Não é possível restringi-lo.
-              </p>
+          <div className="mb-6 flex flex-col xl:flex-row xl:items-start justify-between gap-4">
+            <div>
+              <h4 className="text-xl font-bold text-gray-800">Acessos para: <span className="text-indigo-600">{selectedCargo}</span></h4>
+              {(selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI') && (
+                <p className="text-sm text-orange-600 font-bold mt-2 bg-orange-50 p-3 rounded-lg border border-orange-100 max-w-2xl">
+                  Este cargo base possui acesso total (Leitura, Edição e Exclusão) a todos os módulos por padrão. Não é possível restringi-lo.
+                </p>
+              )}
+            </div>
+
+            {selectedCargo !== 'Administrador' && selectedCargo !== 'Dono' && selectedCargo !== 'TI' && (
+              <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-50 p-3 rounded-lg border border-gray-200 shrink-0">
+                <span className="text-sm font-bold text-gray-600">Copiar de:</span>
+                <select 
+                  value={cargoToCopy} 
+                  onChange={(e) => setCargoToCopy(e.target.value)}
+                  className="p-2 border border-gray-200 rounded-md outline-none text-sm bg-white min-w-[150px] focus:ring-2 focus:ring-indigo-500"
+                >
+                  <option value="">Selecione um cargo...</option>
+                  {cargos.filter(c => c.nome !== selectedCargo).map(c => (
+                    <option key={c.id} value={c.nome}>{c.nome}</option>
+                  ))}
+                </select>
+                <button 
+                  onClick={handleCopyPermissions} 
+                  disabled={!cargoToCopy}
+                  className="flex items-center justify-center bg-white border border-gray-200 text-gray-700 px-4 py-2 rounded-md font-bold text-sm hover:bg-gray-100 disabled:opacity-50 transition-colors shadow-sm"
+                >
+                  <Copy size={16} className="mr-2" /> Copiar
+                </button>
+              </div>
             )}
           </div>
 

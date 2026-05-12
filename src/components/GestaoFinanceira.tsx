@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare, Sparkles, Loader2, Bot } from 'lucide-react';
+import { TrendingUp, TrendingDown, CheckCircle, Clock, Plus, Trash2, Pencil, CalendarClock, ChevronLeft, ChevronRight, Repeat, X, PieChart, CheckSquare, Sparkles, Loader2, Bot, Receipt, Activity, ShoppingBag } from 'lucide-react';
 import ModalContas from './ModalContas';
 import TabFornecedores from './TabFornecedores';
 import CalculadoraFlutuante from './CalculadoraFlutuante';
@@ -64,6 +64,9 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
   const [editCategoriaId, setEditCategoriaId] = useState<string | null>(null);
   const [editCategoriaNome, setEditCategoriaNome] = useState('');
+  const [filtroVendas, setFiltroVendas] = useState('este_mes');
+  const [dataInicioFiltro, setDataInicioFiltro] = useState('');
+  const [dataFimFiltro, setDataFimFiltro] = useState('');
   
   const [showIaModal, setShowIaModal] = useState(false);
   const [aiPrompt, setAiPrompt] = useState('');
@@ -76,7 +79,7 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
     const receberRef = ref(db, 'contas_receber');
     const tarefasRef = ref(db, 'tarefas');
     const funcRef = ref(db, 'funcionarios');
-    const vendasRef = ref(db, 'historico_vendas');
+    const vendasRef = ref(db, 'vendas_pdv');
 
     const unsubF = onValue(fornRef, (snapshot) => {
       const data = snapshot.val();
@@ -254,7 +257,20 @@ Formato:
 
   const formatarMoeda = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
   const formatarData = (d: string) => { const [ano, mes, dia] = d.split('-'); return `${dia}/${mes}/${ano}`; };
-  const hoje = new Date().toISOString().split('T')[0];
+
+  const getHojeComercialStr = () => {
+    const agora = new Date();
+    const limite = new Date(agora);
+    limite.setHours(6, 59, 59, 999);
+    if (agora.getTime() <= limite.getTime()) {
+      agora.setDate(agora.getDate() - 1);
+    }
+    const year = agora.getFullYear();
+    const month = String(agora.getMonth() + 1).padStart(2, '0');
+    const day = String(agora.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const hoje = getHojeComercialStr();
 
 
   const renderDashboard = () => {
@@ -262,7 +278,7 @@ Formato:
     const pagarPago = contasPagar.filter(c => c.status === 'Pago').reduce((acc, c) => acc + c.valor, 0);
     const receberPendente = contasReceber.filter(c => c.status === 'Pendente').reduce((acc, c) => acc + c.valor, 0);
     
-    const totalVendasPDV = historicoVendas.reduce((acc, v) => acc + (Number(v.total) || 0), 0);
+    const totalVendasPDV = historicoVendas.reduce((acc, v) => acc + (Number(v.valor) || 0), 0);
     const receberRecebido = contasReceber.filter(c => c.status === 'Recebido').reduce((acc, c) => acc + c.valor, 0) + totalVendasPDV;
 
     const totalPagarGeral = contasPagar.reduce((a,b) => a + b.valor, 0);
@@ -270,6 +286,72 @@ Formato:
       ...cat,
       total: contasPagar.filter(c => c.tipo === cat.nome).reduce((a,b)=>a+b.valor,0)
     })).filter(c => c.total > 0).sort((a,b) => b.total - a.total);
+
+    const diasComVenda = new Set(historicoVendas.map(v => {
+      const d = new Date(v.timestamp);
+      d.setHours(d.getHours() - 7); // Faz vendas da madrugada contarem para o dia comercial anterior
+      return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+    })).size;
+    const totalLucroLiquido = historicoVendas.reduce((acc, v) => acc + (Number(v.valorLiquido) || 0), 0);
+    const lucroMedioDiario = diasComVenda > 0 ? totalLucroLiquido / diasComVenda : 0;
+    const ticketMedio = historicoVendas.length > 0 ? totalVendasPDV / historicoVendas.length : 0;
+
+    const getFilteredVendas = () => {
+      const agora = new Date();
+      let inicio = 0;
+      let fim = Date.now();
+
+      const limite = new Date(agora);
+      limite.setHours(6, 59, 59, 999);
+      const hojeComercial = new Date(agora);
+      if (agora.getTime() <= limite.getTime()) {
+        hojeComercial.setDate(hojeComercial.getDate() - 1);
+      }
+      hojeComercial.setHours(7, 0, 0, 0);
+
+      switch (filtroVendas) {
+        case 'hoje': inicio = hojeComercial.getTime(); break;
+        case 'semana': inicio = hojeComercial.getTime() - (7 * 24 * 60 * 60 * 1000); break;
+        case 'quinzena': inicio = hojeComercial.getTime() - (15 * 24 * 60 * 60 * 1000); break;
+        case 'este_mes': inicio = new Date(hojeComercial.getFullYear(), hojeComercial.getMonth(), 1, 7, 0, 0, 0).getTime(); break;
+        case 'bimestre': inicio = new Date(hojeComercial.getFullYear(), hojeComercial.getMonth() - 1, 1, 7, 0, 0, 0).getTime(); break;
+        case 'semestre': inicio = new Date(hojeComercial.getFullYear(), hojeComercial.getMonth() - 5, 1, 7, 0, 0, 0).getTime(); break;
+        case 'ano': inicio = new Date(hojeComercial.getFullYear(), 0, 1, 7, 0, 0, 0).getTime(); break;
+        case 'tudo': inicio = 0; break;
+        case 'personalizado':
+          if (dataInicioFiltro) inicio = new Date(`${dataInicioFiltro}T07:00:00`).getTime();
+          if (dataFimFiltro) {
+            const dataFim = new Date(`${dataFimFiltro}T06:59:59`);
+            dataFim.setDate(dataFim.getDate() + 1);
+            fim = dataFim.getTime();
+          }
+          break;
+      }
+
+      return historicoVendas.filter(v => {
+        if (filtroVendas === 'fim_de_semana') {
+            const vDate = new Date(v.timestamp);
+            vDate.setHours(vDate.getHours() - 7);
+            const diaSemana = vDate.getDay();
+            const inicioMes = new Date(hojeComercial.getFullYear(), hojeComercial.getMonth(), 1, 7, 0, 0, 0).getTime();
+            return v.timestamp >= inicioMes && (diaSemana === 0 || diaSemana === 6);
+        }
+        return v.timestamp >= inicio && v.timestamp <= fim;
+      });
+    };
+
+    const vendasFiltradas = getFilteredVendas();
+    const produtosVendidos: Record<string, { nome: string, qtd: number, valor: number }> = {};
+    vendasFiltradas.forEach(v => {
+      if (v.itens && Array.isArray(v.itens)) {
+        v.itens.forEach((item: any) => {
+          if (!produtosVendidos[item.nome]) produtosVendidos[item.nome] = { nome: item.nome, qtd: 0, valor: 0 };
+          produtosVendidos[item.nome].qtd += item.qtd;
+          produtosVendidos[item.nome].valor += item.preco * item.qtd;
+        });
+      }
+    });
+    const topProdutos = Object.values(produtosVendidos).sort((a, b) => b.qtd - a.qtd);
 
     return (
       <div className="space-y-6">
@@ -289,6 +371,17 @@ Formato:
           <div className="bg-white p-6 rounded-xl shadow-sm border border-green-100">
             <p className="text-sm font-bold text-gray-500 flex items-center"><CheckCircle size={16} className="mr-2 text-green-500"/> Receita Total (PDV + Lançamentos)</p>
             <h4 className="text-2xl font-black text-green-600 mt-2" title={`R$ ${totalVendasPDV.toFixed(2).replace('.', ',')} originados do PDV`}>{formatarMoeda(receberRecebido)}</h4>
+          </div>
+        </div>
+        
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100">
+            <p className="text-sm font-bold text-gray-500 flex items-center"><Activity size={16} className="mr-2 text-emerald-500"/> Lucro Médio Diário (PDV)</p>
+            <h4 className="text-2xl font-black text-emerald-600 mt-2">{formatarMoeda(lucroMedioDiario)}</h4>
+          </div>
+          <div className="bg-white p-6 rounded-xl shadow-sm border border-purple-100">
+            <p className="text-sm font-bold text-gray-500 flex items-center"><Receipt size={16} className="mr-2 text-purple-500"/> Ticket Médio</p>
+            <h4 className="text-2xl font-black text-purple-600 mt-2">{formatarMoeda(ticketMedio)}</h4>
           </div>
         </div>
         
@@ -331,6 +424,54 @@ Formato:
                  <div className="flex justify-between items-center"><span className="font-bold text-gray-700">Saldo Final (Estimado)</span><span className={`text-xl font-black ${(receberRecebido + receberPendente) - (pagarPago + pagarPendente) >= 0 ? 'text-green-600' : 'text-red-600'}`}>{formatarMoeda((receberRecebido + receberPendente) - (pagarPago + pagarPendente))}</span></div>
                </div>
              </div>
+          </div>
+        </div>
+
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+            <h3 className="text-lg font-bold text-gray-800 flex items-center"><ShoppingBag size={20} className="mr-2 text-orange-500"/> Produtos Mais Vendidos</h3>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <select value={filtroVendas} onChange={e => setFiltroVendas(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white">
+                <option value="hoje">Hoje</option>
+                <option value="semana">Esta Semana</option>
+                <option value="fim_de_semana">Fim de Semana (Este Mês)</option>
+                <option value="quinzena">Últimos 15 Dias</option>
+                <option value="este_mes">Este Mês</option>
+                <option value="bimestre">Bimestre</option>
+                <option value="semestre">Semestre</option>
+                <option value="ano">Este Ano</option>
+                <option value="tudo">Todo o Período</option>
+                <option value="personalizado">Personalizado</option>
+              </select>
+              {filtroVendas === 'personalizado' && (
+                <div className="flex gap-2">
+                  <input type="date" value={dataInicioFiltro} onChange={e => setDataInicioFiltro(e.target.value)} className="p-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                  <input type="date" value={dataFimFiltro} onChange={e => setDataFimFiltro(e.target.value)} className="p-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500" />
+                </div>
+              )}
+            </div>
+          </div>
+          
+          <div className="overflow-x-auto max-h-[400px] border border-gray-100 rounded-lg">
+            <table className="w-full text-left border-collapse">
+              <thead className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase tracking-wider sticky top-0">
+                <tr>
+                  <th className="p-4 font-bold">Produto</th>
+                  <th className="p-4 font-bold text-center">Quantidade Vendida</th>
+                  <th className="p-4 font-bold text-right">Receita Bruta</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50 text-sm">
+                {topProdutos.map((p, idx) => (
+                  <tr key={idx} className="hover:bg-gray-50 transition-colors">
+                    <td className="p-4 font-medium text-gray-800">{p.nome}</td>
+                    <td className="p-4 text-center font-bold text-orange-600">{p.qtd}</td>
+                    <td className="p-4 text-right font-medium text-green-600">{formatarMoeda(p.valor)}</td>
+                  </tr>
+                ))}
+                {topProdutos.length === 0 && <tr><td colSpan={3} className="p-4 text-center text-gray-400">Nenhuma venda no período selecionado.</td></tr>}
+              </tbody>
+            </table>
           </div>
         </div>
       </div>

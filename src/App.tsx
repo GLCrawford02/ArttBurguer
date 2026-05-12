@@ -7,12 +7,13 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, FileEdit } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
 import TransferenciaManager from './components/TransferenciaManager';
 import VisibilidadeManager from './components/VisibilidadeManager';
+import DescarteManager from './components/DescarteManager';
 import GestaoFinanceira from './components/GestaoFinanceira';
 import FuncionariosManager from './components/FuncionariosManager';
 import GestaoEquipeManager from './components/GestaoEquipeManager';
@@ -23,7 +24,8 @@ import AtualizacoesSistema from './components/AtualizacoesSistema';
 import ClientesManager from './components/ClientesManager';
 import DespachoManager from './components/DespachoManager';
 import MarketingManager from './components/MarketingManager';
-import { ref, onValue, set, push } from 'firebase/database';
+import BlocoNotasManager from './components/BlocoNotasManager';
+import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
@@ -32,12 +34,13 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
-  const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade'>('compras');
+  const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
   const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes'>('gerais');
   const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes'>('equipe');
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes' | 'despacho'>('clientes');
+  const [subTabTarefas, setSubTabTarefas] = useState<'gerenciamento' | 'notas'>('gerenciamento');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(() => {
@@ -47,6 +50,7 @@ export default function App() {
   const [pinInput, setPinInput] = useState('');
   const [loginError, setLoginError] = useState('');
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
+  const [missingCpfInput, setMissingCpfInput] = useState('');
 
   // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
   useEffect(() => {
@@ -64,7 +68,7 @@ export default function App() {
       if (updatedUser) {
         const currentCargoStr = Array.isArray(currentUser.cargo) ? [...currentUser.cargo].sort().join(',') : currentUser.cargo;
         const updatedCargoStr = Array.isArray(updatedUser.cargo) ? [...updatedUser.cargo].sort().join(',') : updatedUser.cargo;
-        if (currentCargoStr !== updatedCargoStr || (updatedUser as any).ativo !== (currentUser as any).ativo) {
+        if (currentCargoStr !== updatedCargoStr || (updatedUser as any).ativo !== (currentUser as any).ativo || (updatedUser as any).cpf !== (currentUser as any).cpf) {
           setCurrentUser(updatedUser);
         }
       }
@@ -87,7 +91,7 @@ export default function App() {
       const hash = window.location.hash.replace('#', '') as any; 
       console.log('🔗 URL mudou para a aba:', hash);
       
-      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing', 'nova_aba'].includes(hash)) {
+      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'].includes(hash)) {
         setActiveTab(hash as any);
       }
       setIsMobileMenuOpen(false);
@@ -157,16 +161,16 @@ export default function App() {
     };
 
     if (hasPerm('vendas')) allowed.push('pdv');
-    if (hasPerm('insumos') || hasPerm('produtos')) allowed.push('cadastros');
+    if (hasPerm('insumos') || hasPerm('fornecedores')) allowed.push('cadastros');
     if (hasPerm('produtos') || hasPerm('promocoes')) allowed.push('cardapio');
-    if (hasPerm('compras') || hasPerm('transferencias')) allowed.push('movimentacoes');
+    if (hasPerm('compras') || hasPerm('transferencias') || hasPerm('descartes') || hasPerm('visibilidade_estoque')) allowed.push('movimentacoes');
     if (hasPerm('clientes') || hasPerm('despacho')) allowed.push('logistica');
     if (hasPerm('producao') || cargos.some((c: string) => c.toUpperCase().includes('KDS'))) allowed.push('producao');
     if (hasPerm('balanco')) allowed.push('balanco');
-    if (hasPerm('relatorios')) allowed.push('financeiro');
+    if (hasPerm('relatorios') || hasPerm('fechamento_caixa')) allowed.push('financeiro');
     if (hasPerm('funcionarios')) allowed.push('funcionarios');
-    if (hasPerm('configuracoes')) allowed.push('configuracoes');
-    if (hasPerm('tarefas')) allowed.push('tarefas');
+    if (hasPerm('configuracoes') || hasPerm('bancos_taxas')) allowed.push('configuracoes');
+    if (hasPerm('tarefas') || hasPerm('bloco_notas')) allowed.push('tarefas');
     if (hasPerm('marketing')) allowed.push('marketing');
     return allowed;
   };
@@ -183,7 +187,7 @@ export default function App() {
       // Redireciona a sub-aba automaticamente se ele perder o acesso
       const allowedCadastrosSubTabs: ('insumos' | 'fornecedores')[] = [];
       if (temPermissao('insumos')) allowedCadastrosSubTabs.push('insumos');
-      if (temPermissao('configuracoes')) allowedCadastrosSubTabs.push('fornecedores');
+      if (temPermissao('fornecedores')) allowedCadastrosSubTabs.push('fornecedores');
       if (activeTab === 'cadastros' && !allowedCadastrosSubTabs.includes(subTabCadastros) && allowedCadastrosSubTabs.length > 0) {
           setSubTabCadastros(allowedCadastrosSubTabs[0]);
       }
@@ -195,6 +199,13 @@ export default function App() {
           setSubTabCardapio(allowedCardapioSubTabs[0]);
       }
 
+
+      const allowedTarefasSubTabs: ('gerenciamento' | 'notas')[] = [];
+      if (temPermissao('tarefas')) allowedTarefasSubTabs.push('gerenciamento');
+      if (temPermissao('bloco_notas')) allowedTarefasSubTabs.push('notas');
+      if (activeTab === 'tarefas' && !allowedTarefasSubTabs.includes(subTabTarefas) && allowedTarefasSubTabs.length > 0) {
+          setSubTabTarefas(allowedTarefasSubTabs[0]);
+      }
 
       setSubTabMovimentacoes(prev => (!temPermissao('compras') && prev === 'compras') ? 'transferencia' : prev);
       setSubTabLogistica(prev => (!temPermissao('clientes') && prev === 'clientes') ? 'despacho' : prev);
@@ -250,6 +261,26 @@ export default function App() {
       }
     } else {
       setLoginError('PIN incorreto ou usuário não encontrado.');
+    }
+  };
+
+  const formatCpf = (v: string) => {
+    if (!v) return '';
+    let val = v.replace(/\D/g, '');
+    if (val.length > 11) val = val.substring(0, 11);
+    val = val.replace(/(\d{3})(\d)/, '$1.$2');
+    val = val.replace(/(\d{3})(\d)/, '$1.$2');
+    val = val.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    return val;
+  };
+
+  const handleSaveMissingCpf = async () => {
+    const limpo = missingCpfInput.replace(/\D/g, '');
+    if (limpo.length !== 11 || !currentUser) return;
+    try {
+      await update(ref(db, `funcionarios/${currentUser.id}`), { cpf: limpo });
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -472,7 +503,6 @@ export default function App() {
             <span>Gestão de Equipe</span>
           </button>
           )}
-
         {allowedTabs.includes('configuracoes') && (
         <button
           onClick={() => handleTabChange('configuracoes')}
@@ -519,13 +549,22 @@ export default function App() {
         <div className="max-w-6xl mx-auto">
           {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
           
-          {activeTab === 'tarefas' && <TarefasManager currentUser={currentUser} />}
+          {activeTab === 'tarefas' && (
+            <div className="space-y-6">
+              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+                {temPermissao('tarefas') && <button onClick={() => setSubTabTarefas('gerenciamento')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'gerenciamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gerenciamento de Tarefas</button>}
+                {temPermissao('bloco_notas') && <button onClick={() => setSubTabTarefas('notas')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'notas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bloco de Notas</button>}
+              </div>
+              {subTabTarefas === 'gerenciamento' && <TarefasManager currentUser={currentUser} />}
+              {subTabTarefas === 'notas' && <BlocoNotasManager currentUser={currentUser} />}
+            </div>
+          )}
           
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-            {temPermissao('configuracoes') && <button onClick={() => setSubTabCadastros('fornecedores')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>}
                 {temPermissao('insumos') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>} 
+                {temPermissao('fornecedores') && <button onClick={() => setSubTabCadastros('fornecedores')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>}
               </div>
           {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} />}
               {subTabCadastros === 'insumos' && <InsumosManager />}
@@ -554,13 +593,15 @@ export default function App() {
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('compras') && <button onClick={() => setSubTabMovimentacoes('compras')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'compras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Entrada de Mercadoria</button>}
                 {temPermissao('transferencias') && <button onClick={() => setSubTabMovimentacoes('transferencia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'transferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Transferências</button>}
-                {(Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c)) : ['Administrador', 'Gerente', 'Dono', 'TI'].includes(currentUser.cargo as string)) && (
+                {temPermissao('visibilidade_estoque') && (
                   <button onClick={() => setSubTabMovimentacoes('visibilidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'visibilidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Visibilidade de Estoque</button>
                 )}
+                {temPermissao('descartes') && <button onClick={() => setSubTabMovimentacoes('descartes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'descartes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Descartes / Perdas</button>}
               </div>
               {subTabMovimentacoes === 'compras' && <ComprasManager />}
               {subTabMovimentacoes === 'transferencia' && <TransferenciaManager currentUser={currentUser} />}
               {subTabMovimentacoes === 'visibilidade' && <VisibilidadeManager />}
+              {subTabMovimentacoes === 'descartes' && <DescarteManager currentUser={currentUser} />}
             </div>
           )}
 
@@ -601,11 +642,9 @@ export default function App() {
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
               <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-                {temPermissao('relatorios') && (
-                  <>
-                    {isDono && <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário e Contas</button>}
-                    <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios</button>
-                  </>
+                {isDono && <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário e Contas</button>}
+                {(temPermissao('relatorios') || temPermissao('fechamento_caixa')) && (
+                  <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios e Fechamento</button>
                 )}
               </div>
               {subTabFinanceiro === 'calendario' && isDono && (
@@ -615,13 +654,13 @@ export default function App() {
               {subTabFinanceiro === 'relatorios_gerais' && (
                 <div className="space-y-6">
                   <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-                    <button onClick={() => setSubSubTabRelatorios('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento do Dia</button>
-                    {isDono && <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard A Pagar/Receber</button>}
-                    <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>
+                    {temPermissao('fechamento_caixa') && <button onClick={() => setSubSubTabRelatorios('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento do Dia</button>}
+                    {isDono && <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard</button>}
+                    {temPermissao('relatorios') && <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>}
                   </div>
-                  {subSubTabRelatorios === 'fechamento' && <FechamentoManager />}
+                  {subSubTabRelatorios === 'fechamento' && temPermissao('fechamento_caixa') && <FechamentoManager />}
                   {subSubTabRelatorios === 'dashboard_fin' && isDono && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} />}
-                  {subSubTabRelatorios === 'movimentacoes' && <RelatoriosManager />}
+                  {subSubTabRelatorios === 'movimentacoes' && temPermissao('relatorios') && <RelatoriosManager />}
                 </div>
               )}
             </div>
@@ -630,17 +669,46 @@ export default function App() {
       {activeTab === 'configuracoes' && (
         <div className="space-y-6">
           <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-            <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações Gerais</button>
-            <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>
-            <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>
+            {temPermissao('configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações Gerais</button>}
+            {temPermissao('bancos_taxas') && <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>}
+            {temPermissao('configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>}
           </div>
-          {subSubTabConfiguracoes === 'gerais' && <ConfiguracoesGerais />}
-          {subSubTabConfiguracoes === 'bancos_cartoes' && <BancosCartoes />}
-          {subSubTabConfiguracoes === 'atualizacoes' && <AtualizacoesSistema />}
+          {subSubTabConfiguracoes === 'gerais' && temPermissao('configuracoes') && <ConfiguracoesGerais />}
+          {subSubTabConfiguracoes === 'bancos_cartoes' && temPermissao('bancos_taxas') && <BancosCartoes />}
+          {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('configuracoes') && <AtualizacoesSistema />}
         </div>
       )}
         </div>
       </main>
+
+      {/* Modal de CPF Obrigatório */}
+      {currentUser && !(currentUser as any).cpf && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
+            <div className="mx-auto bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+              <Lock size={32} />
+            </div>
+            <h3 className="text-2xl font-black text-gray-800 mb-2">Atualização Obrigatória</h3>
+            <p className="text-sm text-gray-500 mb-6">
+              Precisamos do seu CPF para garantir a segurança da sua conta e do seu histórico no sistema.
+            </p>
+            <input 
+              type="text" 
+              value={missingCpfInput} 
+              onChange={e => setMissingCpfInput(formatCpf(e.target.value))} 
+              className="w-full text-center text-xl font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 transition-all mb-4" 
+              placeholder="000.000.000-00" 
+            />
+            <button 
+              onClick={handleSaveMissingCpf} 
+              disabled={missingCpfInput.replace(/\D/g, '').length !== 11}
+              className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors text-lg"
+            >
+              Salvar Meu CPF
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

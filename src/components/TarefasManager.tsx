@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil, Search } from 'lucide-react';
+import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil, Search, Plane } from 'lucide-react';
 
 export interface Tarefa {
   id: string;
@@ -35,6 +35,7 @@ export interface Tarefa {
 export default function TarefasManager({ currentUser }: { currentUser?: any }) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [gestaoData, setGestaoData] = useState<Record<string, any>>({});
   
   const [activeTab, setActiveTab] = useState<'lista' | 'produtividade'>('lista');
   
@@ -121,7 +122,13 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
       isFirstLoadCat = false;
     });
 
-    return () => { unsubFunc(); unsubTarefas(); unsubCategorias(); };
+    const gestaoRef = ref(db, 'gestao_equipe');
+    const unsubGestao = onValue(gestaoRef, snap => {
+      if (snap.val()) setGestaoData(snap.val());
+      else setGestaoData({});
+    });
+
+    return () => { unsubFunc(); unsubTarefas(); unsubCategorias(); unsubGestao(); };
   }, []);
 
   useEffect(() => {
@@ -129,6 +136,20 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
     window.addEventListener('openNewTask', handleOpenNew);
     return () => window.removeEventListener('openNewTask', handleOpenNew);
   }, []);
+
+  const isFuncionarioDeFolga = (funcId: string, data: string) => {
+    if (!data) return false;
+    const g = gestaoData[funcId] || {};
+    if (!g.folgas) return false;
+    const folgasArray = Object.values(g.folgas) as any[];
+    return folgasArray.some(f => data >= f.dataInicio && data <= f.dataFim);
+  };
+
+  useEffect(() => {
+    if (dataAgendada && showForm) {
+      setResponsaveisIds(prev => prev.filter(id => !isFuncionarioDeFolga(id, dataAgendada)));
+    }
+  }, [dataAgendada, gestaoData, showForm]);
 
   const handleAddCategoria = async () => {
     if (!novaCategoriaForm.trim()) return;
@@ -316,7 +337,12 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
     return false;
   });
 
-  const pendentes = tarefasVisiveis.filter(t => t.status === 'pendente');
+  const hojeDate = new Date();
+  const hojeStr = hojeDate.getFullYear() + '-' + String(hojeDate.getMonth() + 1).padStart(2, '0') + '-' + String(hojeDate.getDate()).padStart(2, '0');
+
+  const atrasadas = tarefasVisiveis.filter(t => t.status === 'pendente' && (!t.dataAgendada || t.dataAgendada < hojeStr));
+  const hojeTasks = tarefasVisiveis.filter(t => t.status === 'pendente' && t.dataAgendada === hojeStr);
+  const proximas = tarefasVisiveis.filter(t => t.status === 'pendente' && t.dataAgendada > hojeStr);
   const concluidas = tarefasVisiveis.filter(t => t.status === 'concluida');
 
   // Calculo de Produtividade
@@ -331,6 +357,65 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
     if (p === 'Alta') return 'bg-red-100 text-red-700 border-red-200';
     if (p === 'Média') return 'bg-yellow-100 text-yellow-700 border-yellow-200';
     return 'bg-gray-100 text-gray-700 border-gray-200';
+  };
+
+  const renderTaskCard = (tarefa: Tarefa, tipo: 'atrasada' | 'hoje' | 'proxima' | 'concluida') => {
+    const ids = tarefa.responsaveisIds || (tarefa.responsavelId ? [tarefa.responsavelId] : []);
+    const respNomes = ids.map(id => funcionarios.find(f => f.id === id)?.nome?.split(' ')[0] || '?').join(', ');
+    
+    if (tipo === 'concluida') {
+      return (
+        <div key={tarefa.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 border-l-4 border-l-green-500 opacity-70 hover:opacity-100 transition-opacity">
+          <div className="flex justify-between items-start">
+            <h4 className="font-bold text-gray-600 line-through flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
+              {tarefa.codigo && <span className="bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
+              {tarefa.titulo}
+            </h4>
+            <div className="flex space-x-1 sm:space-x-2 shrink-0">
+              <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-green-600 rounded transition-colors" title="Voltar para pendente"><CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+              <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+            </div>
+          </div>
+          <div className="mt-2 flex gap-2 text-xs font-bold text-gray-400">
+            <span className="flex items-center"><Users size={12} className="mr-1"/> {respNomes}</span>
+          </div>
+        </div>
+      );
+    }
+
+    const borderColor = tipo === 'atrasada' ? 'border-l-red-500' : tipo === 'hoje' ? 'border-l-orange-400' : 'border-l-blue-400';
+    
+    return (
+      <div key={tarefa.id} className={`bg-white p-4 rounded-xl border border-gray-200 shadow-sm border-l-4 ${borderColor}`}>
+        <div className="flex justify-between items-start">
+          <div>
+            <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
+              {tarefa.sinalizado && <Flag size={14} className="text-orange-500 fill-orange-500 shrink-0" />}
+              {tarefa.codigo && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
+              {tarefa.titulo}
+            </h4>
+            <div className="flex gap-2 mt-1.5 mb-2 flex-wrap">
+              {tarefa.prioridade && tarefa.prioridade !== 'Nenhuma' && <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getPrioColor(tarefa.prioridade)}`}>{tarefa.prioridade}</span>}
+              <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-gray-100 text-gray-600">{tarefa.categoria || 'Geral'}</span>
+              {tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma' && <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-blue-50 text-blue-600 flex items-center"><RotateCw size={10} className="mr-1"/> {tarefa.recorrencia}</span>}
+            </div>
+            {tarefa.descricao && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{tarefa.descricao}</p>}
+            {tarefa.url && <a href={tarefa.url.startsWith('http') ? tarefa.url : `https://${tarefa.url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Acessar Link</a>}
+          </div>
+          <div className="flex space-x-1 sm:space-x-2 shrink-0">
+            <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+            <button onClick={() => editarTarefa(tarefa)} className="p-1.5 bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 rounded transition-colors" title="Editar tarefa"><Pencil size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+            <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+          </div>
+        </div>
+        <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
+          <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded flex items-center"><Users size={12} className="mr-1"/> {respNomes}</span>
+          <span className={`${tipo === 'atrasada' ? 'bg-red-50 text-red-600 border-red-100' : tipo === 'hoje' ? 'bg-orange-50 text-orange-600 border-orange-100' : 'bg-blue-50 text-blue-600 border-blue-100'} border px-2 py-1 rounded flex items-center`}><Clock size={12} className="mr-1"/> {tarefa.dataAgendada ? tarefa.dataAgendada.split('-').reverse().join('/') : 'S/ Data'} às {tarefa.horaAgendada || 'S/ Hora'}</span>
+          {tarefa.urgente && <span className="bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded flex items-center"><AlertCircle size={12} className="mr-1"/> Urgente</span>}
+          {tarefa.lembreteAntecipado ? <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-1 rounded flex items-center" title={`${tarefa.lembreteAntecipado}min antes`}><Bell size={12} className="mr-1"/> Lembrete</span> : null}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -367,17 +452,26 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
 
           {/* 2. Responsáveis */}
           <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-4">
-            <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider mb-3">Responsáveis</h4>
+            <div className="flex justify-between items-end mb-3">
+              <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Responsáveis</h4>
+              {!dataAgendada && <span className="text-[10px] text-orange-500 font-bold bg-orange-50 px-2 py-0.5 rounded border border-orange-100 hidden sm:block">Selecione a data para ver as folgas</span>}
+            </div>
             <div className="max-h-32 overflow-y-auto space-y-1">
-              {funcionarios.map(f => (
-                <label key={f.id} className="flex items-center space-x-3 cursor-pointer p-1.5 hover:bg-gray-50 rounded-lg transition-colors">
-                  <input type="checkbox" checked={responsaveisIds.includes(f.id)} onChange={e => {
-                    if (e.target.checked) setResponsaveisIds([...responsaveisIds, f.id]);
-                    else setResponsaveisIds(responsaveisIds.filter(id => id !== f.id));
-                  }} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500" />
-                  <span className="text-sm font-medium text-gray-700">{f.nome} <span className="text-xs text-gray-400">({Array.isArray(f.cargo) ? f.cargo[0] : f.cargo})</span></span>
-                </label>
-              ))}
+              {funcionarios.map(f => {
+                const isFolga = isFuncionarioDeFolga(f.id, dataAgendada);
+                return (
+                  <label key={f.id} className={`flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg transition-colors ${isFolga ? 'opacity-60 bg-gray-50' : 'hover:bg-gray-50'}`}>
+                    <input type="checkbox" disabled={isFolga} checked={responsaveisIds.includes(f.id)} onChange={e => {
+                      if (e.target.checked) setResponsaveisIds([...responsaveisIds, f.id]);
+                      else setResponsaveisIds(responsaveisIds.filter(id => id !== f.id));
+                    }} className="rounded w-4 h-4 text-indigo-600 focus:ring-indigo-500 disabled:opacity-50" />
+                    <span className="text-sm font-medium text-gray-700 flex items-center flex-wrap gap-1 sm:gap-2">
+                      {f.nome} <span className="text-xs text-gray-400">({Array.isArray(f.cargo) ? f.cargo[0] : f.cargo})</span>
+                      {isFolga && <span className="text-[10px] bg-purple-100 text-purple-700 font-bold px-1.5 py-0.5 rounded uppercase tracking-wider flex items-center"><Plane size={10} className="mr-1"/> Em Folga</span>}
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </div>
 
@@ -506,75 +600,40 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
       )}
 
       {activeTab === 'lista' ? (
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Pendentes */}
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6 items-start">
+        {/* Atrasadas */}
         <div className="space-y-4">
-          <h3 className="font-bold text-gray-700 border-b-2 border-orange-200 pb-2">Pendentes ({pendentes.length})</h3>
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {pendentes.map(tarefa => {
-              const ids = tarefa.responsaveisIds || (tarefa.responsavelId ? [tarefa.responsavelId] : []);
-              const respNomes = ids.map(id => funcionarios.find(f => f.id === id)?.nome?.split(' ')[0] || '?').join(', ');
-              return (
-                <div key={tarefa.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm border-l-4 border-l-orange-400">
-                  <div className="flex justify-between items-start">
-                    <div>
-                      <h4 className="font-bold text-gray-900 leading-tight flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
-                        {tarefa.sinalizado && <Flag size={14} className="text-orange-500 fill-orange-500 shrink-0" />}
-                        {tarefa.codigo && <span className="bg-gray-100 text-gray-600 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
-                        {tarefa.titulo}
-                      </h4>
-                      <div className="flex gap-2 mt-1.5 mb-2">
-                        {tarefa.prioridade && tarefa.prioridade !== 'Nenhuma' && <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${getPrioColor(tarefa.prioridade)}`}>{tarefa.prioridade}</span>}
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-gray-100 text-gray-600">{tarefa.categoria || 'Geral'}</span>
-                        {tarefa.recorrencia && tarefa.recorrencia !== 'Nenhuma' && <span className="text-[10px] font-bold px-2 py-0.5 rounded border bg-blue-50 text-blue-600 flex items-center"><RotateCw size={10} className="mr-1"/> {tarefa.recorrencia}</span>}
-                      </div>
-                      {tarefa.descricao && <p className="text-sm text-gray-500 mt-1 line-clamp-2">{tarefa.descricao}</p>}
-                      {tarefa.url && <a href={tarefa.url.startsWith('http') ? tarefa.url : `https://${tarefa.url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Acessar Link</a>}
-                    </div>
-                    <div className="flex space-x-1 sm:space-x-2 shrink-0">
-                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-                      <button onClick={() => editarTarefa(tarefa)} className="p-1.5 bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 rounded transition-colors" title="Editar tarefa"><Pencil size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-                    </div>
-                  </div>
-                  <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
-                    <span className="bg-gray-100 text-gray-600 px-2 py-1 rounded flex items-center"><Users size={12} className="mr-1"/> {respNomes}</span>
-                    <span className="bg-orange-50 text-orange-600 border border-orange-100 px-2 py-1 rounded flex items-center"><Clock size={12} className="mr-1"/> {tarefa.dataAgendada ? tarefa.dataAgendada.split('-').reverse().join('/') : 'S/ Data'} às {tarefa.horaAgendada || 'S/ Hora'}</span>
-                    {tarefa.urgente && <span className="bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded flex items-center"><AlertCircle size={12} className="mr-1"/> Urgente</span>}
-                    {tarefa.lembreteAntecipado ? <span className="bg-indigo-50 text-indigo-600 border border-indigo-100 px-2 py-1 rounded flex items-center" title={`${tarefa.lembreteAntecipado}min antes`}><Bell size={12} className="mr-1"/> Lembrete</span> : null}
-                  </div>
-                </div>
-              );
-            })}
-            {pendentes.length === 0 && <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center">Nenhuma tarefa pendente.</p>}
+          <h3 className="font-bold text-gray-700 border-b-2 border-red-400 pb-2 flex items-center justify-between">Atrasadas <span className="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-xs">{atrasadas.length}</span></h3>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1 pb-4">
+            {atrasadas.map(t => renderTaskCard(t, 'atrasada'))}
+            {atrasadas.length === 0 && <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center">Nenhuma tarefa atrasada.</p>}
+          </div>
+        </div>
+
+        {/* Hoje */}
+        <div className="space-y-4">
+          <h3 className="font-bold text-gray-700 border-b-2 border-orange-400 pb-2 flex items-center justify-between">Hoje <span className="bg-orange-100 text-orange-600 px-2 py-0.5 rounded-full text-xs">{hojeTasks.length}</span></h3>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1 pb-4">
+            {hojeTasks.map(t => renderTaskCard(t, 'hoje'))}
+            {hojeTasks.length === 0 && <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center">Nenhuma tarefa para hoje.</p>}
+          </div>
+        </div>
+
+        {/* Próximas */}
+        <div className="space-y-4">
+          <h3 className="font-bold text-gray-700 border-b-2 border-blue-400 pb-2 flex items-center justify-between">Próximas <span className="bg-blue-100 text-blue-600 px-2 py-0.5 rounded-full text-xs">{proximas.length}</span></h3>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1 pb-4">
+            {proximas.map(t => renderTaskCard(t, 'proxima'))}
+            {proximas.length === 0 && <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center">Nenhuma tarefa próxima.</p>}
           </div>
         </div>
 
         {/* Concluídas */}
         <div className="space-y-4">
-          <h3 className="font-bold text-gray-700 border-b-2 border-green-200 pb-2">Concluídas ({concluidas.length})</h3>
-          <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
-            {concluidas.map(tarefa => {
-              const ids = tarefa.responsaveisIds || (tarefa.responsavelId ? [tarefa.responsavelId] : []);
-              const respNomes = ids.map(id => funcionarios.find(f => f.id === id)?.nome?.split(' ')[0] || '?').join(', ');
-              return (
-                <div key={tarefa.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 border-l-4 border-l-green-500 opacity-70 hover:opacity-100 transition-opacity">
-                  <div className="flex justify-between items-start">
-                    <h4 className="font-bold text-gray-600 line-through flex items-center gap-2 cursor-pointer hover:text-indigo-600 transition-colors" onClick={() => setSelectedTask(tarefa)}>
-                      {tarefa.codigo && <span className="bg-gray-100 text-gray-400 px-1.5 py-0.5 rounded text-xs font-mono border border-gray-200 shrink-0">#{tarefa.codigo}</span>}
-                      {tarefa.titulo}
-                    </h4>
-                    <div className="flex space-x-1 sm:space-x-2 shrink-0">
-                      <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-green-600 rounded transition-colors" title="Voltar para pendente"><CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-                      <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-                    </div>
-                  </div>
-                  <div className="mt-2 flex gap-2 text-xs font-bold text-gray-400">
-                    <span className="flex items-center"><Users size={12} className="mr-1"/> {respNomes}</span>
-                  </div>
-                </div>
-              );
-            })}
+          <h3 className="font-bold text-gray-700 border-b-2 border-green-400 pb-2 flex items-center justify-between">Concluídas <span className="bg-green-100 text-green-600 px-2 py-0.5 rounded-full text-xs">{concluidas.length}</span></h3>
+          <div className="space-y-3 max-h-[70vh] overflow-y-auto pr-1 pb-4">
+            {concluidas.map(t => renderTaskCard(t, 'concluida'))}
+            {concluidas.length === 0 && <p className="text-sm text-gray-400 italic bg-gray-50 p-4 rounded-lg text-center">Nenhuma tarefa concluída.</p>}
           </div>
         </div>
       </div>

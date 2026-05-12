@@ -2,13 +2,25 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, set, push, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save } from 'lucide-react';
+import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save, Plane, Clock, Power, ShieldOff, ShieldCheck, Fingerprint } from 'lucide-react';
 
 export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeView?: 'gestao' | 'ia' }) {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [gestaoData, setGestaoData] = useState<Record<string, any>>({});
   const [selectedFuncId, setSelectedFuncId] = useState<string | null>(null);
+  const [subView, setSubView] = useState<'geral' | 'horarios' | 'status'>('geral');
+  const [cpf, setCpf] = useState('');
   
+  const [horarios, setHorarios] = useState<Record<string, { entrada: string, saida: string }>>({
+    segunda: { entrada: '', saida: '' }, terca: { entrada: '', saida: '' },
+    quarta: { entrada: '', saida: '' }, quinta: { entrada: '', saida: '' },
+    sexta: { entrada: '', saida: '' }, sabado: { entrada: '', saida: '' },
+    domingo: { entrada: '', saida: '' },
+  });
+  const [novoPontoData, setNovoPontoData] = useState('');
+  const [novoPontoEntrada, setNovoPontoEntrada] = useState('');
+  const [novoPontoSaida, setNovoPontoSaida] = useState('');
+
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiResponse, setAiResponse] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
@@ -19,6 +31,9 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
   const [novaFaltaMotivo, setNovaFaltaMotivo] = useState('');
   const [novoFeedbackData, setNovoFeedbackData] = useState('');
   const [novoFeedbackTexto, setNovoFeedbackTexto] = useState('');
+  const [novaFolgaDataInicio, setNovaFolgaDataInicio] = useState('');
+  const [novaFolgaDataFim, setNovaFolgaDataFim] = useState('');
+  const [novaFolgaMotivo, setNovaFolgaMotivo] = useState('');
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
@@ -52,17 +67,85 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
     return () => { unsubFunc(); unsubGestao(); };
   }, []);
 
+  const formatCpf = (v: string) => {
+    if (!v) return '';
+    v = v.replace(/\D/g, '');
+    if (v.length > 11) v = v.substring(0, 11);
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d)/, '$1.$2');
+    v = v.replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    return v;
+  };
+
   useEffect(() => {
-    if (selectedFuncId) {
+    if (selectedFuncId && funcionarios.length > 0) {
       const data = gestaoData[selectedFuncId] || {};
+      const func = funcionarios.find(f => f.id === selectedFuncId);
       setEncargos(data.encargos || '');
+      setCpf(formatCpf(func ? (func as any).cpf || '' : ''));
+      setHorarios(data.horarios || {
+        segunda: { entrada: '', saida: '' }, terca: { entrada: '', saida: '' },
+        quarta: { entrada: '', saida: '' }, quinta: { entrada: '', saida: '' },
+        sexta: { entrada: '', saida: '' }, sabado: { entrada: '', saida: '' },
+        domingo: { entrada: '', saida: '' },
+      });
     }
-  }, [selectedFuncId, gestaoData]);
+  }, [selectedFuncId, gestaoData, funcionarios]);
 
   const salvarEncargos = async () => {
     if (!selectedFuncId) return;
     await update(ref(db, `gestao_equipe/${selectedFuncId}`), { encargos });
     showToast('Encargos e funções atualizados!', 'success');
+  };
+
+  const salvarHorarios = async () => {
+    if (!selectedFuncId) return;
+    await update(ref(db, `gestao_equipe/${selectedFuncId}`), { horarios });
+    showToast('Quadro de horários atualizado!', 'success');
+  };
+
+  const addPonto = async () => {
+    if (!selectedFuncId || !novoPontoData || !novoPontoEntrada) return;
+    await set(push(ref(db, `gestao_equipe/${selectedFuncId}/ponto`)), {
+      data: novoPontoData,
+      entrada: novoPontoEntrada,
+      saida: novoPontoSaida,
+      timestamp: Date.now()
+    });
+    setNovoPontoData('');
+    setNovoPontoEntrada('');
+    setNovoPontoSaida('');
+    showToast('Ponto registrado.', 'success');
+  };
+
+  const removePonto = async (pontoId: string) => {
+    if (confirm('Deseja remover este registro de ponto?')) {
+      await remove(ref(db, `gestao_equipe/${selectedFuncId}/ponto/${pontoId}`));
+    }
+  };
+
+  const salvarCpf = async () => {
+    if (!selectedFuncId) return;
+    await update(ref(db, `funcionarios/${selectedFuncId}`), { cpf: cpf.replace(/\D/g, '') });
+    showToast('CPF vinculado com sucesso!', 'success');
+  };
+
+  const toggleAtivo = async () => {
+    if (!selectedFuncId || !selectedFunc) return;
+    const isAtivo = (selectedFunc as any).ativo !== false;
+    if (isAtivo) {
+      if (!cpf) return showToast('Vincule o CPF antes de inativar para proteger os registros em um possível retorno.', 'error');
+      if (confirm('Deseja realmente inativar este colaborador? O PIN de acesso será apagado.')) {
+        await update(ref(db, `funcionarios/${selectedFuncId}`), { ativo: false, pin: null, cpf: cpf.replace(/\D/g, '') });
+        showToast('Colaborador inativado com sucesso.', 'success');
+        setSubView('geral');
+      }
+    } else {
+      if (confirm('Deseja reativar este colaborador?')) {
+        await update(ref(db, `funcionarios/${selectedFuncId}`), { ativo: true });
+        showToast('Colaborador reativado! Defina um novo PIN na aba Equipe.', 'success');
+      }
+    }
   };
 
   const addFalta = async () => {
@@ -89,6 +172,21 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
     showToast('Feedback registrado.', 'success');
   };
 
+  const addFolga = async () => {
+    if (!selectedFuncId || !novaFolgaDataInicio || !novaFolgaDataFim || !novaFolgaMotivo) return;
+    if (novaFolgaDataFim < novaFolgaDataInicio) return showToast('Data fim não pode ser antes do início.', 'error');
+    await set(push(ref(db, `gestao_equipe/${selectedFuncId}/folgas`)), {
+      dataInicio: novaFolgaDataInicio,
+      dataFim: novaFolgaDataFim,
+      motivo: novaFolgaMotivo,
+      timestamp: Date.now()
+    });
+    setNovaFolgaDataInicio('');
+    setNovaFolgaDataFim('');
+    setNovaFolgaMotivo('');
+    showToast('Período de ausência registrado.', 'success');
+  };
+
   const removeFalta = async (faltaId: string) => {
     if (confirm('Deseja remover o registro desta falta?')) {
       await remove(ref(db, `gestao_equipe/${selectedFuncId}/faltas/${faltaId}`));
@@ -98,6 +196,12 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
   const removeFeedback = async (feedbackId: string) => {
     if (confirm('Deseja remover este feedback?')) {
       await remove(ref(db, `gestao_equipe/${selectedFuncId}/feedbacks/${feedbackId}`));
+    }
+  };
+
+  const removeFolga = async (folgaId: string) => {
+    if (confirm('Deseja remover este registro de ausência?')) {
+      await remove(ref(db, `gestao_equipe/${selectedFuncId}/folgas/${folgaId}`));
     }
   };
 
@@ -111,7 +215,14 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
     }).map(f => {
       const g = gestaoData[f.id] || {};
       const cargosStr = Array.isArray(f.cargo) ? f.cargo.join(', ') : (f.cargo || 'Não definido');
-      return `- ${f.nome} (Cargos: ${cargosStr}) | Funções/Encargos: ${g.encargos || 'Não especificadas'}`;
+      
+      const folgasFunc = g.folgas ? Object.values(g.folgas) as any[] : [];
+      const hoje = new Date().toISOString().split('T')[0];
+      const folgaAtual = folgasFunc.find(folga => folga.dataInicio <= hoje && folga.dataFim >= hoje);
+      const statusFolga = folgaAtual ? `[AUSENTE: ${folgaAtual.motivo}]` : 'Ativo';
+      const horariosStr = g.horarios ? Object.entries(g.horarios).filter(([_, v]: any) => v.entrada).map(([d, v]: any) => `${d.substring(0,3)}: ${v.entrada}-${v.saida}`).join(', ') : 'Não definidos';
+
+      return `- ${f.nome} (Cargos: ${cargosStr}) | Status: ${statusFolga} | Horários: ${horariosStr} | Funções: ${g.encargos || 'Não especificadas'}`;
     }).join('\n');
 
     try {
@@ -145,6 +256,8 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
   
   const faltas = selectedFuncData.faltas ? Object.entries(selectedFuncData.faltas).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
   const feedbacks = selectedFuncData.feedbacks ? Object.entries(selectedFuncData.feedbacks).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
+  const folgas = selectedFuncData.folgas ? Object.entries(selectedFuncData.folgas).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
+  const pontos = selectedFuncData.ponto ? Object.entries(selectedFuncData.ponto).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
 
   const funcionariosGerenciaveis = funcionarios.filter(f => {
     const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
@@ -159,7 +272,7 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
         
         <div className="flex overflow-x-auto gap-2 pb-3 mb-2 border-b border-gray-100">
           {funcionariosGerenciaveis.map(f => (
-            <button key={f.id} onClick={() => setSelectedFuncId(f.id)} className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm transition-colors border ${(f as any).ativo === false ? 'opacity-60' : ''} ${selectedFuncId === f.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
+            <button key={f.id} onClick={() => { setSelectedFuncId(f.id); setSubView('geral'); }} className={`flex-shrink-0 px-4 py-2 rounded-lg font-bold text-sm transition-colors border ${(f as any).ativo === false ? 'opacity-60' : ''} ${selectedFuncId === f.id ? 'bg-blue-600 text-white border-blue-600' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>
               {f.nome} {(f as any).ativo === false && '(Inativo)'}
             </button>
           ))}
@@ -167,6 +280,14 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
         
         {selectedFuncId && selectedFunc ? (
           <div className="mt-6 space-y-6">
+            <div className="flex flex-wrap gap-2 border-b border-gray-200 pb-px">
+              <button onClick={() => setSubView('geral')} className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${subView === 'geral' ? 'bg-gray-100 text-gray-800 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>Desempenho e Faltas</button>
+              <button onClick={() => setSubView('horarios')} className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${subView === 'horarios' ? 'bg-gray-100 text-gray-800 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>Horários e Ponto</button>
+              <button onClick={() => setSubView('status')} className={`px-4 py-2 font-bold text-sm rounded-t-lg transition-colors ${subView === 'status' ? 'bg-gray-100 text-gray-800 border-b-2 border-blue-600' : 'text-gray-500 hover:bg-gray-50'}`}>Status e Desligamento</button>
+            </div>
+
+            {subView === 'geral' && (
+            <div className="space-y-6 animate-in fade-in">
             <div className="bg-indigo-50 p-4 rounded-xl border border-indigo-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                 <div>
                     <h4 className="font-bold text-indigo-800 flex items-center"><MessageSquare className="mr-2 text-indigo-600" size={18}/> Vínculo WhatsApp (Robô)</h4>
@@ -194,7 +315,7 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
               <div className="flex justify-end mt-2"><button onClick={salvarEncargos} className="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center"><Save size={16} className="mr-2"/> Salvar Encargos</button></div>
             </div>
             
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
                 <h4 className="font-bold text-gray-700 flex items-center mb-4"><Calendar className="mr-2 text-orange-500" size={18}/> Faltas</h4>
                 <div className="flex flex-col gap-2 mb-4"><input type="date" value={novaFaltaData} onChange={e => setNovaFaltaData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white" /><div className="flex gap-2"><input type="text" value={novaFaltaMotivo} onChange={e => setNovaFaltaMotivo(e.target.value)} placeholder="Motivo..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm bg-white" /><button onClick={addFalta} className="bg-orange-100 text-orange-600 px-3 py-2 rounded-lg font-bold hover:bg-orange-200 transition-colors flex items-center justify-center"><Plus size={16}/></button></div></div>
@@ -212,7 +333,91 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
                   {feedbacks.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhum feedback registrado.</p>}
                 </div>
               </div>
+
+              <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
+                <h4 className="font-bold text-gray-700 flex items-center mb-4"><Plane className="mr-2 text-purple-500" size={18}/> Férias / Folgas</h4>
+                <div className="flex flex-col gap-2 mb-4"><div className="flex gap-2"><input type="date" value={novaFolgaDataInicio} onChange={e => setNovaFolgaDataInicio(e.target.value)} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-xs bg-white" title="Data Início" /><input type="date" value={novaFolgaDataFim} onChange={e => setNovaFolgaDataFim(e.target.value)} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-xs bg-white" title="Data Fim" /></div><div className="flex gap-2"><select value={novaFolgaMotivo} onChange={e => setNovaFolgaMotivo(e.target.value)} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-white"><option value="">Selecione...</option><option value="Férias">Férias</option><option value="Folga Programada">Folga Programada</option><option value="Licença">Licença / Atestado</option></select><button onClick={addFolga} className="bg-purple-100 text-purple-600 px-3 py-2 rounded-lg font-bold hover:bg-purple-200 transition-colors flex items-center justify-center"><Plus size={16}/></button></div></div>
+                <div className="space-y-2 flex-1 max-h-[200px] overflow-y-auto pr-1">
+                  {folgas.map(f => (<div key={f.id} className="flex justify-between items-start bg-white p-3 rounded-lg border border-gray-200 text-sm"><div><span className="font-bold text-gray-800">{f.dataInicio.split('-').reverse().join('/')} até {f.dataFim.split('-').reverse().join('/')}</span><p className="text-gray-500 mt-0.5 text-xs">{f.motivo}</p></div><button onClick={() => removeFolga(f.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={14}/></button></div>))}
+                  {folgas.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhuma folga registrada.</p>}
+                </div>
+              </div>
             </div>
+            </div>
+            )}
+
+            {subView === 'horarios' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in">
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                  <h4 className="font-bold text-gray-700 flex items-center mb-4"><Clock className="mr-2 text-indigo-500" size={18}/> Quadro de Horários</h4>
+                  <div className="space-y-3">
+                    {['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].map(dia => (
+                      <div key={dia} className="flex items-center justify-between bg-white p-2 rounded-lg border border-gray-100">
+                         <span className="text-sm font-bold text-gray-600 capitalize w-20">{dia}</span>
+                         <div className="flex items-center gap-2 flex-1 ml-4">
+                           <input type="time" value={horarios[dia]?.entrada || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], entrada: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
+                           <span className="text-gray-400 text-xs">às</span>
+                           <input type="time" value={horarios[dia]?.saida || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], saida: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
+                         </div>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <button onClick={salvarHorarios} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center"><Save size={16} className="mr-2"/> Salvar Horários</button>
+                  </div>
+                </div>
+              
+                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
+                  <h4 className="font-bold text-gray-700 flex items-center mb-4"><CheckCircle className="mr-2 text-emerald-500" size={18}/> Registro de Ponto</h4>
+                  <div className="flex flex-col gap-2 mb-4">
+                    <input type="date" value={novoPontoData} onChange={e => setNovoPontoData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
+                    <div className="flex gap-2">
+                      <input type="time" value={novoPontoEntrada} onChange={e => setNovoPontoEntrada(e.target.value)} title="Entrada" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
+                      <input type="time" value={novoPontoSaida} onChange={e => setNovoPontoSaida(e.target.value)} title="Saída" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
+                      <button onClick={addPonto} className="bg-emerald-100 text-emerald-600 px-3 py-2 rounded-lg font-bold hover:bg-emerald-200 transition-colors flex items-center justify-center"><Plus size={16}/></button>
+                    </div>
+                  </div>
+                  <div className="space-y-2 flex-1 max-h-[300px] overflow-y-auto pr-1">
+                    {pontos.map(p => (
+                      <div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 text-sm">
+                        <div>
+                          <span className="font-bold text-gray-800">{p.data.split('-').reverse().join('/')}</span>
+                          <div className="text-gray-500 mt-0.5 text-xs font-medium">Entrada: <span className="text-emerald-600 font-bold">{p.entrada}</span> {p.saida && <>| Saída: <span className="text-red-500 font-bold">{p.saida}</span></>}</div>
+                        </div>
+                        <button onClick={() => removePonto(p.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={14}/></button>
+                      </div>
+                    ))}
+                    {pontos.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhum ponto registrado.</p>}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {subView === 'status' && (
+              <div className="max-w-2xl mx-auto space-y-6 animate-in fade-in">
+                <div className="bg-gray-50 p-6 rounded-xl border border-gray-200">
+                  <h4 className="font-bold text-gray-700 flex items-center mb-2"><Fingerprint className="mr-2 text-blue-500" size={20}/> Documentação</h4>
+                  <p className="text-sm text-gray-500 mb-4">Vincule o CPF do colaborador para garantir que, em caso de desligamento, o histórico (faltas, ponto, etc.) continue associado a ele caso retorne no futuro.</p>
+                  <div className="flex gap-3">
+                    <input type="text" value={cpf} onChange={e => setCpf(formatCpf(e.target.value))} placeholder="000.000.000-00" className="flex-1 p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 font-mono tracking-wider bg-white" />
+                    <button onClick={salvarCpf} className="bg-blue-600 text-white px-6 py-3 rounded-lg text-sm font-bold hover:bg-blue-700 transition-colors flex items-center shadow-sm"><Save size={18} className="mr-2"/> Salvar CPF</button>
+                  </div>
+                </div>
+              
+                <div className={`p-6 rounded-xl border ${(selectedFunc as any).ativo !== false ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
+                  <h4 className={`font-bold flex items-center mb-2 ${(selectedFunc as any).ativo !== false ? 'text-red-700' : 'text-green-700'}`}>
+                    {(selectedFunc as any).ativo !== false ? <ShieldOff className="mr-2" size={20}/> : <ShieldCheck className="mr-2" size={20}/>}
+                    {(selectedFunc as any).ativo !== false ? 'Desligamento / Inativação' : 'Reativar Colaborador'}
+                  </h4>
+                  <p className={`text-sm mb-6 ${(selectedFunc as any).ativo !== false ? 'text-red-600/80' : 'text-green-600/80'}`}>
+                    {(selectedFunc as any).ativo !== false ? 'Ao inativar, o PIN de acesso será permanentemente excluído e o colaborador não poderá mais acessar o sistema ou o KDS. O histórico continuará salvo.' : 'Este colaborador está inativo. Ao reativá-lo, será necessário atribuir um novo PIN de acesso pela aba "Equipe".'}
+                  </p>
+                  <button onClick={toggleAtivo} className={`w-full py-4 rounded-xl font-black text-lg flex items-center justify-center transition-colors shadow-sm ${(selectedFunc as any).ativo !== false ? 'bg-red-600 hover:bg-red-700 text-white' : 'bg-green-600 hover:bg-green-700 text-white'}`}>
+                    <Power size={24} className="mr-2"/> {(selectedFunc as any).ativo !== false ? 'Inativar Colaborador' : 'Reativar Colaborador'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         ) : (
           <div className="mt-8 text-center text-gray-400 py-12 border-2 border-dashed border-gray-200 rounded-xl"><p>Selecione um funcionário acima para gerenciar os dados.</p></div>

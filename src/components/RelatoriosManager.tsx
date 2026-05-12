@@ -26,6 +26,7 @@ export default function RelatoriosManager() {
   const [descartes, setDescartes] = useState<DescarteLog[]>([]);
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [filtroMesDescartes, setFiltroMesDescartes] = useState<string>('');
 
   useEffect(() => {
     const historicoRef = ref(db, 'historico_compras');
@@ -84,10 +85,17 @@ export default function RelatoriosManager() {
 
   const calcularGastos = () => {
     const agora = new Date();
-    const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+    const limite = new Date(agora);
+    limite.setHours(6, 59, 59, 999);
+    if (agora.getTime() <= limite.getTime()) {
+      agora.setDate(agora.getDate() - 1);
+    }
+    agora.setHours(7, 0, 0, 0);
+    const inicioHoje = agora.getTime();
+
     const inicioSemana = inicioHoje - (7 * 24 * 60 * 60 * 1000);
     const inicioQuinzena = inicioHoje - (15 * 24 * 60 * 60 * 1000);
-    const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1).getTime();
+    const inicioMes = new Date(agora.getFullYear(), agora.getMonth(), 1, 7, 0, 0, 0).getTime();
 
     let gastos = { diario: 0, semanal: 0, quinzenal: 0, mensal: 0, fimDeSemana: 0 };
 
@@ -111,6 +119,13 @@ export default function RelatoriosManager() {
   };
 
   const gastos = calcularGastos();
+
+  const descartesFiltrados = filtroMesDescartes 
+    ? descartes.filter(d => {
+        const date = new Date(d.timestamp);
+        return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}` === filtroMesDescartes;
+      })
+    : descartes;
 
   const exportarExcel = () => {
     let headers: string[] = [];
@@ -137,13 +152,15 @@ export default function RelatoriosManager() {
       ]);
       filename = 'relatorio_transferencias';
     } else if (activeTab === 'descartes') {
-      headers = ['Data / Hora', 'Autorizado por', 'Insumo', 'Lote Referência', 'Quantidade'];
-      rows = descartes.map(d => [
+      headers = ['Data / Hora', 'Feito por', 'Autorizado por', 'Insumo', 'Motivo', 'Quantidade / Local', 'Valor Perda (R$)'];
+      rows = descartesFiltrados.map(d => [
         new Date(d.timestamp).toLocaleString('pt-BR'),
-        d.funcionarioNome,
+        d.funcionarioNome || '-',
+        (d as any).autorizadoPorNome || d.funcionarioNome || '-',
         d.nomeInsumo,
-        d.lote || 'N/A',
-        d.quantidade
+        (d as any).motivo || (d.lote ? `Lote: ${d.lote}` : 'Outro'),
+        `${d.quantidade} ${(d as any).unidade || ''} (${(d as any).tipoEstoque || 'estacionario'})`,
+        ((d as any).valorTotal || 0).toFixed(2).replace('.', ',')
       ]);
       filename = 'relatorio_descartes';
     }
@@ -312,49 +329,83 @@ export default function RelatoriosManager() {
           </table>
         </div>
       ) : (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:border-none print:shadow-none">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
-                <th className="px-6 py-4">Data / Hora</th>
-                <th className="px-6 py-4">Autorizado por</th>
-                <th className="px-6 py-4">Insumo</th>
-                <th className="px-6 py-4">Lote Referência</th>
-                <th className="px-6 py-4">Quantidade</th>
-              </tr>
-            </thead>
-            {loading ? (
-              <tbody>
-                {[...Array(5)].map((_, i) => (
-                  <tr key={i} className="animate-pulse">
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
-                    <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
-                  </tr>
-                ))}
-              </tbody>
-            ) : (
-            <tbody className="divide-y divide-gray-100">
-            {descartes.map(d => {
-              const insumo = insumos.find(i => i.id === d.insumoId);
-              return (
-                <tr key={d.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 text-sm text-gray-500">{new Date(d.timestamp).toLocaleString('pt-BR')}</td>
-                  <td className="px-6 py-4 font-medium text-gray-900">{d.funcionarioNome}</td>
-                  <td className="px-6 py-4 text-gray-800">{d.nomeInsumo}</td>
-                  <td className="px-6 py-4 text-gray-500">{d.lote}</td>
-                  <td className="px-6 py-4 font-bold text-red-600">
-                    {insumo ? formatarQtdJSX(d.quantidade, insumo.qtdPacote || 1, insumo.unidade) : d.quantidade}
-                  </td>
+        <div className="space-y-6">
+          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden">
+            <h4 className="font-bold text-gray-800">Visão Geral de Perdas</h4>
+            <div className="flex items-center space-x-2 w-full sm:w-auto">
+              <span className="text-sm font-bold text-gray-500">Filtrar por Mês:</span>
+              <input 
+                type="month" 
+                value={filtroMesDescartes}
+                onChange={(e) => setFiltroMesDescartes(e.target.value)}
+                className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm"
+              />
+              {filtroMesDescartes && (
+                <button onClick={() => setFiltroMesDescartes('')} className="text-sm text-gray-500 hover:text-red-500">
+                  Limpar
+                </button>
+              )}
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 print:hidden">
+            <CardRelatorio 
+              titulo="Total em Perdas (Descarte)" 
+              valor={descartesFiltrados.reduce((acc, d) => acc + ((d as any).valorTotal || 0), 0)} 
+              descricao={filtroMesDescartes ? `Valor perdido em ${filtroMesDescartes.split('-')[1]}/${filtroMesDescartes.split('-')[0]}` : "Soma do valor de todas as baixas"} 
+              colorType="red" 
+            />
+          </div>
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden print:border-none print:shadow-none">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-gray-50 text-xs uppercase text-gray-500 font-bold tracking-wider border-b border-gray-100">
+                  <th className="px-6 py-4">Data / Hora</th>
+                  <th className="px-6 py-4">Feito por</th>
+                  <th className="px-6 py-4">Autorizado por</th>
+                  <th className="px-6 py-4">Insumo</th>
+                  <th className="px-6 py-4">Motivo / Lote</th>
+                  <th className="px-6 py-4">Qtd / Local</th>
+                  <th className="px-6 py-4">Valor Perda</th>
                 </tr>
-              );
-            })}
-              {descartes.length === 0 && <tr><td colSpan={5} className="px-6 py-8 text-center text-gray-400">Nenhum descarte registrado.</td></tr>}
-            </tbody>
-            )}
-          </table>
+              </thead>
+              {loading ? (
+                <tbody>
+                  {[...Array(5)].map((_, i) => (
+                    <tr key={i} className="animate-pulse">
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
+                      <td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/4"></div></td>
+                    </tr>
+                  ))}
+                </tbody>
+              ) : (
+              <tbody className="divide-y divide-gray-100">
+              {descartesFiltrados.map(d => {
+                const insumo = insumos.find(i => i.id === d.insumoId);
+                return (
+                  <tr key={d.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-6 py-4 text-sm text-gray-500">{new Date(d.timestamp).toLocaleString('pt-BR')}</td>
+                    <td className="px-6 py-4 font-medium text-gray-900">{d.funcionarioNome || '-'}</td>
+                    <td className="px-6 py-4 font-medium text-gray-900">{(d as any).autorizadoPorNome || d.funcionarioNome || '-'}</td>
+                    <td className="px-6 py-4 text-gray-800">{d.nomeInsumo}</td>
+                    <td className="px-6 py-4 text-gray-500">{(d as any).motivo || (d.lote ? `Lote: ${d.lote}` : 'Outro')}</td>
+                    <td className="px-6 py-4 text-gray-800">
+                      <span className="font-bold text-red-600">{insumo ? formatarQtdJSX(d.quantidade, insumo.qtdPacote || 1, insumo.unidade) : d.quantidade}</span>
+                      <span className="block text-[10px] text-gray-400 mt-0.5 uppercase tracking-widest">{(d as any).tipoEstoque || 'Estacionário'}</span>
+                    </td>
+                    <td className="px-6 py-4 font-bold text-red-600">R$ {((d as any).valorTotal || 0).toFixed(2).replace('.', ',')}</td>
+                  </tr>
+                );
+              })}
+                {descartesFiltrados.length === 0 && <tr><td colSpan={7} className="px-6 py-8 text-center text-gray-400">Nenhum descarte registrado neste período.</td></tr>}
+              </tbody>
+              )}
+            </table>
+          </div>
         </div>
       )}
     </div>

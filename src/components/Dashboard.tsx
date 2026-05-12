@@ -384,12 +384,24 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   };
 
 
+  const getInicioDiaComercial = () => {
+    const agora = new Date();
+    const limite = new Date(agora);
+    limite.setHours(6, 59, 59, 999);
+    let baseDate = new Date(agora);
+    if (agora.getTime() <= limite.getTime()) {
+      baseDate.setDate(baseDate.getDate() - 1);
+    }
+    baseDate.setHours(7, 0, 0, 0);
+    return baseDate;
+  };
+
   const getLast7Days = () => {
     const days = [];
+    const baseDate = getInicioDiaComercial();
     for (let i = 6; i >= 0; i--) {
-      const d = new Date();
+      const d = new Date(baseDate);
       d.setDate(d.getDate() - i);
-      d.setHours(0, 0, 0, 0);
       days.push(d);
     }
     return days;
@@ -403,7 +415,14 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   });
   const maxVenda = Math.max(...vendasPorDia.map(v => v.total), 1);
 
-  const hojeDateStr = new Date().toISOString().split('T')[0];
+  const getHojeComercialStr = () => {
+    const baseDate = getInicioDiaComercial();
+    const year = baseDate.getFullYear();
+    const month = String(baseDate.getMonth() + 1).padStart(2, '0');
+    const day = String(baseDate.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const hojeDateStr = getHojeComercialStr();
   const agendaHoje = tarefas.filter(t => t.dataAgendada === hojeDateStr && t.status === 'pendente').sort((a, b) => (a.horaAgendada || '23:59').localeCompare(b.horaAgendada || '23:59'));
   
   const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI');
