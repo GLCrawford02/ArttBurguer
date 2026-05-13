@@ -154,9 +154,11 @@ export default function InsumosManager() {
             const linkedInsumo = insumosLocais.find((i: any) => i.id === linkedId);
             if (linkedInsumo) {
               const novoPreco = Number((insumo.precoPacote / (insumo.qtdPacote || 1)).toFixed(4));
-              if (linkedInsumo.precoPacote !== novoPreco) {
+              const novoUltimoPreco = (insumo as any).ultimoPrecoCompra ? Number(((insumo as any).ultimoPrecoCompra / (insumo.qtdPacote || 1)).toFixed(4)) : undefined;
+              if (linkedInsumo.precoPacote !== novoPreco || (novoUltimoPreco !== undefined && linkedInsumo.ultimoPrecoCompra !== novoUltimoPreco)) {
                 linkedInsumo.precoPacote = novoPreco;
-                updatesToApply[linkedId] = novoPreco;
+                if (novoUltimoPreco !== undefined) linkedInsumo.ultimoPrecoCompra = novoUltimoPreco;
+                updatesToApply[linkedId] = { precoPacote: novoPreco, ultimoPrecoCompra: novoUltimoPreco };
                 hasChanges = true;
               }
             }
@@ -165,8 +167,10 @@ export default function InsumosManager() {
       }
 
       if (Object.keys(updatesToApply).length > 0) {
-        const promessas = Object.entries(updatesToApply).map(async ([id, novoPreco]) => {
-          await update(ref(db, `insumos/${id}`), { precoPacote: novoPreco });
+        const promessas = Object.entries(updatesToApply).map(async ([id, obj]) => {
+          const updateObj: any = { precoPacote: obj.precoPacote };
+          if (obj.ultimoPrecoCompra !== undefined) updateObj.ultimoPrecoCompra = obj.ultimoPrecoCompra;
+          await update(ref(db, `insumos/${id}`), updateObj);
         });
         await Promise.all(promessas);
       }

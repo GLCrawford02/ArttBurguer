@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X } from 'lucide-react';
+import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X, User } from 'lucide-react';
 
 export interface Cliente {
   id: string;
@@ -19,6 +19,8 @@ export interface Cliente {
   observacaoEntregador?: string;
   ultimosPedidos?: any[];
   favoritos?: any[];
+  categorias?: string[];
+  googleMapsLink?: string;
 }
 
 const validarCPF = (cpf: string): boolean => {
@@ -55,12 +57,17 @@ const validarCPF = (cpf: string): boolean => {
 
 export default function ClientesManager() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
+  const [vendasPdv, setVendasPdv] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [editId, setEditId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expandedClienteId, setExpandedClienteId] = useState<string | null>(null);
+  const [perfilClienteModal, setPerfilClienteModal] = useState<Cliente | null>(null);
   const [showForm, setShowForm] = useState(false);
 
+  const [isSelectionMode, setIsSelectionMode] = useState(false);
+  const [selectedClientesIds, setSelectedClientesIds] = useState<string[]>([]);
+  const [showBulkCategoryModal, setShowBulkCategoryModal] = useState(false);
+  const [bulkCategory, setBulkCategory] = useState('');
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -74,6 +81,8 @@ export default function ClientesManager() {
   const [uf, setUf] = useState('');
   const [observacaoCliente, setObservacaoCliente] = useState('');
   const [observacaoEntregador, setObservacaoEntregador] = useState('');
+  const [googleMapsLink, setGoogleMapsLink] = useState('');
+  const [categoriasSelecionadas, setCategoriasSelecionadas] = useState<string[]>([]);
 
   const [isFetchingCep, setIsFetchingCep] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -96,7 +105,15 @@ export default function ClientesManager() {
       }
       setLoading(false);
     });
-    return () => unsub();
+
+    const vendasRef = ref(db, 'vendas_pdv');
+    const unsubVendas = onValue(vendasRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) setVendasPdv(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      else setVendasPdv([]);
+    });
+
+    return () => { unsub(); unsubVendas(); };
   }, []);
 
 
@@ -136,6 +153,8 @@ export default function ClientesManager() {
     setEditId(null); setNome(''); setTelefone(''); setCpf(''); setCep('');
     setLogradouro(''); setNumero(''); setBairro(''); setComplemento('');
     setCidade(''); setUf(''); setObservacaoCliente(''); setObservacaoEntregador('');
+    setGoogleMapsLink('');
+    setCategoriasSelecionadas([]);
   };
 
   const handleSalvar = async () => {
@@ -163,6 +182,8 @@ export default function ClientesManager() {
       uf: uf || '',
       observacaoCliente: observacaoCliente || '',
       observacaoEntregador: observacaoEntregador || '',
+      googleMapsLink: googleMapsLink || '',
+      categorias: categoriasSelecionadas,
     };
 
     try {
@@ -200,6 +221,8 @@ export default function ClientesManager() {
     setUf(cliente.uf || '');
     setObservacaoCliente(cliente.observacaoCliente || '');
     setObservacaoEntregador(cliente.observacaoEntregador || '');
+    setGoogleMapsLink(cliente.googleMapsLink || '');
+    setCategoriasSelecionadas(cliente.categorias || []);
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -216,6 +239,8 @@ export default function ClientesManager() {
     (c.telefone || '').includes(searchTerm) ||
     (c.cpf || '').includes(searchTerm)
   );
+
+  const todasCategorias = Array.from(new Set(clientes.flatMap(c => c.categorias || []))).sort();
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -299,6 +324,10 @@ export default function ClientesManager() {
                 <input type="text" value={uf} onChange={e => setUf(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white uppercase" maxLength={2} />
               </div>
             </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Link do Google Maps (Opcional)</label>
+              <input type="text" value={googleMapsLink} onChange={e => setGoogleMapsLink(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm" placeholder="Ex: https://maps.app.goo.gl/..." />
+            </div>
           </div>
 
 
@@ -313,6 +342,46 @@ export default function ClientesManager() {
                 <label className="text-xs font-bold text-gray-500 uppercase">Observações para o Entregador</label>
                 <textarea value={observacaoEntregador} onChange={e => setObservacaoEntregador(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white resize-none" placeholder="Ex: Deixar na portaria, campainha não funciona, cachorro solto..." rows={2}></textarea>
               </div>
+            </div>
+          </div>
+
+          <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4 lg:col-span-2">
+            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Categorias / Tags do Cliente</h4>
+            <div className="flex flex-wrap gap-2 mb-2">
+              {todasCategorias.map(cat => (
+                 <button
+                   key={cat}
+                   type="button"
+                   onClick={() => {
+                     if (categoriasSelecionadas.includes(cat)) {
+                       setCategoriasSelecionadas(prev => prev.filter(c => c !== cat));
+                     } else {
+                       setCategoriasSelecionadas(prev => [...prev, cat]);
+                     }
+                   }}
+                   className={`px-3 py-1.5 rounded-full text-xs font-bold border transition-colors ${categoriasSelecionadas.includes(cat) ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-white text-gray-600 border-gray-200 hover:bg-gray-50'}`}
+                 >
+                   {cat}
+                 </button>
+              ))}
+            </div>
+            <div className="flex space-x-2">
+              <input
+                type="text"
+                placeholder="Nova categoria..."
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const val = e.currentTarget.value.trim();
+                    if (val && !categoriasSelecionadas.includes(val)) {
+                      setCategoriasSelecionadas([...categoriasSelecionadas, val]);
+                      e.currentTarget.value = '';
+                    }
+                  }
+                }}
+                className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-64 bg-white"
+              />
+              <span className="text-xs text-gray-400 self-center">Pressione Enter para adicionar</span>
             </div>
           </div>
         </div>
@@ -333,16 +402,54 @@ export default function ClientesManager() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input type="text" placeholder="Buscar por nome ou telefone..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full" />
           </div>
+          {!isSelectionMode && (
+            <button onClick={() => setIsSelectionMode(true)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm text-sm">
+              Selecionar Múltiplos
+            </button>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
+        {isSelectionMode && (
+          <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+            <span className="font-bold text-indigo-800">{selectedClientesIds.length} clientes selecionados</span>
+            <div className="flex flex-wrap gap-2">
+              <button onClick={() => {
+                if (selectedClientesIds.length === filteredClientes.length) setSelectedClientesIds([]);
+                else setSelectedClientesIds(filteredClientes.map(c => c.id));
+              }} className="px-3 py-1.5 bg-white text-indigo-600 font-bold rounded-lg shadow-sm text-sm border border-indigo-100 hover:bg-indigo-50 transition-colors">
+                {selectedClientesIds.length === filteredClientes.length ? 'Desmarcar Todos' : 'Selecionar Visíveis'}
+              </button>
+              <button onClick={() => setShowBulkCategoryModal(true)} disabled={selectedClientesIds.length === 0} className="px-3 py-1.5 bg-indigo-600 text-white font-bold rounded-lg shadow-sm text-sm disabled:opacity-50 hover:bg-indigo-700 transition-colors">
+                Adicionar Categoria
+              </button>
+              <button onClick={() => { setIsSelectionMode(false); setSelectedClientesIds([]); }} className="px-3 py-1.5 bg-gray-200 text-gray-700 font-bold rounded-lg shadow-sm text-sm hover:bg-gray-300 transition-colors">
+                Cancelar
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4 max-h-[70vh] overflow-y-auto pr-2">
           {filteredClientes.map(c => (
-            <div key={c.id} className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col overflow-hidden">
+            <div key={c.id} className={`bg-white rounded-xl shadow-sm border flex flex-col overflow-hidden transition-colors ${selectedClientesIds.includes(c.id) ? 'border-indigo-500 ring-1 ring-indigo-500' : 'border-gray-100'}`}>
               <div className="p-4 flex justify-between items-start">
+                {isSelectionMode && (
+                  <input type="checkbox" checked={selectedClientesIds.includes(c.id)} onChange={() => {
+                    if (selectedClientesIds.includes(c.id)) setSelectedClientesIds(prev => prev.filter(id => id !== c.id));
+                    else setSelectedClientesIds(prev => [...prev, c.id]);
+                  }} className="mr-3 mt-1 w-5 h-5 rounded text-indigo-600 cursor-pointer shrink-0" />
+                )}
                 <div className="flex-1 min-w-0 pr-2">
                   <h4 className="font-bold text-gray-900 truncate">{c.nome}</h4>
                   <p className="text-sm text-gray-500 font-medium flex items-center mt-1"><Phone size={14} className="mr-1 text-indigo-400"/> {c.telefone}</p>
                   {c.logradouro && <p className="text-xs text-gray-400 mt-1 truncate"><MapPin size={12} className="inline mr-1 text-gray-400"/>{c.logradouro}, {c.numero} - {c.bairro}</p>}
+                  {c.categorias && c.categorias.length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {c.categorias.map(cat => (
+                        <span key={cat} className="text-[9px] px-1.5 py-0.5 bg-indigo-50 text-indigo-600 rounded border border-indigo-100 font-bold uppercase tracking-wider">{cat}</span>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <div className="flex space-x-1 shrink-0">
                   <button onClick={() => handleEdit(c)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
@@ -352,52 +459,175 @@ export default function ClientesManager() {
               
 
               <div className="bg-gray-50 border-t border-gray-100">
-                <button onClick={() => setExpandedClienteId(expandedClienteId === c.id ? null : c.id)} className="w-full p-2 text-xs font-bold text-indigo-600 hover:bg-indigo-50 transition-colors flex justify-center items-center">
-                  Perfil do Cliente {expandedClienteId === c.id ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>}
+                <button onClick={() => setPerfilClienteModal(c)} className="w-full p-2.5 text-xs font-bold text-indigo-600 hover:bg-indigo-100 transition-colors flex justify-center items-center">
+                  <User size={14} className="mr-1"/> Ver Perfil Completo
                 </button>
-                
-                {expandedClienteId === c.id && (
-                  <div className="p-4 space-y-4 border-t border-indigo-100">
-                    {(c.observacaoCliente || c.observacaoEntregador) && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        {c.observacaoCliente && (
-                          <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-100">
-                            <p className="text-[10px] font-bold text-yellow-800 uppercase mb-1">Obs. do Cliente</p>
-                            <p className="text-xs text-yellow-900 whitespace-pre-wrap">{c.observacaoCliente}</p>
-                          </div>
-                        )}
-                        {c.observacaoEntregador && (
-                          <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
-                            <p className="text-[10px] font-bold text-blue-800 uppercase mb-1">Obs. para Entregador</p>
-                            <p className="text-xs text-blue-900 whitespace-pre-wrap">{c.observacaoEntregador}</p>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                    <div>
-                      <h5 className="text-xs font-bold text-gray-700 flex items-center mb-2"><ShoppingBag size={14} className="mr-1 text-orange-500"/> Últimos Pedidos</h5>
-                      {c.ultimosPedidos && c.ultimosPedidos.length > 0 ? (
-                        <ul className="space-y-2">
-                          {c.ultimosPedidos.map((ped: any, idx: number) => (
-                            <li key={idx} className="text-xs bg-white p-2.5 rounded-lg border border-gray-100 shadow-sm">
-                              <div className="flex justify-between items-center border-b border-gray-50 pb-1 mb-1"><span className="font-bold text-gray-700">{new Date(ped.data).toLocaleDateString('pt-BR')} às {new Date(ped.data).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span><span className="font-bold text-green-600">R$ {ped.total.toFixed(2)}</span></div>
-                              <span className="text-gray-500">{ped.itens.join(', ')}</span>
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (<p className="text-xs text-gray-400 italic">Nenhum pedido registrado ainda.</p>)}
-                    </div>
-                    <div>
-                      <h5 className="text-xs font-bold text-gray-700 flex items-center mb-2"><Heart size={14} className="mr-1 text-red-500"/> Pedidos Favoritos</h5>
-                      {c.favoritos && c.favoritos.length > 0 ? (<ul className="space-y-1"></ul>) : (<p className="text-xs text-gray-400 italic">Nenhum favorito.</p>)}
-                    </div>
-                  </div>
-                )}
               </div>
             </div>
           ))}
         </div>
       </div>
+
+      {perfilClienteModal && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" onClick={() => setPerfilClienteModal(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-6 bg-indigo-600 text-white flex justify-between items-start shrink-0">
+              <div>
+                <h2 className="text-2xl font-black">{perfilClienteModal.nome}</h2>
+                <p className="text-indigo-200 mt-1 flex items-center"><Phone size={14} className="mr-1"/> {perfilClienteModal.telefone}</p>
+              </div>
+              <button onClick={() => setPerfilClienteModal(null)} className="text-indigo-200 hover:text-white bg-indigo-700/50 hover:bg-indigo-700 p-2 rounded-full transition-colors"><X size={20}/></button>
+            </div>
+            
+            <div className="p-6 flex-1 overflow-y-auto space-y-6 bg-gray-50">
+              {perfilClienteModal.categorias && perfilClienteModal.categorias.length > 0 && (
+                <div className="flex flex-wrap gap-2">
+                  {perfilClienteModal.categorias.map(cat => (
+                    <span key={cat} className="text-xs px-2.5 py-1 bg-indigo-100 text-indigo-700 rounded-lg font-bold uppercase tracking-wider">{cat}</span>
+                  ))}
+                </div>
+              )}
+              
+              {(() => {
+                const historicoCliente = vendasPdv.filter(v => v.clienteId === perfilClienteModal.id).sort((a, b) => b.timestamp - a.timestamp);
+                const totalGasto = historicoCliente.reduce((acc, ped) => acc + (ped.valor || 0), 0);
+                const ticketMedio = historicoCliente.length > 0 ? totalGasto / historicoCliente.length : 0;
+                
+                const contagemProdutos: Record<string, number> = {};
+                historicoCliente.forEach(v => {
+                  if (v.itens && Array.isArray(v.itens)) {
+                    v.itens.forEach((item: any) => {
+                       contagemProdutos[item.nome] = (contagemProdutos[item.nome] || 0) + item.qtd;
+                    });
+                  }
+                });
+                const topFavoritos = Object.entries(contagemProdutos).sort((a, b) => b[1] - a[1]).slice(0, 5);
+                
+                return (
+                  <>
+                    <div className="grid grid-cols-3 gap-4">
+                      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Pedidos Realizados</span>
+                        <span className="text-2xl font-black text-indigo-600">{historicoCliente.length}</span>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Total Gasto</span>
+                        <span className="text-xl font-black text-green-600">R$ {totalGasto.toFixed(2)}</span>
+                      </div>
+                      <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm flex flex-col items-center text-center">
+                        <span className="text-[10px] font-bold text-gray-500 uppercase mb-1">Ticket Médio</span>
+                        <span className="text-xl font-black text-blue-600">R$ {ticketMedio.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                      <div>
+                        <h4 className="text-sm font-bold text-gray-700 flex items-center mb-3"><Heart size={16} className="mr-1 text-red-500"/> Produtos Mais Comprados</h4>
+                        {topFavoritos.length > 0 ? (
+                          <div className="space-y-2">
+                            {topFavoritos.map(([nome, qtd], idx) => (
+                              <div key={idx} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex justify-between items-center">
+                                <span className="font-bold text-sm text-gray-800">{nome}</span>
+                                <span className="text-xs font-bold bg-red-50 text-red-600 px-2 py-1 rounded-lg">{qtd}x</span>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-400 italic">Nenhum histórico suficiente.</p>
+                        )}
+                      </div>
+                      
+                      <div className="space-y-4">
+                        {(perfilClienteModal.observacaoCliente || perfilClienteModal.observacaoEntregador) && (
+                          <div>
+                            <h4 className="text-sm font-bold text-gray-700 flex items-center mb-3"><AlertTriangle size={16} className="mr-1 text-orange-500"/> Observações</h4>
+                            <div className="space-y-2">
+                              {perfilClienteModal.observacaoCliente && (
+                                <div className="bg-yellow-50 p-3 rounded-xl border border-yellow-100">
+                                  <span className="text-[10px] font-bold text-yellow-800 uppercase block mb-1">Do Cliente</span>
+                                  <p className="text-sm text-yellow-900">{perfilClienteModal.observacaoCliente}</p>
+                                </div>
+                              )}
+                              {perfilClienteModal.observacaoEntregador && (
+                                <div className="bg-blue-50 p-3 rounded-xl border border-blue-100">
+                                  <span className="text-[10px] font-bold text-blue-800 uppercase block mb-1">Para o Entregador</span>
+                                  <p className="text-sm text-blue-900">{perfilClienteModal.observacaoEntregador}</p>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+      
+                    <div>
+                      <h4 className="text-sm font-bold text-gray-700 flex items-center mb-3"><ShoppingBag size={16} className="mr-1 text-emerald-500"/> Histórico Completo</h4>
+                      {historicoCliente.length > 0 ? (
+                        <div className="space-y-3">
+                          {historicoCliente.map((ped: any, idx: number) => (
+                            <div key={idx} className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+                              <div className="flex justify-between items-center border-b border-gray-50 pb-2 mb-2">
+                                <span className="font-bold text-gray-800 text-sm">
+                                  {new Date(ped.timestamp).toLocaleDateString('pt-BR')} às {new Date(ped.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
+                                </span>
+                                <span className="font-black text-green-600">R$ {ped.valor.toFixed(2)}</span>
+                              </div>
+                              {ped.descricao && <span className="text-xs font-bold text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded block w-fit mb-2">{ped.descricao} {ped.tipoPedido ? `(${ped.tipoPedido})` : ''}</span>}
+                              <p className="text-sm text-gray-600 leading-relaxed">{ped.itens?.map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}</p>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="text-sm text-gray-400 italic">Nenhum pedido registrado.</p>
+                      )}
+                    </div>
+                  </>
+                );
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBulkCategoryModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm space-y-4 animate-in zoom-in-95 duration-200">
+            <h3 className="font-bold text-lg text-gray-800">Categorizar em Massa</h3>
+            <p className="text-sm text-gray-500">Adicionar uma categoria aos {selectedClientesIds.length} clientes selecionados.</p>
+            <div className="space-y-3">
+              <label className="text-xs font-bold text-gray-500 uppercase">Selecione ou digite uma nova</label>
+              <div className="flex flex-wrap gap-2 mb-2">
+                {todasCategorias.map(cat => (
+                   <button key={cat} onClick={() => setBulkCategory(cat)} className={`px-2 py-1 text-xs font-bold rounded border transition-colors ${bulkCategory === cat ? 'bg-indigo-100 text-indigo-700 border-indigo-200' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100'}`}>{cat}</button>
+                ))}
+              </div>
+              <input type="text" value={bulkCategory} onChange={e => setBulkCategory(e.target.value)} placeholder="Nome da Categoria" className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50 focus:bg-white" />
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setShowBulkCategoryModal(false)} className="flex-1 bg-gray-100 text-gray-700 p-3 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={async () => {
+                if (!bulkCategory.trim()) return showToast('Informe uma categoria', 'error');
+                let atualizados = 0;
+                for (const id of selectedClientesIds) {
+                  const cliente = clientes.find(c => c.id === id);
+                  if (cliente) {
+                    const cats = cliente.categorias || [];
+                    if (!cats.includes(bulkCategory.trim())) {
+                      await update(ref(db, `clientes/${id}`), { categorias: [...cats, bulkCategory.trim()] });
+                      atualizados++;
+                    }
+                  }
+                }
+                showToast(`Categoria adicionada a ${atualizados} clientes!`, 'success');
+                setShowBulkCategoryModal(false);
+                setSelectedClientesIds([]);
+                setIsSelectionMode(false);
+                setBulkCategory('');
+              }} className="flex-1 bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors">Aplicar</button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
     </div>

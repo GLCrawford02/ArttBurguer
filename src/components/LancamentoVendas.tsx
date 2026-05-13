@@ -3,7 +3,7 @@ import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer } from 'lucide-react';
 
-export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
+export default function LancamentoVendas({ currentUser, permissoes = {} }: { currentUser?: any, permissoes?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
   
   const [taxas, setTaxas] = useState<any[]>([]);
@@ -35,7 +35,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
   const [qtdMesas, setQtdMesas] = useState(30);
 
-  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
+  const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, concluidoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
   const [pdvPagamentos, setPdvPagamentos] = useState<{ taxaId: string; valor: number | '' }[]>([{ taxaId: '', valor: 0 }]);
   const [pdvDescricao, setPdvDescricao] = useState('');
   const [pdvSearchProd, setPdvSearchProd] = useState('');
@@ -44,6 +44,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [pdvTipoPedido, setPdvTipoPedido] = useState<'Balcão' | 'Entrega' | 'Mesa'>('Balcão');
   const [showPainelEntregas, setShowPainelEntregas] = useState(false);
   const [isCartExpanded, setIsCartExpanded] = useState(false);
+  const [pdvCategoria, setPdvCategoria] = useState<string>('Todos');
 
 
   const [showConfModal, setShowConfModal] = useState(false);
@@ -66,23 +67,21 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     setTimeout(() => setToast(null), 3000);
   };
 
-  const isAdminOrGerente = currentUser && (
-    Array.isArray(currentUser.cargo) 
-      ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Gerente' || c === 'Dono' || c === 'TI')
-      : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Gerente' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
-  );
+  const temPermissao = (modulo: string, abaId?: string) => {
+    if (!currentUser) return false;
+    const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
+    if (cargos.includes('Dono') || cargos.includes('TI')) return true;
+    return cargos.some((c: string) => {
+      const p = permissoes[c];
+      if (!p) return false;
+      if (abaId && p[abaId] && p[abaId].visualizar === false) return false;
+      return p[modulo]?.visualizar;
+    });
+  };
 
-  const canViewComandas = currentUser && (
-    Array.isArray(currentUser.cargo)
-      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))
-      : ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(currentUser.cargo as string)
-  );
-
-  const isCaixaOrAdmin = currentUser && (
-    Array.isArray(currentUser.cargo) 
-      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))
-      : ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(currentUser.cargo as string)
-  );
+  const isAdminOrGerente = temPermissao('pdv_conferencia', 'aba_pdv');
+  const canViewComandas = temPermissao('pdv_comandas', 'aba_pdv');
+  const isCaixaOrAdmin = temPermissao('vendas', 'aba_pdv');
 
   useEffect(() => {
     if (!isAdminOrGerente && activeView === 'conferencia') setActiveView('pdv');
@@ -193,6 +192,18 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     else if (totalConf === 0) setConfPagamentos([{ taxaId: confPagamentos[0]?.taxaId || '', valor: 0 }]);
   }, [totalConf]);
 
+  const getNumeroDiario = (tipo: 'Entrega' | 'Balcão/Mesa', idExistente: string | null) => {
+    const inicioHoje = getInicioDiaComercial();
+    if (tipo === 'Entrega') {
+       if (idExistente && entregasAbertas[idExistente]?.numeroDiario) return entregasAbertas[idExistente].numeroDiario;
+       const maxEntrega = Math.max(0, ...Object.values(entregasAbertas).filter((e: any) => e.timestamp >= inicioHoje).map((e: any) => e.numeroDiario || 0), ...vendasPdv.filter((v: any) => v.tipoPedido === 'Entrega' && v.timestamp >= inicioHoje).map((v: any) => v.numeroDiario || 0));
+       return maxEntrega + 1;
+    } else {
+       const maxPdv = Math.max(0, ...vendasPdv.filter((v: any) => v.tipoPedido !== 'Entrega' && v.timestamp >= inicioHoje).map((v: any) => v.numeroDiario || 0));
+       return maxPdv + 1;
+    }
+  };
+
   const updateCartItemQtd = (cartItemId: string, delta: number) => {
     setPdvCarrinho((prev: any) => {
       const current = prev[cartItemId];
@@ -201,7 +212,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       if (newQtd <= 0) { const { [cartItemId]: _, ...rest } = prev; return rest; }
       let newEnviado = current.enviadoCozinha || 0;
       if (newQtd < newEnviado) newEnviado = newQtd;
-      return { ...prev, [cartItemId]: { ...current, qtd: newQtd, enviadoCozinha: newEnviado } };
+      let newConcluido = current.concluidoCozinha || 0;
+      if (newQtd < newConcluido) newConcluido = newQtd;
+      return { ...prev, [cartItemId]: { ...current, qtd: newQtd, enviadoCozinha: newEnviado, concluidoCozinha: newConcluido } };
     });
   };
 
@@ -216,10 +229,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     });
   };
 
-  const dispararParaCozinha = async (identificador: string, tipo: string) => {
+  const dispararParaCozinha = async (identificador: string, tipo: string, referenciaId?: string) => {
     const itensParaEnviar = Object.entries(pdvCarrinho)
       .filter(([id, item]) => item.qtd > (item.enviadoCozinha || 0))
       .map(([id, item]) => ({
+        cartItemId: id,
         produtoId: item.produtoId || id,
         nome: item.nome,
         qtd: item.qtd - (item.enviadoCozinha || 0),
@@ -233,7 +247,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
     if (itensParaEnviar.length > 0) {
       await set(push(ref(db, 'pedidos_cozinha')), {
-        identificador, tipo, itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now()
+        identificador, tipo, 
+        referenciaId: referenciaId || null,
+        itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now()
       });
     }
 
@@ -266,7 +282,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
     } else {
-      const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa');
+        const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa', `mesa_${mesaSelecionada}`);
       await set(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`), {
         carrinho: novoCarrinho,
         timestamp: Date.now()
@@ -300,12 +316,14 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       showToast('Delivery cancelado/removido!', 'success');
     } else {
       const id = entregaSelecionada || `delivery_${Date.now()}`;
-      const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega');
+      const numDiario = getNumeroDiario('Entrega', entregaSelecionada);
+        const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega', id);
       await set(ref(db, `entregas_abertas/${id}`), {
         clienteId: pdvCliente.id,
         clienteNome: pdvCliente.nome,
         clienteTelefone: pdvCliente.telefone,
         carrinho: novoCarrinho,
+        numeroDiario: numDiario,
         timestamp: Date.now()
       });
       showToast('Pedido de Delivery salvo!', 'success');
@@ -340,6 +358,77 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       setShowPainelEntregas(false);
       handleAbrirEntrega(venda.id);
     }
+  };
+
+  const handleImprimirCupom = () => {
+    if (!viewComanda) return;
+
+    const win = window.open('', '_blank');
+    if (!win) return;
+
+    let itensHtml = '';
+    if (viewComanda.itens) {
+      viewComanda.itens.forEach((item: any) => {
+        itensHtml += `
+          <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
+            <div>${item.qtd}x ${item.nome}</div>
+            <div>R$ ${(item.preco * item.qtd).toFixed(2)}</div>
+          </div>
+        `;
+        if (item.opcoes) {
+          if (item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Montagem: ${Object.values(item.opcoes.montagem).join(', ')}</div>`;
+          if (item.opcoes.pontoCarne) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Ponto: ${item.opcoes.pontoCarne}</div>`;
+          if (item.opcoes.adicionais && Object.values(item.opcoes.adicionais).length > 0) Object.values(item.opcoes.adicionais).forEach((a: any) => {
+            itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">+ ${a.qtd}x AD/ ${a.nome}</div>`;
+          });
+          if (item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">- Sem: ${Object.values(item.opcoes.restricoes).join(', ')}</div>`;
+          if (item.opcoes.observacao) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Obs: ${item.opcoes.observacao}</div>`;
+        }
+      });
+    }
+
+    let pagamentosHtml = '';
+    if (viewComanda.pagamentos) {
+      viewComanda.pagamentos.forEach((p: any) => {
+        pagamentosHtml += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><div>${p.nomeTaxa}</div><div>R$ ${p.valor.toFixed(2)}</div></div>`;
+      });
+    } else if (viewComanda.nomeTaxa) {
+      pagamentosHtml += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><div>${viewComanda.nomeTaxa}</div><div>R$ ${viewComanda.valor.toFixed(2)}</div></div>`;
+    }
+
+    const html = `
+      <html>
+        <head>
+          <title>Cupom - ${viewComanda.descricao || 'Venda'}</title>
+          <style>
+            body { font-family: monospace; width: 80mm; margin: 0 auto; padding: 10px; color: #000; }
+            .header { text-align: center; margin-bottom: 10px; }
+            .title { font-size: 18px; font-weight: bold; margin: 0; }
+            .subtitle { font-size: 12px; margin: 2px 0; }
+            .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
+            .item-list { font-size: 12px; margin-bottom: 10px; }
+            .totals { font-size: 14px; font-weight: bold; display: flex; justify-content: space-between; }
+            .footer { text-align: center; font-size: 10px; margin-top: 20px; }
+            @media print { body { width: 100%; margin: 0; padding: 0; } }
+          </style>
+        </head>
+        <body>
+          <div class="header"><h1 class="title">ARTT BURGER</h1><p class="subtitle">${viewComanda.descricao || 'Venda Balcão'} ${viewComanda.tipoPedido ? `(${viewComanda.tipoPedido})` : ''}</p><p class="subtitle">${new Date(viewComanda.timestamp).toLocaleString('pt-BR')}</p>${viewComanda.clienteNome ? `<p class="subtitle">Cliente: ${viewComanda.clienteNome}</p>` : ''}</div>
+          <div class="divider"></div>
+          <div class="item-list">${itensHtml}</div>
+          <div class="divider"></div>
+          ${viewComanda.desconto > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;"><div>Desconto ${viewComanda.cupom ? `(${viewComanda.cupom})` : ''}</div><div>- R$ ${viewComanda.desconto.toFixed(2)}</div></div><div class="divider"></div>` : ''}
+          <div style="font-size: 12px; margin-bottom: 5px;">${pagamentosHtml}</div>
+          <div class="divider"></div>
+          <div class="totals"><span>TOTAL</span><span>R$ ${viewComanda.valor.toFixed(2)}</span></div>
+          <div class="footer"><p>Obrigado pela preferência!</p><p>Volte sempre</p></div>
+        </body>
+      </html>
+    `;
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    setTimeout(() => { win.print(); win.close(); }, 500);
   };
 
   const handleOpenPdvItemModal = (item: any) => {
@@ -402,8 +491,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
      const func = funcionarios.find(f => String(f.pin) === descontoPin);
      if (!func) return showToast('PIN inválido', 'error');
      const roles = Array.isArray(func.cargo) ? func.cargo : [func.cargo];
-     if (!roles.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))) {
-        return showToast('Autorização negada! Requer acesso de Caixa, Gerente ou Admin.', 'error');
+     const isAuthorized = roles.some((c: string) => ['Dono', 'TI'].includes(c) || permissoes[c]?.['vendas']?.visualizar || permissoes[c]?.['pdv_conferencia']?.visualizar);
+     if (!isAuthorized) {
+        return showToast('Autorização negada! Requer permissão de acesso ao Caixa ou Conferência.', 'error');
      }
 
      let valorDesconto = 0;
@@ -438,70 +528,82 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     if (Math.abs(restantePdv) > 0.05) return showToast(`O valor pago deve ser exatamente R$ ${totalPdv.toFixed(2)}.`, 'error');
     if (pdvTipoPedido === 'Entrega' && !pdvCliente) return showToast('Para entregas, é obrigatório selecionar o cliente.', 'error');
 
-    let valorLiquidoTotal = 0;
-    const pagamentosProcessados = pagamentosValidos.map(p => {
-      const taxa = taxasComPadroes.find(t => t.id === p.taxaId);
-      const perc = taxa ? Number(taxa.percentual || 0) : 0;
-      const rawLiq = Number(p.valor) - (Number(p.valor) * (perc / 100));
-      const liq = Number(rawLiq.toFixed(2));
-      valorLiquidoTotal += liq;
-      return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
-    });
+    try {
+      let valorLiquidoTotal = 0;
+      const pagamentosProcessados = pagamentosValidos.map(p => {
+        const taxa = taxasComPadroes.find(t => t.id === p.taxaId);
+        const perc = taxa ? Number(taxa.percentual || 0) : 0;
+        const rawLiq = Number(p.valor) - (Number(p.valor) * (perc / 100));
+        const liq = Number(rawLiq.toFixed(2));
+        valorLiquidoTotal += liq;
+        return { taxaId: p.taxaId, nomeTaxa: taxa?.nome || 'Desconhecida', valor: Number(p.valor), valorLiquido: liq };
+      });
+  
+      let custoPedido = 0;
+      Object.entries(pdvCarrinho).forEach(([id, item]) => {
+        const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
+        if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
+      });
+      valorLiquidoTotal = Number((valorLiquidoTotal - custoPedido).toFixed(2));
+  
+      let ident = 'Balcão';
+      if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
+      else if (pdvTipoPedido === 'Mesa') ident = `Mesa ${mesaSelecionada}`;
+      else if (pdvCliente) ident = `Balcão: ${pdvCliente.nome}`;
+      await dispararParaCozinha(ident, pdvTipoPedido);
+  
+      const statusEntregaAtual = pdvTipoPedido === 'Entrega' && entregaSelecionada && entregasAbertas[entregaSelecionada]?.statusEntrega
+        ? entregasAbertas[entregaSelecionada].statusEntrega
+        : 'Pendente';
 
-    let custoPedido = 0;
-    Object.entries(pdvCarrinho).forEach(([id, item]) => {
-      const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
-      if (prod) custoPedido += Number(prod.custoTotal || 0) * item.qtd;
-    });
-    valorLiquidoTotal = Number((valorLiquidoTotal - custoPedido).toFixed(2));
+      const numDiario = pdvTipoPedido === 'Entrega' ? getNumeroDiario('Entrega', entregaSelecionada) : getNumeroDiario('Balcão/Mesa', null);
 
-    let ident = 'Balcão';
-    if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
-    else if (pdvTipoPedido === 'Mesa') ident = `Mesa ${mesaSelecionada}`;
-    else if (pdvCliente) ident = `Balcão: ${pdvCliente.nome}`;
-    await dispararParaCozinha(ident, pdvTipoPedido);
-
-    await set(push(ref(db, 'vendas_pdv')), {
-      valor: totalPdv,
-      valorLiquido: valorLiquidoTotal,
-      pagamentos: pagamentosProcessados,
-      taxaId: pagamentosProcessados[0].taxaId,
-      nomeTaxa: pagamentosProcessados.length > 1 ? 'Múltiplos' : pagamentosProcessados[0].nomeTaxa,
-      descricao: pdvDescricao || 'Venda Balcão',
-      clienteId: pdvCliente?.id || null,
-      clienteNome: pdvCliente?.nome || 'Cliente Balcão',
-      desconto: pdvDescontoAplicado ? pdvDescontoAplicado.valor : 0,
-      cupom: pdvDescontoAplicado?.cupom || null,
-      descontoAutorizadoPor: pdvDescontoAplicado?.autorizadoPorNome || null,
-      itens: Object.entries(pdvCarrinho).map(([id, item]) => ({ id, ...item })),
-      tipoPedido: pdvTipoPedido,
-      mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
-      statusEntrega: pdvTipoPedido === 'Entrega' ? 'Pendente' : null,
-      timestamp: Date.now()
-    });
-
-    if (pdvCliente) {
-      const ultimos = pdvCliente.ultimosPedidos || [];
-      const novoPedido = { data: Date.now(), total: totalPdv, itens: Object.values(pdvCarrinho).map((i: any) => `${i.qtd}x ${i.nome}`) };
-      const atualizados = [novoPedido, ...ultimos].slice(0, 5);
-      await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
+      await set(push(ref(db, 'vendas_pdv')), {
+        valor: totalPdv,
+        valorLiquido: valorLiquidoTotal,
+        pagamentos: pagamentosProcessados,
+        taxaId: pagamentosProcessados[0].taxaId,
+        nomeTaxa: pagamentosProcessados.length > 1 ? 'Múltiplos' : pagamentosProcessados[0].nomeTaxa,
+        descricao: pdvDescricao || 'Venda Balcão',
+        clienteId: pdvCliente?.id || null,
+        clienteNome: pdvCliente?.nome || 'Cliente Balcão',
+        desconto: pdvDescontoAplicado ? pdvDescontoAplicado.valor : 0,
+        cupom: pdvDescontoAplicado?.cupom || null,
+        descontoAutorizadoPor: pdvDescontoAplicado?.autorizadoPorNome || null,
+        itens: Object.entries(pdvCarrinho).map(([id, item]) => ({ id, ...item })),
+        tipoPedido: pdvTipoPedido,
+        mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
+        statusEntrega: pdvTipoPedido === 'Entrega' ? statusEntregaAtual : null,
+        numeroDiario: numDiario,
+        timestamp: Date.now()
+      });
+  
+      if (pdvCliente) {
+        const ultimos = pdvCliente.ultimosPedidos || [];
+        const novoPedido = { data: Date.now(), total: totalPdv, itens: Object.values(pdvCarrinho).map((i: any) => `${i.qtd}x ${i.nome}`) };
+        const atualizados = [novoPedido, ...ultimos].slice(0, 5);
+        await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
+      }
+  
+      if (pdvTipoPedido === 'Mesa' && mesaSelecionada) {
+        await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
+        await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
+      }
+      
+      if (pdvTipoPedido === 'Entrega' && entregaSelecionada) {
+        await remove(ref(db, `entregas_abertas/${entregaSelecionada}`));
+      }
+  
+      setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
+      setPdvDescontoAplicado(null);
+      setMesaSelecionada(null);
+      setEntregaSelecionada(null);
+      setPdvView('mapa');
+      showToast('Venda finalizada com sucesso!', 'success');
+    } catch (error: any) {
+      showToast('Erro ao finalizar venda: ' + error.message, 'error');
+      console.error(error);
     }
-
-    if (pdvTipoPedido === 'Mesa' && mesaSelecionada) {
-      await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
-      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
-    }
-    
-    if (pdvTipoPedido === 'Entrega' && entregaSelecionada) {
-      await remove(ref(db, `entregas_abertas/${entregaSelecionada}`));
-    }
-
-    setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
-    setPdvDescontoAplicado(null);
-    setMesaSelecionada(null);
-    setEntregaSelecionada(null);
-    setPdvView('mapa');
-    showToast('Venda finalizada com sucesso!', 'success');
   };
 
   const handleConfSalvar = async () => {
@@ -611,8 +713,26 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const nomeTrimmed = nome.trimStart();
     if (pdvTipoPedido === 'Entrega' && nomeTrimmed.startsWith('%')) return false;
     if (pdvTipoPedido !== 'Entrega' && nomeTrimmed.startsWith('/')) return false;
+
+    if (pdvCategoria !== 'Todos') {
+      if (pdvCategoria === 'Promoções') {
+        if (i.tipoItem !== 'Promoção') return false;
+      } else {
+        if (i.tipoItem === 'Promoção' || i.categoria !== pdvCategoria) return false;
+      }
+    }
+    
     return true;
   });
+
+  const categoriasCardapio = ['Todos', 'Promoções', ...Array.from(new Set(produtos.map(p => p.categoria).filter(Boolean)))].sort((a: any, b: any) => {
+    if (a === 'Todos') return -1;
+    if (b === 'Todos') return 1;
+    if (a === 'Promoções') return -1;
+    if (b === 'Promoções') return 1;
+    return a.localeCompare(b);
+  });
+  
   const confFilteredItems = todosItens.filter(i => (i.nome || '').toLowerCase().includes(confSearchProd.toLowerCase()));
   const pdvFilteredClientes = clientes.filter(c => (c.nome || '').toLowerCase().includes(pdvSearchCliente.toLowerCase()) || (c.telefone || '').includes(pdvSearchCliente));
 
@@ -731,24 +851,22 @@ Formato esperado:
 
       {activeView === 'pdv' && pdvView === 'mapa' && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 animate-in fade-in duration-300 min-h-[600px]">
-          <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
+          <div className="flex flex-col xl:flex-row justify-between items-start xl:items-center mb-6 gap-4">
             <h3 className="text-xl font-bold text-gray-800 flex items-center"><Store className="mr-2 text-green-600"/> Controle de Mesas e Pedidos</h3>
-            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-              <div className="flex gap-2 w-full sm:w-auto">
-                {isCaixaOrAdmin && (
-                  <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-gray-800 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center">
-                    <Store size={18} className="mr-2" /> Venda Balcão
-                  </button>
-                )}
-                {isCaixaOrAdmin && (
-                  <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
-                    <Truck size={18} className="mr-2" /> Novo Delivery
-                  </button>
-                )}
-              </div>
+            <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full xl:w-auto">
               {isCaixaOrAdmin && (
-                <button onClick={() => setShowPainelEntregas(true)} className="w-full sm:w-auto bg-blue-100 text-blue-700 px-4 py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center justify-center">
-                  <Map size={18} className="mr-2" /> Painel de Entregas
+                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 bg-gray-800 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+                  <Store size={18} className="mr-2 shrink-0" /> Venda Balcão
+                </button>
+              )}
+              {isCaixaOrAdmin && (
+                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 bg-green-600 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+                  <Truck size={18} className="mr-2 shrink-0" /> Novo Delivery
+                </button>
+              )}
+              {isCaixaOrAdmin && (
+                <button onClick={() => setShowPainelEntregas(true)} className="flex-1 bg-blue-100 text-blue-700 px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+                  <Map size={18} className="mr-2 shrink-0" /> Painel de Entregas
                 </button>
               )}
             </div>
@@ -759,7 +877,7 @@ Formato esperado:
               <div>
               <h4 className="font-bold text-gray-700 mb-4 flex items-center"><Truck className="mr-2 text-orange-500" size={20}/> Entregas em Aberto</h4>
               {Object.keys(entregasAbertas).length > 0 ? (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                   {Object.entries(entregasAbertas).map(([id, entrega]: any) => {
                     const total = Object.values(entrega.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
                     return (
@@ -767,6 +885,8 @@ Formato esperado:
                         <span className="font-bold text-sm truncate w-full text-left">{entrega.clienteNome}</span>
                         <span className="text-[10px] text-orange-600 mt-1">{entrega.clienteTelefone}</span>
                         <span className="text-sm font-black mt-2">R$ {total.toFixed(2)}</span>
+                        {entrega.statusEntrega === 'Em Rota' && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Em Rota</span>}
+                        {entrega.statusEntrega === 'Concluída' && <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Entregue (Aguardando Pgto)</span>}
                       </button>
                     );
                   })}
@@ -779,7 +899,7 @@ Formato esperado:
 
             <div>
               <h4 className="font-bold text-gray-700 mb-4 flex items-center"><Store className="mr-2 text-green-500" size={20}/> Mesas</h4>
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4">
+              <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-8 gap-3 sm:gap-4">
                 {Array.from({length: qtdMesas}).map((_, i) => {
                   const num = i + 1;
                   const isAberta = mesasAbertas[`mesa_${num}`] || mesasAbertas[num];
@@ -807,33 +927,10 @@ Formato esperado:
       )}
 
       {activeView === 'pdv' && pdvView === 'caixa' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 animate-in slide-in-from-left-4 duration-300 flex-col-reverse lg:flex-row">
-          <div className="lg:col-span-8 order-2 lg:order-1 bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[45vh] sm:h-[60vh] min-h-[350px] lg:h-[calc(100vh-10rem)] lg:min-h-[600px]">
-            <div className="flex items-center gap-2 mb-6">
-              <div className="relative flex-1">
-                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-                <input type="text" placeholder="Buscar hambúrguer, bebida ou combo..." value={pdvSearchProd} onChange={(e) => setPdvSearchProd(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-lg" />
-              </div>
-              <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-3 rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm shrink-0" title="Garçom IA">
-                <Sparkles size={24} />
-              </button>
-            </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4 overflow-y-auto pr-2 pb-4">
-              {pdvFilteredItems.map(item => (
-                <div key={item.id} onClick={() => handleOpenPdvItemModal(item)} className="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-28 sm:h-36 relative overflow-hidden group">
-                  <div className="absolute top-0 left-0 w-1 h-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
-                  <p className="font-bold text-sm text-gray-800 leading-tight line-clamp-2">{item.nome}</p>
-                  <div className="mt-auto">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{item.tipoItem}</p>
-                    <p className="font-black text-green-600 text-lg">R$ {(item.precoVenda || 0).toFixed(2)}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="lg:col-span-4 order-1 lg:order-2 bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[auto] sm:h-[70vh] min-h-[450px] lg:h-[calc(100vh-10rem)] lg:min-h-[600px]">
-            <h3 className="font-bold text-gray-800 flex items-center mb-6 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
+        <div className="flex flex-col gap-4 lg:gap-6 animate-in slide-in-from-left-4 duration-300">
+          
+          <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-auto z-10">
+            <h3 className="font-bold text-gray-800 flex items-center mb-4 sm:mb-6 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
             
             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg items-center">
               <button onClick={() => setPdvView('mapa')} className="p-1.5 text-gray-500 hover:bg-gray-200 rounded-md transition-colors" title="Voltar para Mapa">
@@ -882,46 +979,55 @@ Formato esperado:
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3 pr-1">
+            <div className="max-h-[40vh] overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3 pr-1">
               {(() => {
                 const cartItemsList = Object.entries(pdvCarrinho);
                 const displayedItems = isCartExpanded ? cartItemsList : cartItemsList.slice(0, 3);
                 return (
                   <>
                     {displayedItems.map(([id, item]) => (
-                      <div key={id} className="flex justify-between items-start text-sm group border-b border-gray-50 pb-3 last:border-0 last:pb-0">
-                  <div className="flex-1 min-w-0 pr-2">
-                    <div className="flex items-center">
-                      <div className="flex items-center space-x-1 mr-2 bg-gray-100 rounded p-0.5 shrink-0">
-                        <button onClick={() => updateCartItemQtd(id, -1)} className="text-gray-500 hover:bg-white rounded px-1"><Minus size={14}/></button>
-                        <span className="font-bold w-4 text-center text-xs">{item.qtd}</span>
-                        <button onClick={() => updateCartItemQtd(id, 1)} className="text-gray-500 hover:bg-white rounded px-1"><Plus size={14}/></button>
-                      </div>
-                      <p className="font-bold text-gray-800 break-words">{item.nome}</p>
-                      {item.enviadoCozinha && item.enviadoCozinha > 0 ? (
-                        <span className="text-[9px] bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-full ml-2 font-bold whitespace-nowrap flex items-center shrink-0"><Flame size={10} className="mr-0.5"/> Na Cozinha ({item.enviadoCozinha})</span>
-                      ) : null}
-                    </div>
-                    {item.opcoes && (
-                      <div className="text-xs text-gray-500 mt-1.5 pl-12 space-y-0.5">
-                        {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && <p><span className="font-bold text-gray-600">Montagem:</span> {Object.values(item.opcoes.montagem).join(', ')}</p>}
-                        {item.opcoes.pontoCarne && <p><span className="font-bold text-gray-600">Ponto:</span> {item.opcoes.pontoCarne}</p>}
-                        {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).map((a:any, i:number) => <p key={i}>+ {a.qtd}x AD/ {a.nome}</p>)}
-                        {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && <p className="text-red-500 font-medium">- {Object.values(item.opcoes.restricoes).join(', ')}</p>}
-                        {item.opcoes.observacao && <p><span className="font-bold text-gray-600">Obs:</span> {item.opcoes.observacao}</p>}
-                      </div>
-                    )}
-                    {item.adicionadoPor && (
-                      <p className="text-[9px] text-gray-400 mt-1.5 pl-12 flex items-center font-medium">
-                        <User size={10} className="mr-1"/> Add por {item.adicionadoPor} às {new Date(item.adicionadoEm || Date.now()).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
-                      </p>
-                    )}
-                  </div>
-                  <span className="font-bold text-gray-800 shrink-0 mt-1">R$ {(item.preco * item.qtd).toFixed(2)}</span>
+                      <div key={id} className="flex justify-between items-start text-base group border-b border-gray-100 pb-4 mb-2 last:border-0 last:pb-0 last:mb-0">
+                        <div className="flex-1 min-w-0 pr-2">
+                          <div className="flex items-center">
+                            <div className="flex items-center space-x-2 mr-3 bg-gray-100 rounded p-1 shrink-0">
+                              <button onClick={() => updateCartItemQtd(id, -1)} className="text-gray-500 hover:text-red-500 hover:bg-white rounded px-2 py-1 transition-colors"><Minus size={18}/></button>
+                              <span className="font-black w-6 text-center text-base">{item.qtd}</span>
+                              <button onClick={() => updateCartItemQtd(id, 1)} className="text-gray-500 hover:text-green-500 hover:bg-white rounded px-2 py-1 transition-colors"><Plus size={18}/></button>
+                            </div>
+                            <p className="font-bold text-gray-800 break-words text-lg">{item.nome}</p>
+                            {item.enviadoCozinha && item.enviadoCozinha > 0 ? (
+                              (item.concluidoCozinha || 0) >= item.enviadoCozinha ? (
+                                 <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full ml-2 font-bold whitespace-nowrap flex items-center shrink-0"><CheckCircle size={12} className="mr-1"/> Pronto ({item.enviadoCozinha})</span>
+                              ) : (item.concluidoCozinha || 0) > 0 ? (
+                                 <div className="flex gap-1 ml-2">
+                                   <span className="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold whitespace-nowrap flex items-center shrink-0"><CheckCircle size={12} className="mr-1"/> Pronto ({item.concluidoCozinha})</span>
+                                   <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full font-bold whitespace-nowrap flex items-center shrink-0"><Flame size={12} className="mr-1"/> Cozinha ({(item.enviadoCozinha || 0) - (item.concluidoCozinha || 0)})</span>
+                                 </div>
+                              ) : (
+                                 <span className="text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded-full ml-2 font-bold whitespace-nowrap flex items-center shrink-0"><Flame size={12} className="mr-1"/> Na Cozinha ({item.enviadoCozinha})</span>
+                              )
+                            ) : null}
+                          </div>
+                          {item.opcoes && (
+                            <div className="text-sm text-gray-500 mt-2 pl-16 space-y-1">
+                              {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && <p><span className="font-bold text-gray-600">Montagem:</span> {Object.values(item.opcoes.montagem).join(', ')}</p>}
+                              {item.opcoes.pontoCarne && <p><span className="font-bold text-gray-600">Ponto:</span> {item.opcoes.pontoCarne}</p>}
+                              {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).map((a:any, i:number) => <p key={i}>+ {a.qtd}x AD/ {a.nome}</p>)}
+                              {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && <p className="text-red-500 font-medium">- {Object.values(item.opcoes.restricoes).join(', ')}</p>}
+                              {item.opcoes.observacao && <p><span className="font-bold text-gray-600">Obs:</span> {item.opcoes.observacao}</p>}
+                            </div>
+                          )}
+                          {item.adicionadoPor && (
+                            <p className="text-xs text-gray-400 mt-2 pl-16 flex items-center font-medium">
+                              <User size={12} className="mr-1"/> Add por {item.adicionadoPor} às {new Date(item.adicionadoEm || Date.now()).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}
+                            </p>
+                          )}
+                        </div>
+                        <span className="font-black text-gray-800 shrink-0 mt-1 text-lg">R$ {(item.preco * item.qtd).toFixed(2)}</span>
                       </div>
                     ))}
                     {cartItemsList.length > 3 && (
-                      <button onClick={() => setIsCartExpanded(!isCartExpanded)} className="w-full text-center text-xs font-bold text-gray-500 hover:text-gray-800 py-2 bg-gray-100 rounded-lg transition-colors flex items-center justify-center">
+                      <button onClick={() => setIsCartExpanded(!isCartExpanded)} className="w-full text-center text-sm font-bold text-gray-500 hover:text-gray-800 py-3 mt-2 bg-gray-100 rounded-lg transition-colors flex items-center justify-center">
                         {isCartExpanded ? 'Recolher Itens' : `Ver mais ${cartItemsList.length - 3} itens...`}
                       </button>
                     )}
@@ -1022,6 +1128,43 @@ Formato esperado:
                )}
             </div>
           </div>
+
+          <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[55vh] sm:h-[60vh] min-h-[400px]">
+            <div className="flex items-center gap-2 mb-4">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <input type="text" placeholder="Buscar hambúrguer, bebida ou combo..." value={pdvSearchProd} onChange={(e) => setPdvSearchProd(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-lg" />
+              </div>
+              <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-3 rounded-lg font-bold hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm shrink-0" title="Garçom IA">
+                <Sparkles size={24} />
+              </button>
+            </div>
+            
+            <div className="flex overflow-x-auto gap-1 mb-4 pb-2 border-b border-gray-100 shrink-0" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+              {categoriasCardapio.map((cat: any) => (
+                <button
+                  key={cat}
+                  onClick={() => setPdvCategoria(cat)}
+                  className={`whitespace-nowrap px-2.5 py-1 rounded-full font-bold text-xs transition-colors border ${pdvCategoria === cat ? 'bg-green-600 text-white border-green-600 shadow-sm' : 'bg-gray-50 text-gray-600 border-gray-200 hover:bg-green-50 hover:text-green-700 hover:border-green-200'}`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4 overflow-y-auto pr-2 pb-4">
+              {pdvFilteredItems.map(item => (
+                <div key={item.id} onClick={() => handleOpenPdvItemModal(item)} className="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-28 sm:h-36 relative overflow-hidden group">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                  <p className="font-bold text-sm text-gray-800 leading-tight line-clamp-2">{item.nome}</p>
+                  <div className="mt-auto">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-1">{item.tipoItem}</p>
+                    <p className="font-black text-green-600 text-lg">R$ {(item.precoVenda || 0).toFixed(2)}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 
@@ -1112,7 +1255,7 @@ Formato esperado:
                 <div key={v.id} className="p-4 flex items-center justify-between hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => setViewComanda(v)}>
                   <div>
                     <p className="font-bold text-gray-800 flex items-center">
-                      <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-mono mr-2">#{vendasHoje.length - index}</span>
+                      <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-mono mr-2">#{v.numeroDiario || (vendasHoje.length - index)}</span>
                       {v.descricao || 'Venda Balcão'} {v.tipoPedido ? `(${v.tipoPedido})` : ''}
                     </p>
                     {v.itens && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{v.itens.map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}</p>}
@@ -1338,7 +1481,7 @@ Formato esperado:
 
       {showConfModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl w-full max-w-5xl max-h-[90vh] flex flex-col">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-[95vw] xl:max-w-7xl max-h-[95vh] flex flex-col">
             <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
               <h3 className="font-bold text-lg text-gray-800 flex items-center"><Calculator size={20} className="mr-2 text-gray-600"/> Simulador de Recebimento</h3>
               <button onClick={() => { setShowConfModal(false); setEditConfId(null); }} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1"><X size={20}/></button>
@@ -1444,11 +1587,13 @@ Formato esperado:
                       <button key={id} onClick={() => { setShowPainelEntregas(false); handleAbrirEntrega(id); }} className="w-full text-left p-3 rounded-xl border border-orange-200 bg-white hover:bg-orange-50 transition-colors shadow-sm group">
                         <div className="flex justify-between items-start">
                           <div className="overflow-hidden pr-2">
-                            <span className="font-bold text-sm text-gray-800 block truncate">{entrega.clienteNome}</span>
+                            <span className="font-bold text-sm text-gray-800 block truncate">#{entrega.numeroDiario || '?'} - {entrega.clienteNome}</span>
                             <span className="text-[10px] text-gray-500 mt-1 block truncate">{entrega.clienteTelefone}</span>
                           </div>
                           <span className="text-sm font-black text-orange-600 shrink-0">R$ {total.toFixed(2)}</span>
                         </div>
+                        {entrega.statusEntrega === 'Em Rota' && <div className="mt-2 text-left"><span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold inline-block">Em Rota</span></div>}
+                        {entrega.statusEntrega === 'Concluída' && <div className="mt-2 text-left"><span className="text-[10px] bg-gray-100 text-gray-700 px-2 py-0.5 rounded font-bold inline-block">Entregue (Aguardando Pagamento)</span></div>}
                       </button>
                     );
                   }) : <p className="text-center text-sm text-gray-400 italic py-8">Nenhum pedido em aberto.</p>}
@@ -1464,7 +1609,7 @@ Formato esperado:
                     <div key={v.id} className="p-3 rounded-xl border border-blue-200 bg-white shadow-sm">
                       <div className="flex justify-between items-start">
                         <div className="overflow-hidden pr-2">
-                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="font-bold text-sm text-gray-800 block truncate">#{v.numeroDiario || '?'} - {v.clienteNome}</span>
                           <span className="text-[10px] text-gray-500 mt-1 block truncate">Finalizado às {new Date(v.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
                         </div>
                         <span className="text-sm font-black text-blue-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
@@ -1493,7 +1638,7 @@ Formato esperado:
                   <div key={v.id} className="p-3 rounded-xl border border-green-200 bg-white shadow-sm flex flex-col">
                       <div className="flex justify-between items-start">
                         <div className="overflow-hidden pr-2">
-                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="font-bold text-sm text-gray-800 block truncate">#{v.numeroDiario || '?'} - {v.clienteNome}</span>
                           <span className="text-[10px] text-green-600 mt-1 font-bold block truncate">Saiu p/ entrega</span>
                         </div>
                         <span className="text-sm font-black text-green-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
@@ -1515,7 +1660,7 @@ Formato esperado:
                     <div key={v.id} className="p-3 rounded-xl border border-gray-200 bg-gray-50 shadow-sm flex flex-col">
                       <div className="flex justify-between items-start">
                         <div className="overflow-hidden pr-2">
-                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="font-bold text-sm text-gray-800 block truncate">#{v.numeroDiario || '?'} - {v.clienteNome}</span>
                           <span className="text-[10px] text-gray-500 mt-1 font-bold block truncate">Entregue às {new Date(v.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
                         </div>
                         <span className="text-sm font-black text-gray-600 shrink-0">R$ {v.valor.toFixed(2)}</span>

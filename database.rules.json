@@ -27,6 +27,7 @@
     "taxas_cartoes": { ".write": true },
     "fornecedores": { ".write": true },
     "tipos_uso": { ".write": true },
+    "entregas_abertas": { ".read": true, ".write": true },
     "agendamentos": { ".write": true },
     "pedidos_cozinha": { ".write": true },
     "mesas_abertas": { ".write": true },

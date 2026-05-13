@@ -10,6 +10,7 @@ export default function MarketingManager() {
   const [mensagemMassa, setMensagemMassa] = useState('');
   const [enviandoMassa, setEnviandoMassa] = useState(false);
   const [showMassaModal, setShowMassaModal] = useState(false);
+  const [categoriaMassa, setCategoriaMassa] = useState('Todos');
 
   const [codigo, setCodigo] = useState('');
   const [tipo, setTipo] = useState<'valor' | 'porcentagem'>('porcentagem');
@@ -104,16 +105,19 @@ export default function MarketingManager() {
       showToast('Digite uma mensagem para enviar.', 'error');
       return;
     }
-    const clientesComTelefone = clientes.filter(c => c.telefone);
-    if (clientesComTelefone.length === 0) {
-      showToast('Nenhum cliente com telefone cadastrado.', 'error');
+    const clientesAlvo = categoriaMassa === 'Todos' 
+      ? clientes.filter(c => c.telefone)
+      : clientes.filter(c => c.telefone && c.categorias?.includes(categoriaMassa));
+      
+    if (clientesAlvo.length === 0) {
+      showToast('Nenhum cliente válido encontrado nesta categoria.', 'error');
       return;
     }
-    if (!confirm(`Deseja enviar esta mensagem para ${clientesComTelefone.length} clientes?`)) return;
+    if (!confirm(`Deseja enviar esta mensagem para ${clientesAlvo.length} clientes?`)) return;
   
     setEnviandoMassa(true);
     let enviados = 0;
-    for (const c of clientesComTelefone) {
+    for (const c of clientesAlvo) {
       let telLimpo = c.telefone.replace(/\D/g, '');
       if (!telLimpo.startsWith('55') && telLimpo.length >= 10) telLimpo = '55' + telLimpo;
       if (telLimpo.length >= 12) {
@@ -128,9 +132,13 @@ export default function MarketingManager() {
     }
     setEnviandoMassa(false);
     setMensagemMassa('');
+    setCategoriaMassa('Todos');
     setShowMassaModal(false);
     showToast(`Mensagem enfileirada para ${enviados} clientes! O robô fará o envio gradativo.`, 'success');
   };
+
+  const todasCategorias = Array.from(new Set(clientes.flatMap(c => c.categorias || []))).sort();
+  const clientesAlvoCount = categoriaMassa === 'Todos' ? clientes.filter(c => c.telefone).length : clientes.filter(c => c.telefone && c.categorias?.includes(categoriaMassa)).length;
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -195,7 +203,16 @@ export default function MarketingManager() {
             </div>
             <div className="bg-green-50 border border-green-100 p-3 rounded-lg flex items-start text-green-800 text-sm">
               <Users className="mr-2 mt-0.5 shrink-0" size={18}/>
-              <p>A mensagem será enviada pelo Robô para todos os <strong>{clientes.filter(c => c.telefone).length} clientes</strong> da sua base de dados que possuem telefone válido cadastrado.</p>
+              <p>A mensagem será enviada pelo Robô para <strong>{clientesAlvoCount} clientes</strong> da sua base de dados que possuem telefone válido cadastrado.</p>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Filtrar por Categoria (Tag)</label>
+              <select value={categoriaMassa} onChange={e => setCategoriaMassa(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm bg-gray-50">
+                <option value="Todos">Todos os Clientes</option>
+                {todasCategorias.map(cat => (
+                  <option key={cat as string} value={cat as string}>{cat as string}</option>
+                ))}
+              </select>
             </div>
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Sua Mensagem</label>

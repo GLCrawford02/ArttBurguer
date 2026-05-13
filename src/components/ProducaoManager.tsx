@@ -217,6 +217,26 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
         }
       }
       await update(ref(db, `pedidos_cozinha/${pedido.id}`), { status: 'Concluído', finalizadoEm: Date.now() });
+      
+      if (pedido.referenciaId) {
+        const path = pedido.tipo === 'Entrega' ? `entregas_abertas/${pedido.referenciaId}` : `mesas_abertas/${pedido.referenciaId}`;
+        await runTransaction(ref(db, path), (data) => {
+          if (data && data.carrinho) {
+            pedido.itens.forEach((pItem: any) => {
+              if (pItem.cartItemId && data.carrinho[pItem.cartItemId]) {
+                data.carrinho[pItem.cartItemId].concluidoCozinha = (data.carrinho[pItem.cartItemId].concluidoCozinha || 0) + pItem.qtd;
+              } else {
+                 const cItem = Object.values(data.carrinho).find((c: any) => c.nome === pItem.nome && c.qtd >= pItem.qtd);
+                 if (cItem) {
+                    (cItem as any).concluidoCozinha = ((cItem as any).concluidoCozinha || 0) + pItem.qtd;
+                 }
+              }
+            });
+          }
+          return data;
+        });
+      }
+
       showToast('Pedido finalizado e enviado para a mesa/balcão!', 'success');
     } catch (error) {
       showToast('Erro ao finalizar pedido e abater estoque.', 'error');

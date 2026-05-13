@@ -1,7 +1,21 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield } from 'lucide-react';
 
 export default function AtualizacoesSistema() {
   const updates = [
+    {
+      versao: '1.2.0',
+      titulo: 'Gestão de Entregas Turbinada, GPS Inteligente e Permissões Avançadas',
+      descricao: 'O módulo de delivery ganhou aplicativo próprio, a comunicação pelo WhatsApp foi automatizada e a segurança de acessos foi completamente reestruturada.',
+      features: [
+        'App do Entregador: Tela "Minhas Entregas" exclusiva para motoboys darem baixa, reportarem problemas (WhatsApp avisa o cliente) e deixarem observações sobre a residência.',
+        'Integração Maps Inteligente: Cadastre links curtos do Google Maps no perfil do cliente. O botão "Navegar" do motoboy abrirá o pino exato sem margem para erro.',
+        'Comunicação Automatizada: O robô agora agradece e pede feedback pós-entrega, além de avisar o próximo cliente da rota que a moto está chegando.',
+        'Matriz de Permissões Global: Bloqueio total visual e estrutural por abas, ocultação de funções críticas para gerentes e hierarquia estrita para Dono/TI.',
+        'CRM e Marketing: Categorize clientes em massa através de Tags, visualize os produtos favoritos no novo Card de Perfil e dispare mensagens filtradas por categoria.',
+        'Numeração Diária: Pedidos de balcão e delivery agora recebem um número sequencial (Ex: #1, #2...) reiniciado diariamente.'
+      ],
+      icon: <Shield className="text-red-500" size={20} />
+    },
     {
       versao: '1.1.13',
       titulo: 'KDS Personalizado, Gestão de RH e Kanban de Tarefas',

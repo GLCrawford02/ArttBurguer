@@ -495,7 +495,7 @@ export default function ComprasManager() {
 
       {showNovoFornecedorModal && (
         <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[130] p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full space-y-4 animate-in zoom-in-95 duration-200">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-[95vw] lg:max-w-4xl w-full space-y-4 animate-in zoom-in-95 duration-200">
             <h3 className="text-xl font-bold text-gray-800 mb-2 flex items-center"><ShoppingCart className="mr-2 text-blue-500"/> Novo Fornecedor</h3>
             <p className="text-sm text-gray-500 border-b border-gray-100 pb-3">Cadastre os dados completos do fornecedor para vincular à nota.</p>
             

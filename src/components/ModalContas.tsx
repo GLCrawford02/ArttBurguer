@@ -237,7 +237,7 @@ export default function ModalContas({
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
-      <div className="bg-gray-50 rounded-xl shadow-xl w-full overflow-hidden flex flex-col max-w-6xl max-h-[90vh]">
+      <div className="bg-gray-50 rounded-xl shadow-xl w-full overflow-hidden flex flex-col max-w-[95vw] 2xl:max-w-[1600px] max-h-[95vh]">
         <div className="flex justify-between items-center p-4 bg-white border-b border-gray-100 shrink-0">
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             {tipoConta === 'pagar' ? <TrendingDown size={20} className="text-red-500 mr-2"/> : <TrendingUp size={20} className="text-blue-500 mr-2"/>}

@@ -5,12 +5,10 @@ import { Wallet, TrendingUp, TrendingDown, DollarSign, Package } from 'lucide-re
 
 interface VendaLog {
   id: string;
-  produtoId: string;
-  nome: string;
-  quantidade: number;
-  custoProducao: number;
-  receitaVenda: number;
+  valor: number;
+  valorLiquido: number;
   timestamp: number;
+  itens: any[];
 }
 
 interface CompraLog {
@@ -24,7 +22,7 @@ export default function FechamentoManager() {
   const [compras, setCompras] = useState<CompraLog[]>([]);
 
   useEffect(() => {
-    const vendasRef = ref(db, 'historico_vendas');
+    const vendasRef = ref(db, 'vendas_pdv');
     const comprasRef = ref(db, 'historico_compras');
 
     const unsubVendas = onValue(vendasRef, (snapshot) => {
@@ -45,25 +43,41 @@ export default function FechamentoManager() {
 
   const calcularFechamento = () => {
     const agora = new Date();
-    const inicioHoje = new Date(agora.getFullYear(), agora.getMonth(), agora.getDate()).getTime();
+    const limiteStr = new Date(agora);
+    limiteStr.setHours(6, 59, 59, 999);
+    let inicioHoje;
+    if (agora.getTime() <= limiteStr.getTime()) {
+      const ontem = new Date(agora);
+      ontem.setDate(ontem.getDate() - 1);
+      ontem.setHours(7, 0, 0, 0);
+      inicioHoje = ontem.getTime();
+    } else {
+      const hoje = new Date(agora);
+      hoje.setHours(7, 0, 0, 0);
+      inicioHoje = hoje.getTime();
+    }
 
     const vendasHoje = vendas.filter(v => v.timestamp >= inicioHoje);
     const comprasHoje = compras.filter(c => c.timestamp >= inicioHoje);
 
-    const faturamento = vendasHoje.reduce((acc, v) => acc + v.receitaVenda, 0);
-    const custoProdutosVendidos = vendasHoje.reduce((acc, v) => acc + v.custoProducao, 0);
-    const gastosCompras = comprasHoje.reduce((acc, c) => acc + c.custoTotal, 0);
+    const faturamento = vendasHoje.reduce((acc, v) => acc + (v.valor || 0), 0);
+    const custoProdutosVendidos = vendasHoje.reduce((acc, v) => acc + ((v.valor || 0) - (v.valorLiquido || 0)), 0);
+    const gastosCompras = comprasHoje.reduce((acc, c) => acc + (c.custoTotal || 0), 0);
     
-    const lucroBruto = faturamento - custoProdutosVendidos;
+    const lucroBruto = vendasHoje.reduce((acc, v) => acc + (v.valorLiquido || 0), 0);
 
     const produtosVendidosMap: Record<string, { nome: string, quantidade: number, receita: number }> = {};
     vendasHoje.forEach(v => {
-      const key = v.produtoId || v.nome;
-      if (!produtosVendidosMap[key]) {
-        produtosVendidosMap[key] = { nome: v.nome, quantidade: 0, receita: 0 };
+      if (v.itens && Array.isArray(v.itens)) {
+        v.itens.forEach((item: any) => {
+          const key = item.produtoId || item.id || item.nome;
+          if (!produtosVendidosMap[key]) {
+            produtosVendidosMap[key] = { nome: item.nome, quantidade: 0, receita: 0 };
+          }
+          produtosVendidosMap[key].quantidade += item.qtd;
+          produtosVendidosMap[key].receita += (item.preco * item.qtd);
+        });
       }
-      produtosVendidosMap[key].quantidade += v.quantidade;
-      produtosVendidosMap[key].receita += v.receitaVenda;
     });
     const produtosMaisVendidos = Object.values(produtosVendidosMap).sort((a, b) => b.quantidade - a.quantidade);
 

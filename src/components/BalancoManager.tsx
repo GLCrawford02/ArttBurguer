@@ -67,7 +67,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
       if (!insumo) continue;
 
       const insumoRef = ref(db, `insumos/${insumoId}`);
-      await runTransaction(insumoRef, (currentData) => {
+      const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
           const rotKey = `${insumoId}|rot`;
           if (novosEstoques[rotKey] !== undefined && novosEstoques[rotKey] !== '') {
@@ -495,7 +495,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
 
       {chavesPendentes.length > 0 && (
         <div className="fixed bottom-0 left-0 lg:left-64 right-0 p-4 bg-white border-t border-gray-200 shadow-[0_-10px_15px_-3px_rgb(0,0,0,0.1)] z-40 animate-in slide-in-from-bottom duration-300">
-          <div className="max-w-7xl mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
+          <div className="w-full mx-auto flex flex-col sm:flex-row justify-between items-center gap-4">
             <div>
                <p className="font-black text-gray-800 text-lg">{chavesPendentes.length} item(ns) alterado(s)</p>
                <p className="text-sm text-gray-500">Revise suas alterações e clique em Salvar para aplicar.</p>

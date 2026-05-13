@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ref, onValue, set, push, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Shield, Save, CheckCircle, AlertTriangle, Trash2, Copy } from 'lucide-react';
 
-export default function PermissoesManager() {
+export default function PermissoesManager({ currentUser }: { currentUser?: any }) {
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
   const [cargos, setCargos] = useState<{id: string, nome: string}[]>([]);
   const [novoCargo, setNovoCargo] = useState('');
@@ -11,40 +11,106 @@ export default function PermissoesManager() {
   const [cargoToCopy, setCargoToCopy] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
+  const isDonoOrTI = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => ['Dono', 'TI'].includes(c)) : ['Dono', 'TI'].includes(currentUser.cargo as string));
+
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 3000);
   };
 
 
-  const modulos = [
-    { id: 'vendas', nome: 'Geral: PDV / Caixa Aberto', admin: false },
-    { id: 'insumos', nome: 'Cadastros: Insumos (Estoque Base)', admin: false },
-    { id: 'fornecedores', nome: 'Cadastros: Fornecedores e Contatos', admin: true },
-    { id: 'produtos', nome: 'Cardápio: Produtos e Fichas Técnicas', admin: false },
-    { id: 'promocoes', nome: 'Cardápio: Promoções e Combos', admin: false },
-    { id: 'compras', nome: 'Movimentações: Compras (Entradas)', admin: true },
-    { id: 'transferencias', nome: 'Movimentações: Transferências (Praças)', admin: false },
-    { id: 'visibilidade_estoque', nome: 'Movimentações: Visibilidade de Estoque', admin: true },
-    { id: 'descartes', nome: 'Movimentações: Descartes (Baixas)', admin: true },
-    { id: 'producao', nome: 'Produção: KDS (Tela da Cozinha)', admin: false },
-    { id: 'balanco', nome: 'Geral: Balanço e Auditoria de Estoque', admin: true },
-    { id: 'calendario_contas', nome: 'Financeiro: Calendário de Contas Mensais', admin: true },
-    { id: 'fechamento_caixa', nome: 'Financeiro: Fechamento de Caixa', admin: true },
-    { id: 'dashboard_financeiro', nome: 'Financeiro: Dashboard de Receitas', admin: true },
-    { id: 'relatorios', nome: 'Financeiro: Relatórios Movimentações', admin: true },
-    { id: 'clientes', nome: 'Logística: Clientes / Histórico', admin: false },
-    { id: 'despacho', nome: 'Logística: Despacho e Rotas Motoboys', admin: false },
-    { id: 'funcionarios', nome: 'Equipe: Perfis de Funcionários', admin: true },
-    { id: 'gestao_equipe', nome: 'Equipe: Atribuições, Folgas e Ponto', admin: true },
-    { id: 'gestor_ia', nome: 'Equipe: Gestor de Soluções IA', admin: true },
-    { id: 'permissoes_acesso', nome: 'Equipe: Gerenciamento de Permissões', admin: true },
-    { id: 'marketing', nome: 'Geral: Marketing e Cupons de Desconto', admin: true },
-    { id: 'tarefas', nome: 'Tarefas: Gerenciamento Kanban', admin: false },
-    { id: 'bloco_notas', nome: 'Tarefas: Bloco de Notas Pessoal', admin: false },
-    { id: 'configuracoes', nome: 'Configurações: Informações Gerais', admin: true },
-    { id: 'bancos_taxas', nome: 'Configurações: Bancos e Taxas Fiscais', admin: true },
-    { id: 'atualizacoes_sistema', nome: 'Configurações: Histórico de Atualizações', admin: false },
+  const categorias = [
+    {
+      id: 'aba_dashboard', nome: 'Dashboard',
+      modulos: [
+        { id: 'dashboard_geral', nome: 'Dashboard (Tela Inicial)', admin: false }
+      ]
+    },
+    {
+      id: 'aba_pdv', nome: 'Caixa / PDV',
+      modulos: [
+        { id: 'vendas', nome: 'Frente de Caixa (Balcão/Mesa/Delivery)', admin: false },
+        { id: 'pdv_comandas', nome: 'Comandas do Dia', admin: false },
+        { id: 'pdv_conferencia', nome: 'Conferência de Fechamento', admin: true }
+      ]
+    },
+    {
+      id: 'aba_logistica', nome: 'Entregas e Logística',
+      modulos: [
+        { id: 'clientes', nome: 'Base de Clientes', admin: false },
+        { id: 'despacho', nome: 'Despacho e Rotas', admin: false },
+        { id: 'minhas_entregas', nome: 'Minhas Entregas (App Motoboy)', admin: false }
+      ]
+    },
+    {
+      id: 'aba_cadastros', nome: 'Cadastros',
+      modulos: [
+        { id: 'insumos', nome: 'Insumos (Estoque Base)', admin: false },
+        { id: 'fornecedores', nome: 'Fornecedores e Contatos', admin: true }
+      ]
+    },
+    {
+      id: 'aba_cardapio', nome: 'Cardápio',
+      modulos: [
+        { id: 'produtos', nome: 'Produtos e Fichas Técnicas', admin: false },
+        { id: 'promocoes', nome: 'Promoções e Combos', admin: false }
+      ]
+    },
+    {
+      id: 'aba_movimentacoes', nome: 'Movimentações',
+      modulos: [
+        { id: 'compras', nome: 'Entrada de Mercadorias', admin: true },
+        { id: 'transferencias', nome: 'Transferências (Praças)', admin: false },
+        { id: 'visibilidade_estoque', nome: 'Visibilidade de Estoque', admin: true },
+        { id: 'descartes', nome: 'Descartes (Baixas / Perdas)', admin: true },
+        { id: 'balanco', nome: 'Balanço e Ajuste de Estoque', admin: true }
+      ]
+    },
+    {
+      id: 'aba_tarefas', nome: 'Tarefas',
+      modulos: [
+        { id: 'tarefas', nome: 'Gerenciamento de Tarefas', admin: false },
+        { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal', admin: false }
+      ]
+    },
+    {
+      id: 'aba_producao', nome: 'Produção (KDS)',
+      modulos: [
+        { id: 'producao', nome: 'Painel da Cozinha (KDS)', admin: false }
+      ]
+    },
+    {
+      id: 'aba_financeiro', nome: 'Financeiro e Relatórios',
+      modulos: [
+        { id: 'calendario_contas', nome: 'Calendário de Contas Mensais', admin: true },
+        { id: 'fechamento_caixa', nome: 'Fechamento do Dia', admin: true },
+        { id: 'dashboard_financeiro', nome: 'Dashboard de Receitas', admin: true },
+        { id: 'relatorios', nome: 'Relatórios de Movimentações', admin: true }
+      ]
+    },
+    {
+      id: 'aba_marketing', nome: 'Marketing',
+      modulos: [
+        { id: 'marketing', nome: 'Marketing e Cupons de Desconto', admin: true }
+      ]
+    },
+    {
+      id: 'aba_funcionarios', nome: 'Gestão de Equipe',
+      modulos: [
+        { id: 'funcionarios', nome: 'Perfis de Funcionários', admin: true },
+        { id: 'gestao_equipe', nome: 'Atribuições, Folgas e Ponto', admin: true },
+        { id: 'gestor_ia', nome: 'Gestor de Soluções IA', admin: true },
+        { id: 'permissoes_acesso', nome: 'Cargos e Permissões', admin: true }
+      ]
+    },
+    {
+      id: 'aba_configuracoes', nome: 'Configurações',
+      modulos: [
+        { id: 'configuracoes', nome: 'Configurações Gerais', admin: true },
+        { id: 'bancos_taxas', nome: 'Bancos e Taxas Fiscais', admin: true },
+        { id: 'atualizacoes_sistema', nome: 'Histórico de Atualizações', admin: false }
+      ]
+    }
   ];
   
 
@@ -107,6 +173,22 @@ export default function PermissoesManager() {
   const handleToggle = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
     if (selectedCargo === 'Dono' || selectedCargo === 'TI') return;
 
+    const currentVal = permissoes[selectedCargo]?.[moduloId]?.[acao] || false;
+    const newVal = !currentVal;
+
+    const modulo = categorias.flatMap(c => c.modulos).find(m => m.id === moduloId) || categorias.find(c => c.id === moduloId);
+    
+    if (modulo && 'admin' in modulo && modulo.admin && !isDonoOrTI) {
+      showToast('Acesso negado: Apenas Dono e TI podem alterar permissões administrativas.', 'error');
+      return;
+    }
+
+    if (newVal && modulo && 'admin' in modulo && modulo.admin) {
+      if (!window.confirm(`ATENÇÃO:\nA permissão para "${modulo.nome}" é considerada uma função administrativa sensível.\n\nDeseja realmente ativar este acesso para o cargo de ${selectedCargo}?`)) {
+        return;
+      }
+    }
+
     setPermissoes(prev => {
       const newState = JSON.parse(JSON.stringify(prev));
       
@@ -115,16 +197,6 @@ export default function PermissoesManager() {
         newState[selectedCargo][moduloId] = { visualizar: false, editar: false, apagar: false };
       }
       
-      const currentVal = newState[selectedCargo][moduloId][acao];
-      const newVal = !currentVal;
-
-      const modulo = modulos.find(m => m.id === moduloId);
-      if (newVal && modulo?.admin) {
-        if (!window.confirm(`ATENÇÃO:\nA permissão para "${modulo.nome}" é considerada uma função administrativa sensível.\n\nDeseja realmente ativar este acesso para o cargo de ${selectedCargo}?`)) {
-          return prev;
-        }
-      }
-
       newState[selectedCargo][moduloId][acao] = newVal;
 
       if (!currentVal && (acao === 'editar' || acao === 'apagar')) {
@@ -141,16 +213,37 @@ export default function PermissoesManager() {
 
   const handleCopyPermissions = () => {
     if (!cargoToCopy) return;
+    if (['Dono', 'TI'].includes(cargoToCopy) && !isDonoOrTI) {
+      showToast('Acesso negado: Apenas Dono e TI podem copiar permissões de acesso total.', 'error');
+      return;
+    }
     if (window.confirm(`Deseja substituir as permissões de ${selectedCargo} pelas permissões do cargo ${cargoToCopy}?`)) {
       setPermissoes(prev => {
         const newState = JSON.parse(JSON.stringify(prev));
         if (['Dono', 'TI'].includes(cargoToCopy)) {
            newState[selectedCargo] = {};
-           modulos.forEach(m => {
-             newState[selectedCargo][m.id] = { visualizar: true, editar: true, apagar: true };
+           categorias.forEach(cat => {
+             newState[selectedCargo][cat.id] = { visualizar: true, editar: true, apagar: true };
+             cat.modulos.forEach(m => {
+               newState[selectedCargo][m.id] = { visualizar: true, editar: true, apagar: true };
+             });
            });
         } else {
-           newState[selectedCargo] = newState[cargoToCopy] ? JSON.parse(JSON.stringify(newState[cargoToCopy])) : {};
+           const copied = newState[cargoToCopy] ? JSON.parse(JSON.stringify(newState[cargoToCopy])) : {};
+           if (!isDonoOrTI) {
+               categorias.forEach(cat => {
+                   cat.modulos.forEach(m => {
+                       if (m.admin && copied[m.id]) {
+                           if (newState[selectedCargo]?.[m.id]) {
+                               copied[m.id] = newState[selectedCargo][m.id];
+                           } else {
+                               delete copied[m.id];
+                           }
+                       }
+                   });
+               });
+           }
+           newState[selectedCargo] = copied;
         }
         return newState;
       });
@@ -168,10 +261,22 @@ export default function PermissoesManager() {
     }
   };
 
-  const getPerm = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
+  const getPerm = (id: string, acao: 'visualizar' | 'editar' | 'apagar', parentId?: string) => {
     if (selectedCargo === 'Dono' || selectedCargo === 'TI') return true;
-    return permissoes[selectedCargo]?.[moduloId]?.[acao] || false;
+    
+    if (!parentId && acao === 'visualizar') {
+      const val = permissoes[selectedCargo]?.[id]?.visualizar;
+      if (val === undefined) return true;
+      return val;
+    }
+    if (parentId && permissoes[selectedCargo]?.[parentId] && permissoes[selectedCargo]?.[parentId].visualizar === false) return false;
+    return permissoes[selectedCargo]?.[id]?.[acao] || false;
   };
+
+  const categoriasVisiveis = categorias.map(cat => ({
+    ...cat,
+    modulos: isDonoOrTI ? cat.modulos : cat.modulos.filter(m => !m.admin)
+  })).filter(cat => cat.modulos.length > 0);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -276,16 +381,29 @@ export default function PermissoesManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100 text-sm">
-                {modulos.map(m => (
-                  <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6 font-bold text-gray-800 flex items-center">
-                      {m.nome} 
-                      {m.admin && <span className="ml-2 text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full uppercase tracking-widest font-black shrink-0">Admin</span>}
-                    </td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'editar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'apagar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                  </tr>
+                {categoriasVisiveis.map(cat => (
+                  <React.Fragment key={cat.id}>
+                    <tr className="bg-indigo-50/50">
+                      <td className="py-3 px-6 font-bold text-indigo-900 flex items-center">{cat.nome} (Aba Completa)</td>
+                      <td className="py-3 px-6 text-center"><input type="checkbox" checked={getPerm(cat.id, 'visualizar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(cat.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" title="Ativar/Desativar Aba Inteira" /></td>
+                      <td className="py-3 px-6 text-center"></td>
+                      <td className="py-3 px-6 text-center"></td>
+                    </tr>
+                    {cat.modulos.map(m => {
+                      const isDisabled = (selectedCargo === 'Dono' || selectedCargo === 'TI') ? false : (permissoes[selectedCargo]?.[cat.id]?.visualizar === false);
+                      return (
+                      <tr key={m.id} className={`transition-colors ${isDisabled ? 'opacity-50 bg-gray-50' : 'hover:bg-gray-50'}`}>
+                        <td className="py-3 px-6 pl-10 text-gray-700 flex items-center">
+                          <div className="w-2 h-2 bg-gray-300 rounded-full mr-3"></div>
+                          <span className={isDisabled ? 'line-through' : 'font-medium'}>{m.nome}</span>
+                          {m.admin && <span className="ml-2 text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full uppercase tracking-widest font-black shrink-0">Admin</span>}
+                        </td>
+                        <td className="py-3 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar', cat.id)} disabled={isDisabled || selectedCargo === 'Dono' || selectedCargo === 'TI' || (m.admin && !isDonoOrTI)} onChange={() => handleToggle(m.id, 'visualizar')} className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                        <td className="py-3 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar', cat.id)} disabled={isDisabled || selectedCargo === 'Dono' || selectedCargo === 'TI' || (m.admin && !isDonoOrTI)} onChange={() => handleToggle(m.id, 'editar')} className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                        <td className="py-3 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar', cat.id)} disabled={isDisabled || selectedCargo === 'Dono' || selectedCargo === 'TI' || (m.admin && !isDonoOrTI)} onChange={() => handleToggle(m.id, 'apagar')} className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                      </tr>
+                    )})}
+                  </React.Fragment>
                 ))}
               </tbody>
             </table>

@@ -3,7 +3,7 @@ import { ref, onValue, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
-import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare } from 'lucide-react';
+import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame } from 'lucide-react';
 
 interface ParadaRota {
   clienteId: string;
@@ -11,6 +11,9 @@ interface ParadaRota {
   endereco: string;
   observacaoEntregador?: string;
   pedidoId: string;
+  isAberta?: boolean;
+  numeroDiario?: number;
+  googleMapsLink?: string;
 }
 
 interface Despacho {
@@ -28,7 +31,10 @@ export default function DespachoManager() {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [despachos, setDespachos] = useState<Despacho[]>([]);
   const [pedidosPendente, setPedidosPendente] = useState<any[]>([]);
+  const [entregasAbertas, setEntregasAbertas] = useState<any[]>([]);
+  const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
   
+  const [activeDespachoTab, setActiveDespachoTab] = useState<'ativos' | 'concluidos'>('ativos');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMotoboy, setSelectedMotoboy] = useState('');
   const [rotaAtual, setRotaAtual] = useState<ParadaRota[]>([]);
@@ -44,6 +50,8 @@ export default function DespachoManager() {
     const funcRef = ref(db, 'funcionarios');
     const despachosRef = ref(db, 'despachos');
     const vendasRef = ref(db, 'vendas_pdv');
+    const entregasRef = ref(db, 'entregas_abertas');
+    const pedidosCozRef = ref(db, 'pedidos_cozinha');
 
     const unsubClientes = onValue(clientesRef, snap => {
       if (snap.val()) setClientes(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
@@ -72,7 +80,17 @@ export default function DespachoManager() {
       } else setPedidosPendente([]);
     });
 
-    return () => { unsubClientes(); unsubFunc(); unsubDespachos(); unsubVendas(); };
+    const unsubEntregas = onValue(entregasRef, snap => {
+      if (snap.val()) setEntregasAbertas(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val, isAberta: true })));
+      else setEntregasAbertas([]);
+    });
+
+    const unsubPedidosCoz = onValue(pedidosCozRef, snap => {
+      if (snap.val()) setPedidosCozinha(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
+      else setPedidosCozinha([]);
+    });
+
+    return () => { unsubClientes(); unsubFunc(); unsubDespachos(); unsubVendas(); unsubEntregas(); unsubPedidosCoz(); };
   }, []);
 
   const formatarEndereco = (c: Cliente) => {
@@ -98,7 +116,7 @@ export default function DespachoManager() {
       showToast('Este cliente não possui endereço cadastrado.', 'error');
       return;
     }
-    setRotaAtual([...rotaAtual, { clienteId: c.id, clienteNome: c.nome, endereco, observacaoEntregador: c.observacaoEntregador, pedidoId: pedido.id }]);
+    setRotaAtual([...rotaAtual, { clienteId: c.id, clienteNome: c.nome, endereco, observacaoEntregador: c.observacaoEntregador, pedidoId: pedido.id, isAberta: pedido.isAberta, numeroDiario: pedido.numeroDiario, googleMapsLink: c.googleMapsLink }]);
     setSearchTerm('');
   };
 
@@ -141,10 +159,29 @@ export default function DespachoManager() {
 
       // Atualiza o status dos pedidos para 'Em Rota'
       for (const p of rotaAtual) {
-        if (p.pedidoId) await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Em Rota' });
+        if (p.isAberta) {
+          await update(ref(db, `entregas_abertas/${p.pedidoId}`), { statusEntrega: 'Em Rota' });
+        } else if (p.pedidoId) {
+          await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Em Rota' });
+        }
+
+        const c = clientes.find(client => client.id === p.clienteId);
+        if (c && c.telefone) {
+          let telLimpo = c.telefone.replace(/\D/g, '');
+          if (telLimpo.length >= 10) {
+            if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+            const msg = `Olá *${c.nome.split(' ')[0]}*! 🛵\n\nSeu pedido acabou de sair para entrega com o nosso entregador *${motoboy.nome}*.\n\nFique de olho, em breve chegará aí no endereço:\n📍 ${p.endereco}`;
+            await set(push(ref(db, 'fila_mensagens')), {
+              telefone: telLimpo,
+              mensagem: msg,
+              status: 'pendente',
+              timestamp: Date.now()
+            });
+          }
+        }
       }
 
-      showToast('Despacho registrado! Rota iniciada.', 'success');
+      showToast('Despacho registrado! Rota iniciada e clientes notificados.', 'success');
       setRotaAtual([]);
       setSelectedMotoboy('');
     } catch (error) {
@@ -163,7 +200,27 @@ export default function DespachoManager() {
       const despacho = despachos.find(d => d.id === id);
       if (despacho) {
         for (const p of despacho.paradas) {
-          if (p.pedidoId) await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluído' });
+          if (p.isAberta) {
+            await update(ref(db, `entregas_abertas/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+          } else if (p.pedidoId) {
+            await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+          }
+
+          // Notifica o cliente agradecendo pelo pedido após o motoboy retornar
+          const c = clientes.find(client => client.id === p.clienteId);
+          if (c && c.telefone) {
+            let telLimpo = c.telefone.replace(/\D/g, '');
+            if (telLimpo.length >= 10) {
+              if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+              const msg = `Olá *${c.nome.split(' ')[0]}*! ✅\n\nSeu pedido foi entregue.\nMuito obrigado por escolher a *ArttBurger*!\nEsperamos que tenha gostado e até a próxima! 🍔\n\nMe conta, correu tudo bem com a sua entrega?`;
+              await set(push(ref(db, 'fila_mensagens')), {
+                telefone: telLimpo,
+                mensagem: msg,
+                status: 'pendente',
+                timestamp: Date.now()
+              });
+            }
+          }
         }
       }
 
@@ -184,7 +241,11 @@ export default function DespachoManager() {
       return;
     }
     let mensagem = `*Nova Rota de Entrega!*\n\n`;
-    d.paradas.forEach((p, idx) => { mensagem += `*Parada ${idx + 1}:* ${p.clienteNome}\n📍 ${p.endereco}${p.observacaoEntregador ? `\n⚠️ Obs: ${p.observacaoEntregador}` : ''}\n\n`; });
+    d.paradas.forEach((p, idx) => { 
+      const c = clientes.find(client => client.id === p.clienteId);
+      const telefone = c?.telefone || 'Não informado';
+      mensagem += `*Parada ${idx + 1} - Pedido #${p.numeroDiario || '?'}*\n👤 ${p.clienteNome}\n📞 ${telefone}\n📍 ${p.endereco}${p.observacaoEntregador ? `\n⚠️ Obs: ${p.observacaoEntregador}` : ''}\n\n`; 
+    });
     
     try {
       await set(push(ref(db, 'fila_mensagens')), {
@@ -199,7 +260,12 @@ export default function DespachoManager() {
     }
   };
 
-  const filteredPedidos = searchTerm ? pedidosPendente.filter(p => (p.clienteNome || '').toLowerCase().includes(searchTerm.toLowerCase())) : pedidosPendente;
+  const todosPedidosPendente = [
+    ...entregasAbertas.filter(e => !e.statusEntrega || e.statusEntrega === 'Pendente'),
+    ...pedidosPendente
+  ].sort((a, b) => a.timestamp - b.timestamp);
+
+  const filteredPedidos = searchTerm ? todosPedidosPendente.filter(p => (p.clienteNome || '').toLowerCase().includes(searchTerm.toLowerCase())) : todosPedidosPendente;
   const despachosAtivos = despachos.filter(d => d.status === 'Em Rota');
 
   const hoje = new Date();
@@ -216,130 +282,156 @@ export default function DespachoManager() {
     }, {} as Record<string, { nome: string, viagens: number, paradas: number }>);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
+    <div className="animate-in fade-in duration-300 flex flex-col h-full">
+      <div className="flex bg-gray-200 p-1 rounded-xl w-fit mb-6 shrink-0">
+        <button onClick={() => setActiveDespachoTab('ativos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeDespachoTab === 'ativos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despachos Ativos</button>
+        <button onClick={() => setActiveDespachoTab('concluidos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeDespachoTab === 'concluidos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Resumo (Concluídos)</button>
+      </div>
       
-      {/* Coluna Esquerda: Construtor de Rota */}
-      <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col space-y-6">
-        <h3 className="text-lg font-bold text-gray-800 flex items-center"><Map className="mr-2 text-indigo-600" size={24}/> Planejador de Rotas</h3>
-        
-        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
-          <div>
-            <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Motoboy / Entregador Responsável</label>
-            <select value={selectedMotoboy} onChange={e => setSelectedMotoboy(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white font-medium">
-              <option value="">Selecione o entregador...</option>
-              {funcionarios.filter(f => {
-                const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
-                return (f as any).ativo !== false && cargos.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'));
-              }).map(f => {
-                const cargosStr = Array.isArray(f.cargo) ? f.cargo.join(', ') : (f.cargo || '');
-                return <option key={f.id} value={f.id}>{f.nome} {cargosStr ? `(${cargosStr})` : ''}</option>;
-              })}
-            </select>
-          </div>
-
-          <div className="flex flex-col h-64">
-            <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Pedidos Aguardando Entrega ({pedidosPendente.length})</label>
-            <div className="relative mb-2">
+      {activeDespachoTab === 'ativos' && (
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 flex-1 min-h-0">
+          
+          {/* Coluna Esquerda: Pedidos Aguardando */}
+          <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[600px]">
+            <h3 className="text-lg font-bold text-gray-800 flex items-center mb-4"><Package className="mr-2 text-indigo-600" size={24}/> Pedidos Aguardando Entrega ({todosPedidosPendente.length})</h3>
+            
+            <div className="relative mb-4 shrink-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-              <input type="text" placeholder="Filtrar pedidos..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white" />
+              <input type="text" placeholder="Filtrar pedidos..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
             </div>
-            <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg bg-white divide-y divide-gray-50">
+            
+            <div className="flex-1 overflow-y-auto pr-2 space-y-3">
               {filteredPedidos.map(ped => {
                 const c = clientes.find(client => client.id === ped.clienteId);
                 if (!c) return null;
+                
+                const isPronto = (() => {
+                  let relacionados = [];
+                  if (ped.isAberta) {
+                    relacionados = pedidosCozinha.filter(p => p.referenciaId === ped.id);
+                  } else {
+                    relacionados = pedidosCozinha.filter(p => p.identificador === `Delivery: ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
+                  }
+                  if (relacionados.length === 0) return true;
+                  return relacionados.every(p => p.status === 'Concluído' || p.status === 'Cancelado');
+                })();
+
                 return (
-                  <div key={ped.id} className="p-3 flex justify-between items-center hover:bg-gray-50 transition-colors">
+                  <div key={ped.id} className={`p-4 rounded-xl border ${isPronto ? 'border-gray-200 bg-white hover:border-indigo-300' : 'border-orange-200 bg-orange-50 opacity-90'} transition-colors shadow-sm flex justify-between items-center group`}>
                     <div className="truncate pr-2">
-                      <p className="font-bold text-gray-800 text-sm">{c.nome}</p>
-                      <p className="text-xs text-gray-500 truncate mt-0.5">{formatarEndereco(c) || 'Sem endereço'}</p>
-                      <p className="text-[10px] text-indigo-500 font-bold mt-0.5">Pedido às {new Date(ped.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p>
+                      <p className="font-bold text-gray-800">#{ped.numeroDiario || '?'} - {c.nome}</p>
+                      <p className="text-sm text-gray-500 truncate mt-1 flex items-center"><MapPin size={14} className="mr-1"/> {formatarEndereco(c) || 'Sem endereço'}</p>
+                      <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                        {ped.isAberta ? <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold">Falta Pagar</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[11px] font-bold">Pago</span>}
+                        <span className="text-[11px] text-indigo-500 font-bold">Pedido às {new Date(ped.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
+                        {!isPronto && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold flex items-center"><Flame size={12} className="mr-1" /> Na Cozinha</span>}
+                      </div>
                     </div>
-                    <button onClick={() => handleAddParada(ped)} className="text-indigo-600 bg-indigo-50 hover:bg-indigo-100 p-2 rounded-lg font-bold flex items-center transition-colors shrink-0">
-                      <Plus size={16} />
+                    <button onClick={() => isPronto ? handleAddParada(ped) : showToast('Aguarde a cozinha finalizar o pedido.', 'error')} className={`${isPronto ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 bg-gray-200 cursor-not-allowed'} p-3 rounded-xl font-bold flex items-center transition-colors shrink-0`}>
+                      <Plus size={20} />
                     </button>
                   </div>
                 );
               })}
-              {filteredPedidos.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhum pedido pendente para entrega.</p>}
+              {filteredPedidos.length === 0 && <p className="p-8 text-center text-gray-400">Nenhum pedido pendente para entrega.</p>}
+            </div>
+          </div>
+
+          {/* Coluna Direita: Acompanhamento */}
+          <div className="lg:col-span-5 flex flex-col gap-6">
+            
+            {/* Top: Paradas da Rota */}
+            <div className="bg-white p-5 rounded-xl shadow-sm border border-gray-100 flex flex-col h-1/2 min-h-[350px]">
+              <h3 className="text-md font-bold text-gray-800 flex items-center mb-3"><MapPin className="mr-2 text-indigo-600" size={20}/> Paradas por Rota ({rotaAtual.length})</h3>
+              
+              <div className="mb-3 shrink-0">
+                <select value={selectedMotoboy} onChange={e => setSelectedMotoboy(e.target.value)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50 font-medium text-sm">
+                  <option value="">Selecione o entregador...</option>
+                  {funcionarios.filter(f => {
+                    const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
+                    return (f as any).ativo !== false && cargos.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'));
+                  }).map(f => {
+                    const cargosStr = Array.isArray(f.cargo) ? f.cargo.join(', ') : (f.cargo || '');
+                    return <option key={f.id} value={f.id}>{f.nome} {cargosStr ? `(${cargosStr})` : ''}</option>;
+                  })}
+                </select>
+              </div>
+
+              <div className="flex-1 space-y-2 overflow-y-auto pr-1 mb-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                {rotaAtual.map((p, idx) => (
+                  <div key={idx} className="flex justify-between items-center bg-white p-2.5 rounded-lg border border-gray-200 shadow-sm group">
+                    <div className="flex items-center flex-1 min-w-0">
+                      <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-2 flex-shrink-0">{idx + 1}</div>
+                      <div className="truncate pr-2">
+                        <p className="font-bold text-xs text-gray-800 truncate">#{p.numeroDiario || '?'} - {p.clienteNome}</p>
+                        <p className="text-[10px] text-gray-500 truncate mt-0.5">{p.endereco}</p>
+                        {p.observacaoEntregador && <p className="text-[9px] text-blue-600 font-bold truncate mt-0.5">Obs: {p.observacaoEntregador}</p>}
+                      </div>
+                    </div>
+                    <div className="flex space-x-1 flex-shrink-0 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
+                      <div className="flex flex-col border-r border-gray-100 pr-1 mr-1">
+                        <button onClick={() => moveParada(idx, 'up')} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowUp size={12}/></button>
+                        <button onClick={() => moveParada(idx, 'down')} disabled={idx === rotaAtual.length - 1} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowDown size={12}/></button>
+                      </div>
+                      <button onClick={() => handleRemoveParada(idx)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>
+                    </div>
+                  </div>
+                ))}
+                {rotaAtual.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-60 py-6"><Navigation size={32} className="mb-2"/><p className="text-xs">Nenhuma parada adicionada.</p></div>}
+              </div>
+
+              <div className="border-t border-gray-100 pt-3 flex flex-col gap-2 shrink-0">
+                <button onClick={() => openGoogleMaps(rotaAtual)} disabled={rotaAtual.length === 0} className="w-full bg-white border border-indigo-200 text-indigo-700 py-2 rounded-lg font-bold text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center disabled:opacity-50">
+                  <ExternalLink size={16} className="mr-2"/> Abrir Rota no GPS
+                </button>
+                <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
+                  <Truck size={16} className="mr-2"/> Despachar Entregador
+                </button>
+              </div>
+            </div>
+
+            {/* Bottom: Motoboys em Rota */}
+            <div className="bg-indigo-900 p-5 rounded-xl shadow-lg border border-indigo-800 text-white flex-1 flex flex-col min-h-[300px]">
+              <h3 className="text-md font-bold mb-3 flex items-center"><Navigation className="mr-2 text-indigo-400" size={20}/> Entregadores em Rota</h3>
+              <div className="space-y-3 flex-1 overflow-y-auto pr-1">
+                {despachosAtivos.map(d => (
+                  <div key={d.id} className="bg-white/10 backdrop-blur-sm border border-white/20 p-3 rounded-lg flex flex-col">
+                    <div className="flex justify-between items-start mb-2">
+                      <div><h4 className="font-bold text-indigo-100 text-sm flex items-center"><Truck size={14} className="mr-1.5"/> {d.motoboyNome}</h4><p className="text-[10px] text-indigo-300 mt-1">Saiu às {new Date(d.timestampSaida).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p></div>
+                      <span className="bg-orange-500 text-white text-[9px] font-bold px-2 py-1 rounded-full uppercase tracking-wider animate-pulse">Na Rua</span>
+                    </div>
+                    <p className="text-[11px] text-gray-300 mb-3 line-clamp-2 leading-relaxed border-l-2 border-indigo-500 pl-2 ml-1">Destinos: {d.paradas.map(p => p.clienteNome).join(', ')}</p>
+                    <div className="flex flex-wrap gap-2 mt-auto">
+                      <button onClick={() => enviarWhatsApp(d)} className="flex-1 bg-green-500 hover:bg-green-400 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><MessageSquare size={12} className="mr-1"/> Enviar</button>
+                      <button onClick={() => openGoogleMaps(d.paradas)} className="flex-1 bg-white/10 hover:bg-white/20 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><MapPin size={12} className="mr-1"/> GPS</button>
+                      <button onClick={() => handleConcluirDespacho(d.id)} className="w-full bg-blue-500 hover:bg-blue-400 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><CheckCircle size={12} className="mr-1"/> Retornou</button>
+                    </div>
+                  </div>
+                ))}
+                {despachosAtivos.length === 0 && <div className="h-full flex flex-col items-center justify-center text-indigo-300/50 py-6"><Truck size={32} className="mb-2"/><p className="text-xs">Nenhum entregador na rua.</p></div>}
+              </div>
             </div>
           </div>
         </div>
+      )}
 
-        <div className="flex-1 flex flex-col min-h-[300px]">
-          <h4 className="text-sm font-bold text-gray-700 mb-3 border-b border-gray-100 pb-2">Paradas da Rota ({rotaAtual.length})</h4>
-          <div className="flex-1 space-y-2 overflow-y-auto pr-1">
-            {rotaAtual.map((p, idx) => (
-              <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 shadow-sm group">
-                <div className="flex items-center flex-1 min-w-0">
-                  <div className="w-6 h-6 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-xs font-bold mr-3 flex-shrink-0">{idx + 1}</div>
-                  <div className="truncate pr-2">
-                    <p className="font-bold text-sm text-gray-800 truncate">{p.clienteNome}</p>
-                    <p className="text-xs text-gray-500 truncate flex items-center mt-0.5"><MapPin size={12} className="mr-1"/> {p.endereco}</p>
-                    {p.observacaoEntregador && <p className="text-[10px] text-blue-600 font-bold truncate mt-0.5">Obs: {p.observacaoEntregador}</p>}
-                  </div>
-                </div>
-                <div className="flex space-x-1 flex-shrink-0 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
-                  <div className="flex flex-col border-r border-gray-100 pr-1 mr-1">
-                    <button onClick={() => moveParada(idx, 'up')} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowUp size={14}/></button>
-                    <button onClick={() => moveParada(idx, 'down')} disabled={idx === rotaAtual.length - 1} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowDown size={14}/></button>
-                  </div>
-                  <button onClick={() => handleRemoveParada(idx)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16}/></button>
-                </div>
-              </div>
-            ))}
-            {rotaAtual.length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400 opacity-60 py-10"><Navigation size={48} className="mb-3"/><p className="text-sm">Nenhuma parada adicionada.</p></div>}
-          </div>
-        </div>
-
-        <div className="pt-4 border-t border-gray-100 flex flex-col sm:flex-row gap-3">
-          <button onClick={() => openGoogleMaps(rotaAtual)} disabled={rotaAtual.length === 0} className="flex-1 bg-white border-2 border-indigo-100 text-indigo-700 p-3 rounded-lg font-bold hover:bg-indigo-50 transition-colors flex items-center justify-center disabled:opacity-50">
-            <ExternalLink size={18} className="mr-2"/> Abrir Rota no GPS
-          </button>
-          <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy} className="flex-1 bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
-            <Truck size={18} className="mr-2"/> Despachar Motoboy
-          </button>
-        </div>
-      </div>
-
-      {/* Coluna Direita: Acompanhamento */}
-      <div className="lg:col-span-5 flex flex-col space-y-6">
-        <div className="bg-indigo-900 p-6 rounded-xl shadow-lg border border-indigo-800 text-white flex-1 min-h-[300px] flex flex-col">
-          <h3 className="text-lg font-bold mb-4 flex items-center"><Navigation className="mr-2 text-indigo-400"/> Motoboys em Rota</h3>
-          <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-            {despachosAtivos.map(d => (
-              <div key={d.id} className="bg-white/10 backdrop-blur-sm border border-white/20 p-4 rounded-lg flex flex-col">
-                <div className="flex justify-between items-start mb-3">
-                  <div><h4 className="font-bold text-indigo-100 flex items-center"><Truck size={16} className="mr-1.5"/> {d.motoboyNome}</h4><p className="text-xs text-indigo-300 mt-1">Saiu às {new Date(d.timestampSaida).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p></div>
-                  <span className="bg-orange-500 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider animate-pulse">Na Rua</span>
-                </div>
-                <p className="text-xs text-gray-300 mb-3 line-clamp-2 leading-relaxed border-l-2 border-indigo-500 pl-2 ml-1">Destinos: {d.paradas.map(p => p.clienteNome).join(', ')}</p>
-                <div className="flex flex-col xl:flex-row gap-2 mt-auto">
-                  <button onClick={() => enviarWhatsApp(d)} className="flex-1 bg-green-500 hover:bg-green-400 text-white py-2 rounded text-xs font-bold transition-colors flex items-center justify-center"><MessageSquare size={14} className="mr-1"/> Enviar Rota</button>
-                  <button onClick={() => openGoogleMaps(d.paradas)} className="flex-1 bg-white/10 hover:bg-white/20 text-white py-2 rounded text-xs font-bold transition-colors flex items-center justify-center"><MapPin size={14} className="mr-1"/> Ver GPS</button>
-                  <button onClick={() => handleConcluirDespacho(d.id)} className="flex-1 bg-blue-500 hover:bg-blue-400 text-white py-2 rounded text-xs font-bold transition-colors flex items-center justify-center"><CheckCircle size={14} className="mr-1"/> Retornou</button>
-                </div>
-              </div>
-            ))}
-            {despachosAtivos.length === 0 && <div className="h-full flex flex-col items-center justify-center text-indigo-300/50"><Truck size={40} className="mb-2"/><p className="text-sm">Nenhum entregador na rua agora.</p></div>}
-          </div>
-        </div>
-
-        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex-1 min-h-[250px] flex flex-col">
+      {activeDespachoTab === 'concluidos' && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col min-h-[400px]">
           <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center"><CheckCircle className="mr-2 text-green-500"/> Resumo do Dia (Concluídos)</h3>
           <div className="space-y-3 flex-1 overflow-y-auto pr-1">
              {Object.values(resumoMotoboys).map((m: any) => (
-               <div key={m.nome} className="flex justify-between items-center p-3 bg-gray-50 rounded-lg border border-gray-100">
-                 <span className="font-bold text-gray-800 flex items-center"><Truck size={14} className="mr-2 text-gray-400"/>{m.nome}</span>
+               <div key={m.nome} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-green-200 transition-colors">
+                 <span className="font-bold text-gray-800 flex items-center text-lg"><Truck size={20} className="mr-3 text-gray-400"/>{m.nome}</span>
                  <div className="text-sm text-right">
-                   <p className="text-indigo-600 font-bold">{m.viagens} {m.viagens === 1 ? 'viagem' : 'viagens'}</p>
-                   <p className="text-gray-500 text-xs">{m.paradas} {m.paradas === 1 ? 'entrega finalizada' : 'entregas finalizadas'}</p>
+                   <p className="text-indigo-600 font-black text-lg">{m.viagens} {m.viagens === 1 ? 'viagem' : 'viagens'}</p>
+                   <p className="text-gray-500 font-medium">{m.paradas} {m.paradas === 1 ? 'entrega finalizada' : 'entregas finalizadas'}</p>
                  </div>
                </div>
              ))}
-             {Object.keys(resumoMotoboys).length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400"><p className="text-sm">Nenhuma entrega finalizada hoje.</p></div>}
+             {Object.keys(resumoMotoboys).length === 0 && <div className="h-full flex flex-col items-center justify-center text-gray-400"><p>Nenhuma entrega finalizada hoje.</p></div>}
           </div>
         </div>
-      </div>
+      )}
 
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
     </div>
