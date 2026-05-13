@@ -91,119 +91,21 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
       setQuantidades({ ...quantidades, [insumo.id]: 0 });
     } else {
       newSel.add(insumo.id);
-        const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
-        const qtdPacote = Number(insumo.qtdPacote || 1);
-      const maxVal = qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario;
-      setQuantidades({ ...quantidades, [insumo.id]: maxVal });
+      setQuantidades({ ...quantidades, [insumo.id]: 0 });
     }
     setSelecionados(newSel);
-  };
-
-  const handleTransfer = (insumo: Insumo) => {
-    confirmWithPin(async (func: Funcionario) => {
-      const numVolumesTransferir = quantidades[insumo.id];
-      if (!numVolumesTransferir || numVolumesTransferir <= 0) {
-        showToast('Informe a quantidade para transferir.', 'error');
-        return;
-      }
-      const qtdPacote = Number(insumo.qtdPacote || 1);
-      const rawUnitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
-      const unitsToTransfer = Number(rawUnitsToTransfer.toFixed(4));
-      const linkedId = (insumo as any).insumoVinculado;
-      const isVariavel = (insumo as any).isVariavel;
-
-      const insumoRef = ref(db, `insumos/${insumo.id}`);
-
-      const result = await runTransaction(insumoRef, (currentData) => {
-        if (currentData) {
-          const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
-          const rawEstRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
-          const estEstacionario = Number(rawEstEstacionario.toFixed(4));
-          const estRotativo = Number(rawEstRotativo.toFixed(4));
-          if (estEstacionario >= unitsToTransfer) {
-            currentData.estoqueEstacionario = Number((estEstacionario - unitsToTransfer).toFixed(4));
-            if (!linkedId) {
-              if (isVariavel) {
-                currentData.estoqueRotativo = unitsToTransfer;
-              } else {
-                currentData.estoqueRotativo = Number((estRotativo + unitsToTransfer).toFixed(4));
-              }
-            }
-
-
-            if (currentData.lotes) {
-              let qtdRestante = unitsToTransfer;
-              const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
-              
-              lotesArray.sort((a, b) => {
-                if (!a.validade) return 1;
-                if (!b.validade) return -1;
-                return new Date(a.validade).getTime() - new Date(b.validade).getTime();
-              });
-
-              for (const l of lotesArray) {
-                if (qtdRestante <= 0) break;
-                const lQtd = Number(Number(l.quantidade || 0).toFixed(4));
-                if (lQtd <= qtdRestante) {
-                  qtdRestante = Number((qtdRestante - lQtd).toFixed(4));
-                  delete currentData.lotes[l.id];
-                } else {
-                  currentData.lotes[l.id].quantidade = Number((lQtd - qtdRestante).toFixed(4));
-                  qtdRestante = 0;
-                }
-              }
-            }
-
-            return currentData;
-          } else {
-            return undefined; // Aborta a transação por falta de estoque
-          }
-        }
-        return currentData;
-      });
-
-      if (result.committed) {
-        let linkedName = '';
-        if (linkedId) {
-          const linkedInsumo = insumos.find(i => i.id === linkedId);
-          linkedName = linkedInsumo ? linkedInsumo.nome : 'Unidade Base';
-          const linkedRef = ref(db, `insumos/${linkedId}`);
-          await runTransaction(linkedRef, (linkedData) => {
-            if (linkedData) {
-              const rawEstRotativo = Number(linkedData.estoqueRotativo ?? linkedData.estoqueAtual ?? 0);
-              if (isVariavel) {
-                linkedData.estoqueRotativo = unitsToTransfer;
-              } else {
-                linkedData.estoqueRotativo = Number((rawEstRotativo + unitsToTransfer).toFixed(4));
-              }
-            }
-            return linkedData;
-          });
-        }
-        const transRef = ref(db, 'historico_transferencias');
-        await set(push(transRef), {
-          insumoId: insumo.id,
-          nomeInsumo: insumo.nome,
-          quantidade: unitsToTransfer,
-          funcionarioId: func.id,
-          funcionarioNome: func.nome,
-          timestamp: Date.now()
-        });
-        if (linkedId) {
-          showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido! Rotativo de ${linkedName} abastecido.`, 'success');
-        } else {
-          showToast(`${unitsToTransfer} ${insumo.unidade} de ${insumo.nome} transferido para o Estoque Rotativo!`, 'success');
-        }
-        setQuantidades({ ...quantidades, [insumo.id]: 0 });
-      } else {
-        showToast(`Erro: Quantidade insuficiente no Estoque Estacionado!`, 'error');
-      }
-    });
   };
 
   const handleTransferirSelecionados = () => {
     confirmWithPin(async (func: Funcionario) => {
       if (selecionados.size === 0) return;
+
+      const itensValidos = Array.from(selecionados).filter(id => quantidades[id] && quantidades[id] > 0);
+      if (itensValidos.length === 0) {
+        showToast('Informe a quantidade de pelo menos um insumo para transferir.', 'error');
+        return;
+      }
+
       let sucessoCount = 0;
       let linkedCount = 0;
       
@@ -349,15 +251,6 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
         <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionado para o Rotativo. Informe a quantidade exata a transferir.</p>
         </div>
         <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
-          {selecionados.size > 0 && (
-            <button
-              onClick={handleTransferirSelecionados}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center"
-            >
-              <CheckSquare size={18} className="mr-2" />
-              Transferir Selecionados ({selecionados.size})
-            </button>
-          )}
           <select 
             value={filtroTipoUso} 
             onChange={(e) => setFiltroTipoUso(e.target.value)}
@@ -398,15 +291,32 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
                 <span className="text-gray-500">Rotativo: <span className="font-bold text-orange-500">{estRotativo}{insumo.unidade}</span> {(insumo as any).isVariavel && <span className="ml-1 text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded-full font-bold uppercase">Variável</span>}</span>
               </div>
             </div>
-            <div className="flex space-x-2">
-              <input type="number" step="any" min="0.01" max={maxVal} value={quantidades[insumo.id] || ''} onChange={(e) => setQuantidades({ ...quantidades, [insumo.id]: Number(e.target.value) })} placeholder={inputPlaceholder} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={() => handleTransfer(insumo)} disabled={!quantidades[insumo.id] || quantidades[insumo.id] > maxVal + 0.0001} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 disabled:opacity-50 transition-colors flex items-center justify-center">
-                Transferir
-              </button>
+            <div className="flex">
+              <input type="number" step="any" min="0.01" max={maxVal} value={quantidades[insumo.id] || ''} onChange={(e) => {
+                const val = Number(e.target.value);
+                setQuantidades({ ...quantidades, [insumo.id]: val });
+                const newSel = new Set(selecionados);
+                if (val > 0) newSel.add(insumo.id);
+                else newSel.delete(insumo.id);
+                setSelecionados(newSel);
+              }} placeholder={inputPlaceholder} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm font-bold text-center" />
             </div>
           </div>
         )})}
       </div>
+
+      {selecionados.size > 0 && (
+        <div className="bg-indigo-50/50 border-t border-gray-200 p-6 flex flex-col sm:flex-row justify-between items-center gap-4 rounded-xl">
+           <div className="flex-1">
+             <p className="text-sm font-bold text-indigo-600 uppercase tracking-wider">Itens Selecionados</p>
+             <p className="text-3xl font-black text-gray-900">{selecionados.size} insumo(s)</p>
+             <p className="text-xs text-gray-500 mt-1 font-medium">Prontos para transferência ao estoque rotativo</p>
+           </div>
+           <button onClick={handleTransferirSelecionados} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl">
+              <CheckSquare size={24} className="mr-2"/> Transferir Todos
+           </button>
+        </div>
+      )}
 
       {ultimasTransferencias.length > 0 && (
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col max-h-[400px] animate-in fade-in duration-300">

@@ -27,6 +27,14 @@ export default function ComprasManager() {
   const [selectedFornecedorId, setSelectedFornecedorId] = useState('');
   const [searchFornecedor, setSearchFornecedor] = useState('');
   const [showFornecedorDropdown, setShowFornecedorDropdown] = useState(false);
+  const [showNovoFornecedorModal, setShowNovoFornecedorModal] = useState(false);
+  const [novoFornNome, setNovoFornNome] = useState('');
+  const [novoFornFantasia, setNovoFornFantasia] = useState('');
+  const [novoFornDoc, setNovoFornDoc] = useState('');
+  const [novoFornTelefone, setNovoFornTelefone] = useState('');
+  const [novoFornEmail, setNovoFornEmail] = useState('');
+  const [novoFornChavePix, setNovoFornChavePix] = useState('');
+  const [isFetchingCnpj, setIsFetchingCnpj] = useState(false);
   const [pendingCart, setPendingCart] = useState(false);
   const [loading, setLoading] = useState(true);
 
@@ -424,7 +432,10 @@ export default function ComprasManager() {
                  <p className="text-xs text-gray-500 mt-1 font-medium">{carrinho.length} item(ns) na lista aguardando salvar</p>
                </div>
                <div className="sm:ml-8 flex-1 max-w-sm w-full">
-                 <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Fornecedor (Opcional)</label>
+                 <div className="flex justify-between items-center mb-1">
+                   <label className="text-xs font-bold text-gray-500 uppercase">Fornecedor (Opcional)</label>
+                   <button onClick={() => setShowNovoFornecedorModal(true)} className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase flex items-center bg-blue-50 px-2 py-0.5 rounded transition-colors"><Plus size={12} className="mr-1"/> Novo</button>
+                 </div>
                  <div className="relative w-full">
                    <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500">
                      <Search size={14} className="ml-2 text-gray-400 shrink-0" />
@@ -460,6 +471,109 @@ export default function ComprasManager() {
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           <CheckCircle className="mr-2" size={20} />
           <span className="whitespace-pre-line">{toast.message}</span>
+        </div>
+      )}
+
+      {showNovoFornecedorModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[130] p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-2xl w-full space-y-4 animate-in zoom-in-95 duration-200">
+            <h3 className="text-xl font-bold text-gray-800 mb-2 flex items-center"><ShoppingCart className="mr-2 text-blue-500"/> Novo Fornecedor</h3>
+            <p className="text-sm text-gray-500 border-b border-gray-100 pb-3">Cadastre os dados completos do fornecedor para vincular à nota.</p>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Razão Social / Nome *</label>
+                <input type="text" value={novoFornNome} onChange={e=>setNovoFornNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Distribuidora Silva" autoFocus />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nome Fantasia</label>
+                <input type="text" value={novoFornFantasia} onChange={e=>setNovoFornFantasia(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Ex: Silva Bebidas" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">CNPJ / CPF</label>
+                <div className="relative">
+                  <input type="text" value={novoFornDoc} onChange={e=>{
+                    let v = e.target.value.replace(/\D/g, '');
+                    if (v.length <= 11) {
+                      v = v.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+                    } else {
+                      v = v.substring(0, 14).replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+                    }
+                    setNovoFornDoc(v);
+                    const cleanCnpj = v.replace(/\D/g, '');
+                    if (cleanCnpj.length === 14) {
+                      setIsFetchingCnpj(true);
+                      fetch(`https://brasilapi.com.br/api/cnpj/v1/${cleanCnpj}`)
+                        .then(res => res.json())
+                        .then(data => {
+                          if (data.razao_social) {
+                            setNovoFornNome(data.razao_social);
+                            if (data.nome_fantasia) setNovoFornFantasia(data.nome_fantasia);
+                            if (data.ddd_telefone_1) {
+                               let tel = data.ddd_telefone_1.replace(/\D/g, '').substring(0, 11);
+                               if (tel.length > 2) tel = `(${tel.substring(0, 2)}) ${tel.substring(2)}`;
+                               if (tel.length > 9) tel = `${tel.substring(0, 9)}-${tel.substring(9)}`;
+                               setNovoFornTelefone(tel);
+                            }
+                            if (data.email) setNovoFornEmail(data.email);
+                          } else {
+                            showToast('CNPJ não encontrado.', 'error');
+                          }
+                        })
+                        .catch(() => showToast('Erro ao consultar CNPJ.', 'error'))
+                        .finally(() => setIsFetchingCnpj(false));
+                    }
+                  }} className="w-full p-2 pr-8 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="00.000.000/0000-00" />
+                  {isFetchingCnpj && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp</label>
+                <input type="text" value={novoFornTelefone} onChange={e=>{
+                  let v = e.target.value.replace(/\D/g, '').substring(0, 11);
+                  if (v.length > 2) v = `(${v.substring(0, 2)}) ${v.substring(2)}`;
+                  if (v.length > 9) v = `${v.substring(0, 9)}-${v.substring(9)}`;
+                  setNovoFornTelefone(v);
+                }} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="(00) 00000-0000" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">E-mail</label>
+                <input type="email" value={novoFornEmail} onChange={e=>setNovoFornEmail(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="contato@empresa.com" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Chave PIX</label>
+                <input type="text" value={novoFornChavePix} onChange={e=>setNovoFornChavePix(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500" placeholder="Chave para pagamentos" />
+              </div>
+            </div>
+
+            <div className="flex space-x-3 pt-4 border-t border-gray-100">
+              <button onClick={() => { 
+                setShowNovoFornecedorModal(false); 
+                setNovoFornNome(''); setNovoFornFantasia(''); setNovoFornDoc(''); setNovoFornTelefone(''); setNovoFornEmail(''); setNovoFornChavePix('');
+              }} className="flex-1 p-3 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={async () => {
+                if (!novoFornNome.trim()) return showToast('Preencha a Razão Social/Nome do fornecedor', 'error');
+                try {
+                  const newRef = push(ref(db, 'fornecedores'));
+                  await set(newRef, { 
+                    nome: novoFornNome.trim(),
+                    nomeFantasia: novoFornFantasia.trim(),
+                    documento: novoFornDoc.replace(/\D/g, ''),
+                    telefone: novoFornTelefone.trim(),
+                    email: novoFornEmail.trim(),
+                    chavePix: novoFornChavePix.trim()
+                  });
+                  setSelectedFornecedorId(newRef.key as string);
+                  setSearchFornecedor(novoFornFantasia.trim() || novoFornNome.trim());
+                  setShowNovoFornecedorModal(false);
+                  setNovoFornNome(''); setNovoFornFantasia(''); setNovoFornDoc(''); setNovoFornTelefone(''); setNovoFornEmail(''); setNovoFornChavePix('');
+                  showToast('Fornecedor cadastrado com sucesso!', 'success');
+                } catch(e) {
+                  showToast('Erro ao cadastrar.', 'error');
+                }
+              }} className="flex-1 p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition-colors">Salvar Fornecedor</button>
+            </div>
+          </div>
         </div>
       )}
 

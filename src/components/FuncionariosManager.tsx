@@ -4,6 +4,38 @@ import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
 import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare } from 'lucide-react';
 
+const validarCPF = (cpf: string): boolean => {
+  let apenasNumeros = "";
+  for (let i = 0; i < cpf.length; i++) {
+    const charCode = cpf.charCodeAt(i);
+    if (charCode >= 48 && charCode <= 57) apenasNumeros += cpf[i];
+  }
+  
+  if (apenasNumeros.length !== 11) return false;
+  
+  let tudoIgual = true;
+  for (let i = 1; i < 11; i++) {
+    if (apenasNumeros[i] !== apenasNumeros[0]) { tudoIgual = false; break; }
+  }
+  if (tudoIgual) return false;
+
+  let peso1 = 0, peso2 = 0;
+  for (let i = 0; i < 9; i++) {
+    const valorDigito = apenasNumeros.charCodeAt(i) - 48;
+    peso1 += valorDigito * (10 - i);
+    peso2 += valorDigito * (11 - i);
+  }
+
+  let digito1 = (peso1 * 10) % 11;
+  if (digito1 === 10 || digito1 === 11) digito1 = 0;
+  if (digito1 !== (apenasNumeros.charCodeAt(9) - 48)) return false;
+
+  let digito2 = ((peso2 + digito1 * 2) * 10) % 11;
+  if (digito2 === 10 || digito2 === 11) digito2 = 0;
+
+  return digito2 === (apenasNumeros.charCodeAt(10) - 48);
+};
+
 export default function FuncionariosManager({ currentUser }: { currentUser?: any }) {
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [transferencias, setTransferencias] = useState<TransferenciaLog[]>([]);
@@ -120,6 +152,19 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     if (funcionarios.some(f => String(f.pin) === String(formData.pin) && f.id !== editId)) {
       showToast('Este PIN já está em uso por outro funcionário. Escolha outro.', 'error');
       return;
+    }
+
+    const cpfLimpo = formData.cpf.replace(/\D/g, '');
+    if (cpfLimpo) {
+      if (!validarCPF(cpfLimpo)) {
+        showToast('O CPF digitado é inválido.', 'error');
+        return;
+      }
+      const cpfDuplicado = funcionarios.find(f => (f as any).cpf === cpfLimpo && f.id !== editId);
+      if (cpfDuplicado) {
+        showToast('Este CPF já está sendo usado por outro funcionário.', 'error');
+        return;
+      }
     }
 
     const dataToSave = { ...formData, cpf: formData.cpf.replace(/\D/g, '') };

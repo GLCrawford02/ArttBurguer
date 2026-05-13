@@ -21,6 +21,38 @@ export interface Cliente {
   favoritos?: any[];
 }
 
+const validarCPF = (cpf: string): boolean => {
+  let apenasNumeros = "";
+  for (let i = 0; i < cpf.length; i++) {
+    const charCode = cpf.charCodeAt(i);
+    if (charCode >= 48 && charCode <= 57) apenasNumeros += cpf[i];
+  }
+  
+  if (apenasNumeros.length !== 11) return false;
+  
+  let tudoIgual = true;
+  for (let i = 1; i < 11; i++) {
+    if (apenasNumeros[i] !== apenasNumeros[0]) { tudoIgual = false; break; }
+  }
+  if (tudoIgual) return false;
+
+  let peso1 = 0, peso2 = 0;
+  for (let i = 0; i < 9; i++) {
+    const valorDigito = apenasNumeros.charCodeAt(i) - 48;
+    peso1 += valorDigito * (10 - i);
+    peso2 += valorDigito * (11 - i);
+  }
+
+  let digito1 = (peso1 * 10) % 11;
+  if (digito1 === 10 || digito1 === 11) digito1 = 0;
+  if (digito1 !== (apenasNumeros.charCodeAt(9) - 48)) return false;
+
+  let digito2 = ((peso2 + digito1 * 2) * 10) % 11;
+  if (digito2 === 10 || digito2 === 11) digito2 = 0;
+
+  return digito2 === (apenasNumeros.charCodeAt(10) - 48);
+};
+
 export default function ClientesManager() {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -109,6 +141,12 @@ export default function ClientesManager() {
   const handleSalvar = async () => {
     if (!nome || !telefone) {
       showToast('Nome e Telefone são obrigatórios!', 'error');
+      return;
+    }
+
+    const cpfLimpo = cpf.replace(/\D/g, '');
+    if (cpfLimpo && !validarCPF(cpfLimpo)) {
+      showToast('O CPF digitado é inválido.', 'error');
       return;
     }
 

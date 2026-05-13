@@ -1,209 +1,225 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set } from 'firebase/database';
+import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Megaphone, Search, CheckCircle, AlertTriangle, Send, CheckSquare, Square, Info, Bot } from 'lucide-react';
-
-interface Cliente {
-  id: string;
-  nome: string;
-  telefone: string;
-  pedidosCount?: number;
-}
+import { Megaphone, Ticket, Plus, Trash2, Save, X, CheckCircle, AlertTriangle, Send, Users } from 'lucide-react';
 
 export default function MarketingManager() {
-  const [clientes, setClientes] = useState<Cliente[]>([]);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [mensagem, setMensagem] = useState('');
-  const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
+  const [cupons, setCupons] = useState<any[]>([]);
+  const [clientes, setClientes] = useState<any[]>([]);
+  
+  const [mensagemMassa, setMensagemMassa] = useState('');
+  const [enviandoMassa, setEnviandoMassa] = useState(false);
+  const [showMassaModal, setShowMassaModal] = useState(false);
+
+  const [codigo, setCodigo] = useState('');
+  const [tipo, setTipo] = useState<'valor' | 'porcentagem'>('porcentagem');
+  const [valor, setValor] = useState('');
+  const [ativo, setAtivo] = useState(true);
+  const [editId, setEditId] = useState<string | null>(null);
+  const [showForm, setShowForm] = useState(false);
+
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
-  const [enviando, setEnviando] = useState(false);
+
+  const showToast = (message: string, type: 'success' | 'error' = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 3000);
+  };
 
   useEffect(() => {
+    const cuponsRef = ref(db, 'cupons');
+    const unsub = onValue(cuponsRef, (snap) => {
+      if (snap.val()) {
+        const list = Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }));
+        list.sort((a, b) => (b.timestamp || 0) - (a.timestamp || 0));
+        setCupons(list);
+      } else {
+        setCupons([]);
+      }
+    });
+
     const clientesRef = ref(db, 'clientes');
-    const unsub = onValue(clientesRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) {
-        const list = Object.entries(data).map(([id, val]: [string, any]) => ({
-          id,
-          nome: val.nome || 'Sem Nome',
-          telefone: val.telefone || '',
-          pedidosCount: val.pedidosCount || 0,
-        }));
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
-        setClientes(list);
+    const unsubClientes = onValue(clientesRef, (snap) => {
+      if (snap.val()) {
+        setClientes(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
       } else {
         setClientes([]);
       }
     });
-
-    return () => unsub();
+    return () => { unsub(); unsubClientes(); };
   }, []);
 
-  const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
-    setToast({ message: msg, type });
-    setTimeout(() => setToast(null), 3000);
-  };
-
-  const filteredClientes = clientes.filter(c => 
-    c.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    c.telefone.includes(searchTerm)
-  );
-
-  const toggleSelectAll = () => {
-    if (selecionados.size === filteredClientes.length) {
-      setSelecionados(new Set());
-    } else {
-      setSelecionados(new Set(filteredClientes.map(c => c.id)));
-    }
-  };
-
-  const toggleSelect = (id: string) => {
-    const newSel = new Set(selecionados);
-    if (newSel.has(id)) {
-      newSel.delete(id);
-    } else {
-      newSel.add(id);
-    }
-    setSelecionados(newSel);
-  };
-
-  const handleEnviarCampanha = async () => {
-    if (selecionados.size === 0) {
-      showToast('Selecione pelo menos um cliente para enviar a campanha.', 'error');
+  // Lógica de Criação de Cupons
+  const handleSubmit = async () => {
+    if (!codigo.trim() || !valor) {
+      showToast('Preencha o código e o valor do cupom.', 'error');
       return;
     }
-    if (!mensagem.trim()) {
-      showToast('A mensagem da campanha não pode estar vazia.', 'error');
-      return;
-    }
-
-    setEnviando(true);
-    let enviados = 0;
     
-    try {
-      const promessas = Array.from(selecionados).map(async (id) => {
-        const cliente = clientes.find(c => c.id === id);
-        if (!cliente || !cliente.telefone) return;
+    const codigoLimpo = codigo.trim().toUpperCase().replace(/\s+/g, '');
 
-        let telLimpo = cliente.telefone.replace(/\D/g, '');
-        if (telLimpo.length < 10) return; // Ignora se o telefone for inválido
+    if (cupons.some(c => c.codigo === codigoLimpo && c.id !== editId)) {
+      showToast('Já existe um cupom com este código.', 'error');
+      return;
+    }
 
-        // Coloca o prefixo do Brasil se faltar
-        if (!telLimpo.startsWith('55')) {
-          telLimpo = '55' + telLimpo;
-        }
+    const payload = {
+      codigo: codigoLimpo,
+      tipo,
+      valor: Number(valor),
+      ativo,
+      timestamp: Date.now()
+    };
 
-        // Substitui a tag {nome} pelo primeiro nome do cliente para personalização
-        const primeiroNome = cliente.nome.split(' ')[0] || '';
-        const msgPersonalizada = mensagem.replace(/\{nome\}/gi, primeiroNome);
+    if (editId) {
+      await update(ref(db, `cupons/${editId}`), payload);
+      showToast('Cupom atualizado com sucesso!', 'success');
+    } else {
+      await set(push(ref(db, 'cupons')), payload);
+      showToast('Cupom criado com sucesso!', 'success');
+    }
+    
+    setCodigo(''); setValor(''); setTipo('porcentagem'); setAtivo(true);
+    setEditId(null); setShowForm(false);
+  };
 
-        // Envia para a fila do WhatsApp (Robô processa a cada 5 segundos automaticamente)
+  const handleEdit = (cupom: any) => {
+    setEditId(cupom.id);
+    setCodigo(cupom.codigo);
+    setTipo(cupom.tipo);
+    setValor(String(cupom.valor));
+    setAtivo(cupom.ativo !== false);
+    setShowForm(true);
+  };
+
+  const handleExcluir = async (id: string) => {
+    if (confirm('Deseja excluir este cupom promocional permanentemente?')) {
+      await remove(ref(db, `cupons/${id}`));
+      showToast('Cupom excluído.', 'success');
+    }
+  };
+
+  // Lógica de Disparo em Massa
+  const handleDisparoMassa = async () => {
+    if (!mensagemMassa.trim()) {
+      showToast('Digite uma mensagem para enviar.', 'error');
+      return;
+    }
+    const clientesComTelefone = clientes.filter(c => c.telefone);
+    if (clientesComTelefone.length === 0) {
+      showToast('Nenhum cliente com telefone cadastrado.', 'error');
+      return;
+    }
+    if (!confirm(`Deseja enviar esta mensagem para ${clientesComTelefone.length} clientes?`)) return;
+  
+    setEnviandoMassa(true);
+    let enviados = 0;
+    for (const c of clientesComTelefone) {
+      let telLimpo = c.telefone.replace(/\D/g, '');
+      if (!telLimpo.startsWith('55') && telLimpo.length >= 10) telLimpo = '55' + telLimpo;
+      if (telLimpo.length >= 12) {
         await set(push(ref(db, 'fila_mensagens')), {
           telefone: telLimpo,
-          mensagem: msgPersonalizada,
+          mensagem: mensagemMassa,
           status: 'pendente',
-          timestamp: Date.now(),
-          origem: 'marketing'
+          timestamp: Date.now()
         });
-        
         enviados++;
-      });
-
-      await Promise.all(promessas);
-
-      showToast(`Campanha enviada para a fila! ${enviados} mensagens serão disparadas pelo robô gradativamente.`, 'success');
-      setMensagem('');
-      setSelecionados(new Set());
-    } catch (error) {
-      showToast('Erro ao agendar campanha. Tente novamente.', 'error');
-    } finally {
-      setEnviando(false);
+      }
     }
+    setEnviandoMassa(false);
+    setMensagemMassa('');
+    setShowMassaModal(false);
+    showToast(`Mensagem enfileirada para ${enviados} clientes! O robô fará o envio gradativo.`, 'success');
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
-      
-      {/* Editor da Campanha */}
-      <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col space-y-6 h-fit">
-        <h3 className="text-xl font-bold text-gray-800 flex items-center">
-          <Megaphone className="mr-2 text-purple-600" size={24} />
-          Nova Campanha
-        </h3>
-        
-        <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 flex flex-col space-y-3">
-          <div className="flex items-start">
-            <Info size={18} className="text-purple-600 mr-2 mt-0.5 shrink-0" />
-            <p className="text-sm text-purple-800 leading-relaxed font-medium">
-              As mensagens enviadas aqui serão enviadas individualmente pelo WhatsApp da loja. Use a tag <span className="font-bold text-purple-900 bg-purple-200 px-1.5 py-0.5 rounded">{"{nome}"}</span> para que o sistema troque automaticamente pelo nome de cada cliente!
-            </p>
+    <div className="space-y-6 animate-in fade-in duration-300">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <div className="flex items-center">
+          <div className="bg-purple-100 p-3 rounded-xl mr-4 text-purple-600">
+            <Megaphone size={24} />
+          </div>
+          <div>
+            <h2 className="text-2xl font-bold text-gray-800">Marketing e Cupons</h2>
+            <p className="text-sm text-gray-500">Crie cupons de desconto e dispare mensagens pelo WhatsApp.</p>
           </div>
         </div>
-
-        <div className="space-y-2">
-          <label className="text-xs font-bold text-gray-500 uppercase tracking-widest">Texto da Mensagem</label>
-          <textarea 
-            value={mensagem}
-            onChange={e => setMensagem(e.target.value)}
-            placeholder="Olá {nome}! Temos uma promoção especial para você hoje: Na compra de um hambúrguer, o refri é por nossa conta. Aproveite e peça agora pelo link abaixo!"
-            className="w-full p-4 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-purple-500 text-sm min-h-[220px] resize-y bg-gray-50"
-          />
-        </div>
-
-        <button 
-          onClick={handleEnviarCampanha} 
-          disabled={enviando || selecionados.size === 0 || !mensagem.trim()}
-          className="w-full bg-purple-600 hover:bg-purple-700 text-white p-4 rounded-xl font-black text-lg transition-colors shadow-md flex items-center justify-center disabled:opacity-50 disabled:hover:bg-purple-600"
-        >
-          {enviando ? 'Processando Fila...' : `Disparar para ${selecionados.size} cliente${selecionados.size !== 1 ? 's' : ''}`}
-          {!enviando && <Send size={20} className="ml-2" />}
-        </button>
-      </div>
-
-      {/* Seleção do Público Alvo */}
-      <div className="lg:col-span-5 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[500px]">
-        <h4 className="text-lg font-bold text-gray-800 mb-4 flex items-center border-b border-gray-100 pb-3">
-          <Bot className="mr-2 text-gray-500" size={20} />
-          Público Alvo
-        </h4>
-        
-        <div className="relative mb-4">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-          <input 
-            type="text" 
-            placeholder="Buscar por nome ou número..." 
-            value={searchTerm} 
-            onChange={e => setSearchTerm(e.target.value)} 
-            className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm bg-gray-50" 
-          />
-        </div>
-
-        <div className="flex justify-between items-center mb-2 px-1">
-          <span className="text-xs font-bold text-gray-500 uppercase">{filteredClientes.length} Contatos</span>
-          <button onClick={toggleSelectAll} className="text-xs font-bold text-purple-600 hover:text-purple-800 flex items-center transition-colors">
-            {selecionados.size === filteredClientes.length && filteredClientes.length > 0 ? <><CheckSquare size={14} className="mr-1"/> Desmarcar Todos</> : <><Square size={14} className="mr-1"/> Marcar Todos</>}
+        <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+          <button onClick={() => setShowMassaModal(true)} className="bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
+            <Send size={20} className="mr-2"/> Disparo WhatsApp
+          </button>
+          <button onClick={() => { setEditId(null); setCodigo(''); setValor(''); setShowForm(!showForm); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm flex items-center justify-center">
+            {showForm ? <><X size={20} className="mr-2"/> Cancelar</> : <><Plus size={20} className="mr-2"/> Novo Cupom</>}
           </button>
         </div>
-
-        <div className="flex-1 overflow-y-auto border border-gray-200 rounded-lg bg-white divide-y divide-gray-100">
-          {filteredClientes.map(cliente => (
-            <label key={cliente.id} className={`p-3 flex items-center cursor-pointer transition-colors hover:bg-gray-50 ${selecionados.has(cliente.id) ? 'bg-purple-50/50' : ''}`}>
-              <input 
-                type="checkbox" 
-                checked={selecionados.has(cliente.id)}
-                onChange={() => toggleSelect(cliente.id)}
-                className="w-5 h-5 rounded text-purple-600 focus:ring-purple-500 mr-3 cursor-pointer"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-gray-800 text-sm truncate">{cliente.nome}</p>
-                <p className="text-xs text-gray-500">{cliente.telefone}</p>
-              </div>
-            </label>
-          ))}
-          {filteredClientes.length === 0 && <p className="p-6 text-center text-sm text-gray-400">Nenhum cliente encontrado.</p>}
-        </div>
       </div>
 
+      {showForm && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 space-y-4 animate-in slide-in-from-top-4">
+          <h4 className="font-bold text-gray-800 flex items-center"><Ticket className="mr-2 text-purple-500" size={20}/> {editId ? 'Editar Cupom' : 'Criar Novo Cupom'}</h4>
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Código Promocional</label>
+              <input type="text" value={codigo} onChange={e => setCodigo(e.target.value.toUpperCase())} placeholder="Ex: PROMO10" className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold uppercase tracking-wider" />
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Tipo de Desconto</label>
+              <select value={tipo} onChange={e => setTipo(e.target.value as any)} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 text-sm font-medium">
+                <option value="porcentagem">Porcentagem (%)</option>
+                <option value="valor">Valor Fixo (R$)</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-xs font-bold text-gray-500 uppercase">Valor do Desconto</label>
+              <input type="number" min="0" step="any" value={valor} onChange={e => setValor(e.target.value)} placeholder={tipo === 'porcentagem' ? 'Ex: 15' : 'Ex: 10.00'} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-bold" />
+            </div>
+            <div className="space-y-1 flex flex-col justify-end pb-1.5">
+              <label className="flex items-center space-x-2 cursor-pointer p-2 border border-gray-200 rounded-lg bg-gray-50">
+                <input type="checkbox" checked={ativo} onChange={e => setAtivo(e.target.checked)} className="rounded text-purple-600 focus:ring-purple-500 w-4 h-4 cursor-pointer" />
+                <span className="text-sm font-bold text-gray-700">Cupom Ativo</span>
+              </label>
+            </div>
+          </div>
+          <div className="flex justify-end pt-2">
+            <button onClick={handleSubmit} className="w-full sm:w-auto bg-purple-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm flex items-center justify-center"><Save size={18} className="mr-2"/> Salvar Cupom</button>
+          </div>
+        </div>
+      )}
+
+      {showMassaModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[100] p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-lg w-full space-y-4 animate-in zoom-in-95">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center"><Send className="mr-2 text-green-500"/> Disparo em Massa (WhatsApp)</h3>
+              <button onClick={() => setShowMassaModal(false)} className="text-gray-400 hover:text-gray-600"><X size={24}/></button>
+            </div>
+            <div className="bg-green-50 border border-green-100 p-3 rounded-lg flex items-start text-green-800 text-sm">
+              <Users className="mr-2 mt-0.5 shrink-0" size={18}/>
+              <p>A mensagem será enviada pelo Robô para todos os <strong>{clientes.filter(c => c.telefone).length} clientes</strong> da sua base de dados que possuem telefone válido cadastrado.</p>
+            </div>
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Sua Mensagem</label>
+              <textarea
+                value={mensagemMassa}
+                onChange={e => setMensagemMassa(e.target.value)}
+                placeholder="Olá! Temos uma promoção especial para você hoje..."
+                className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 min-h-[150px] resize-y"
+              />
+            </div>
+            <div className="flex gap-3 pt-2">
+              <button onClick={() => setShowMassaModal(false)} className="flex-1 bg-gray-100 text-gray-700 p-3 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={handleDisparoMassa} disabled={enviandoMassa || !mensagemMassa.trim()} className="flex-1 bg-green-600 text-white p-3 rounded-lg font-bold hover:bg-green-700 transition-colors flex justify-center items-center disabled:opacity-50">
+                {enviandoMassa ? 'Enfileirando...' : 'Iniciar Disparo'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+        {cupons.map(c => (<div key={c.id} className={`bg-white p-5 rounded-xl border-l-4 shadow-sm flex flex-col justify-between transition-colors ${c.ativo !== false ? 'border-l-purple-500' : 'border-l-gray-300 opacity-60'}`}><div className="flex justify-between items-start mb-2"><h4 className="font-black text-xl text-gray-900 tracking-tight">{c.codigo}</h4><div className="flex space-x-1"><button onClick={() => handleEdit(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Ticket size={16}/></button><button onClick={() => handleExcluir(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button></div></div><div className="mt-2"><span className="text-2xl font-black text-purple-600">{c.tipo === 'porcentagem' ? `${c.valor}%` : `R$ ${Number(c.valor).toFixed(2).replace('.', ',')}`}</span><p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">{c.ativo !== false ? 'Disponível no PDV' : 'Inativo'}</p></div></div>))}
+        {cupons.length === 0 && <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-gray-100 border-dashed"><Ticket size={48} className="mx-auto mb-3 opacity-20" /><p className="font-medium">Nenhum cupom promocional criado.</p></div>}
+      </div>
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
     </div>
   );

@@ -1,0 +1,45 @@
+{
+  "rules": {
+    ".read": true,
+    
+    ".write": false,
+
+    "insumos": { ".write": true },
+    "produtos": { ".write": true },
+    "promocoes": { ".write": true },
+    "funcionarios": { ".write": true },
+    "cargos": { ".write": true },
+    "permissoes": { ".write": true },
+    "historico_compras": { ".write": true },
+    "historico_transferencias": { ".write": true },
+    "historico_descartes": { ".write": true },
+    "movimentacoes": { ".write": true },
+    "configuracoes": { ".write": true },
+    
+    "clientes": { ".write": true },
+    "despachos": { ".write": true },
+    "gestao_equipe": { ".write": true },
+    "contas_pagar": { ".write": true },
+    "contas_receber": { ".write": true },
+    "vendas": { ".write": true },
+    "fechamentos": { ".write": true },
+    "caixa_atual": { ".write": true },
+    "taxas_cartoes": { ".write": true },
+    "fornecedores": { ".write": true },
+    "tipos_uso": { ".write": true },
+    "agendamentos": { ".write": true },
+    "pedidos_cozinha": { ".write": true },
+    "mesas_abertas": { ".write": true },
+    "vendas_pdv": { ".write": true },
+    "lancamentos_vendas": { ".write": true },
+    "historico_vendas": { ".write": true },
+    "tarefas": { ".write": true },
+    "fila_mensagens": { ".write": true },
+    "bancos": { ".write": true },
+    "categorias_produtos": { ".write": true },
+    "categorias_despesa": { ".write": true },
+    
+    "cupons": { ".write": true },
+    "bloco_notas": { ".write": true }
+  }
+}

@@ -18,27 +18,33 @@ export default function PermissoesManager() {
 
 
   const modulos = [
-    { id: 'vendas', nome: 'PDV / Lançamento de Vendas' },
-    { id: 'insumos', nome: 'Insumos (Cadastros)' },
-    { id: 'fornecedores', nome: 'Fornecedores (Cadastros)' },
-    { id: 'produtos', nome: 'Produtos e Fichas Técnicas' },
-    { id: 'promocoes', nome: 'Promoções e Combos' },
-    { id: 'compras', nome: 'Entrada de Mercadoria (Compras)' },
-    { id: 'transferencias', nome: 'Transferências de Estoque' },
-    { id: 'visibilidade_estoque', nome: 'Visibilidade de Estoque' },
-    { id: 'descartes', nome: 'Descartes e Baixas' },
-    { id: 'producao', nome: 'KDS e Produção' },
-    { id: 'balanco', nome: 'Balanço e Auditoria de Estoque' },
-    { id: 'fechamento_caixa', nome: 'Fechamento do Dia' },
-    { id: 'relatorios', nome: 'Relatórios de Movimentações' },
-    { id: 'clientes', nome: 'Cadastro de Clientes' },
-    { id: 'despacho', nome: 'Despacho e Rotas (Logística)' },
-    { id: 'funcionarios', nome: 'Equipe e Funcionários' },
-    { id: 'tarefas', nome: 'Gerenciamento de Tarefas' },
-    { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal' },
-    { id: 'marketing', nome: 'Marketing e Campanhas' },
-    { id: 'configuracoes', nome: 'Configurações Gerais' },
-    { id: 'bancos_taxas', nome: 'Bancos e Taxas de Cartões' },
+    { id: 'vendas', nome: 'Geral: PDV / Caixa Aberto', admin: false },
+    { id: 'insumos', nome: 'Cadastros: Insumos (Estoque Base)', admin: false },
+    { id: 'fornecedores', nome: 'Cadastros: Fornecedores e Contatos', admin: true },
+    { id: 'produtos', nome: 'Cardápio: Produtos e Fichas Técnicas', admin: false },
+    { id: 'promocoes', nome: 'Cardápio: Promoções e Combos', admin: false },
+    { id: 'compras', nome: 'Movimentações: Compras (Entradas)', admin: true },
+    { id: 'transferencias', nome: 'Movimentações: Transferências (Praças)', admin: false },
+    { id: 'visibilidade_estoque', nome: 'Movimentações: Visibilidade de Estoque', admin: true },
+    { id: 'descartes', nome: 'Movimentações: Descartes (Baixas)', admin: true },
+    { id: 'producao', nome: 'Produção: KDS (Tela da Cozinha)', admin: false },
+    { id: 'balanco', nome: 'Geral: Balanço e Auditoria de Estoque', admin: true },
+    { id: 'calendario_contas', nome: 'Financeiro: Calendário de Contas Mensais', admin: true },
+    { id: 'fechamento_caixa', nome: 'Financeiro: Fechamento de Caixa', admin: true },
+    { id: 'dashboard_financeiro', nome: 'Financeiro: Dashboard de Receitas', admin: true },
+    { id: 'relatorios', nome: 'Financeiro: Relatórios Movimentações', admin: true },
+    { id: 'clientes', nome: 'Logística: Clientes / Histórico', admin: false },
+    { id: 'despacho', nome: 'Logística: Despacho e Rotas Motoboys', admin: false },
+    { id: 'funcionarios', nome: 'Equipe: Perfis de Funcionários', admin: true },
+    { id: 'gestao_equipe', nome: 'Equipe: Atribuições, Folgas e Ponto', admin: true },
+    { id: 'gestor_ia', nome: 'Equipe: Gestor de Soluções IA', admin: true },
+    { id: 'permissoes_acesso', nome: 'Equipe: Gerenciamento de Permissões', admin: true },
+    { id: 'marketing', nome: 'Geral: Marketing e Cupons de Desconto', admin: true },
+    { id: 'tarefas', nome: 'Tarefas: Gerenciamento Kanban', admin: false },
+    { id: 'bloco_notas', nome: 'Tarefas: Bloco de Notas Pessoal', admin: false },
+    { id: 'configuracoes', nome: 'Configurações: Informações Gerais', admin: true },
+    { id: 'bancos_taxas', nome: 'Configurações: Bancos e Taxas Fiscais', admin: true },
+    { id: 'atualizacoes_sistema', nome: 'Configurações: Histórico de Atualizações', admin: false },
   ];
   
 
@@ -99,7 +105,7 @@ export default function PermissoesManager() {
   };
 
   const handleToggle = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
-    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI') return;
+    if (selectedCargo === 'Dono' || selectedCargo === 'TI') return;
 
     setPermissoes(prev => {
       const newState = JSON.parse(JSON.stringify(prev));
@@ -110,7 +116,16 @@ export default function PermissoesManager() {
       }
       
       const currentVal = newState[selectedCargo][moduloId][acao];
-      newState[selectedCargo][moduloId][acao] = !currentVal;
+      const newVal = !currentVal;
+
+      const modulo = modulos.find(m => m.id === moduloId);
+      if (newVal && modulo?.admin) {
+        if (!window.confirm(`ATENÇÃO:\nA permissão para "${modulo.nome}" é considerada uma função administrativa sensível.\n\nDeseja realmente ativar este acesso para o cargo de ${selectedCargo}?`)) {
+          return prev;
+        }
+      }
+
+      newState[selectedCargo][moduloId][acao] = newVal;
 
       if (!currentVal && (acao === 'editar' || acao === 'apagar')) {
         newState[selectedCargo][moduloId].visualizar = true;
@@ -129,7 +144,7 @@ export default function PermissoesManager() {
     if (window.confirm(`Deseja substituir as permissões de ${selectedCargo} pelas permissões do cargo ${cargoToCopy}?`)) {
       setPermissoes(prev => {
         const newState = JSON.parse(JSON.stringify(prev));
-        if (['Administrador', 'Dono', 'TI'].includes(cargoToCopy)) {
+        if (['Dono', 'TI'].includes(cargoToCopy)) {
            newState[selectedCargo] = {};
            modulos.forEach(m => {
              newState[selectedCargo][m.id] = { visualizar: true, editar: true, apagar: true };
@@ -154,7 +169,7 @@ export default function PermissoesManager() {
   };
 
   const getPerm = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
-    if (selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI') return true;
+    if (selectedCargo === 'Dono' || selectedCargo === 'TI') return true;
     return permissoes[selectedCargo]?.[moduloId]?.[acao] || false;
   };
 
@@ -219,14 +234,14 @@ export default function PermissoesManager() {
           <div className="mb-6 flex flex-col xl:flex-row xl:items-start justify-between gap-4">
             <div>
               <h4 className="text-xl font-bold text-gray-800">Acessos para: <span className="text-indigo-600">{selectedCargo}</span></h4>
-              {(selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI') && (
+              {(selectedCargo === 'Dono' || selectedCargo === 'TI') && (
                 <p className="text-sm text-orange-600 font-bold mt-2 bg-orange-50 p-3 rounded-lg border border-orange-100 max-w-2xl">
                   Este cargo base possui acesso total (Leitura, Edição e Exclusão) a todos os módulos por padrão. Não é possível restringi-lo.
                 </p>
               )}
             </div>
 
-            {selectedCargo !== 'Administrador' && selectedCargo !== 'Dono' && selectedCargo !== 'TI' && (
+            {selectedCargo !== 'Dono' && selectedCargo !== 'TI' && (
               <div className="flex flex-col sm:flex-row sm:items-center gap-2 bg-gray-50 p-3 rounded-lg border border-gray-200 shrink-0">
                 <span className="text-sm font-bold text-gray-600">Copiar de:</span>
                 <select 
@@ -263,10 +278,13 @@ export default function PermissoesManager() {
               <tbody className="divide-y divide-gray-100 text-sm">
                 {modulos.map(m => (
                   <tr key={m.id} className="hover:bg-gray-50 transition-colors">
-                    <td className="py-4 px-6 font-bold text-gray-800">{m.nome}</td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'editar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
-                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar')} disabled={selectedCargo === 'Administrador' || selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'apagar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 font-bold text-gray-800 flex items-center">
+                      {m.nome} 
+                      {m.admin && <span className="ml-2 text-[9px] bg-red-100 text-red-600 px-2 py-0.5 rounded-full uppercase tracking-widest font-black shrink-0">Admin</span>}
+                    </td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'visualizar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'visualizar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'editar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'editar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
+                    <td className="py-4 px-6 text-center"><input type="checkbox" checked={getPerm(m.id, 'apagar')} disabled={selectedCargo === 'Dono' || selectedCargo === 'TI'} onChange={() => handleToggle(m.id, 'apagar')} className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer disabled:opacity-50" /></td>
                   </tr>
                 ))}
               </tbody>

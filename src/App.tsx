@@ -30,6 +30,38 @@ import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
+const validarCPF = (cpf: string): boolean => {
+  let apenasNumeros = "";
+  for (let i = 0; i < cpf.length; i++) {
+    const charCode = cpf.charCodeAt(i);
+    if (charCode >= 48 && charCode <= 57) apenasNumeros += cpf[i];
+  }
+  
+  if (apenasNumeros.length !== 11) return false;
+  
+  let tudoIgual = true;
+  for (let i = 1; i < 11; i++) {
+    if (apenasNumeros[i] !== apenasNumeros[0]) { tudoIgual = false; break; }
+  }
+  if (tudoIgual) return false;
+
+  let peso1 = 0, peso2 = 0;
+  for (let i = 0; i < 9; i++) {
+    const valorDigito = apenasNumeros.charCodeAt(i) - 48;
+    peso1 += valorDigito * (10 - i);
+    peso2 += valorDigito * (11 - i);
+  }
+
+  let digito1 = (peso1 * 10) % 11;
+  if (digito1 === 10 || digito1 === 11) digito1 = 0;
+  if (digito1 !== (apenasNumeros.charCodeAt(9) - 48)) return false;
+
+  let digito2 = ((peso2 + digito1 * 2) * 10) % 11;
+  if (digito2 === 10 || digito2 === 11) digito2 = 0;
+
+  return digito2 === (apenasNumeros.charCodeAt(10) - 48);
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'balanco' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
@@ -141,7 +173,7 @@ export default function App() {
   const temPermissao = (modulo: string) => {
     if (!currentUser) return false;
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-    if (cargos.includes('Administrador') || cargos.includes('Dono') || cargos.includes('TI')) return true;
+    if (cargos.includes('Dono') || cargos.includes('TI')) return true;
     return cargos.some(c => permissoes[c]?.[modulo]?.visualizar);
   };
 
@@ -152,14 +184,15 @@ export default function App() {
     const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
     if (isKdsOnly) return ['producao'];
 
-    if (cargos.includes('Administrador') || cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'];
+    if (cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'balanco', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'];
 
-    const allowed = ['dashboard']; // Dashboard é liberado por padrão para todos
+    const allowed: string[] = [];
     
     const hasPerm = (mod: string, acao: 'visualizar' | 'editar' | 'apagar' = 'visualizar') => {
       return cargos.some(c => permissoes[c]?.[mod]?.[acao]);
     };
 
+    if (cargos.includes('Administrador')) allowed.push('dashboard');
     if (hasPerm('vendas')) allowed.push('pdv');
     if (hasPerm('insumos') || hasPerm('fornecedores')) allowed.push('cadastros');
     if (hasPerm('produtos') || hasPerm('promocoes')) allowed.push('cardapio');
@@ -167,11 +200,13 @@ export default function App() {
     if (hasPerm('clientes') || hasPerm('despacho')) allowed.push('logistica');
     if (hasPerm('producao') || cargos.some((c: string) => c.toUpperCase().includes('KDS'))) allowed.push('producao');
     if (hasPerm('balanco')) allowed.push('balanco');
-    if (hasPerm('relatorios') || hasPerm('fechamento_caixa')) allowed.push('financeiro');
-    if (hasPerm('funcionarios')) allowed.push('funcionarios');
-    if (hasPerm('configuracoes') || hasPerm('bancos_taxas')) allowed.push('configuracoes');
+    if (hasPerm('relatorios') || hasPerm('fechamento_caixa') || hasPerm('calendario_contas') || hasPerm('dashboard_financeiro')) allowed.push('financeiro');
+    if (hasPerm('funcionarios') || hasPerm('gestao_equipe') || hasPerm('gestor_ia') || hasPerm('permissoes_acesso')) allowed.push('funcionarios');
+    if (hasPerm('configuracoes') || hasPerm('bancos_taxas') || hasPerm('atualizacoes_sistema')) allowed.push('configuracoes');
     if (hasPerm('tarefas') || hasPerm('bloco_notas')) allowed.push('tarefas');
     if (hasPerm('marketing')) allowed.push('marketing');
+    
+    if (allowed.length === 0) allowed.push('pdv');
     return allowed;
   };
 
@@ -182,8 +217,6 @@ export default function App() {
         handleTabChange(allowed[0] as any);
       }
       
-      const checkIsDono = Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI';
-
       // Redireciona a sub-aba automaticamente se ele perder o acesso
       const allowedCadastrosSubTabs: ('insumos' | 'fornecedores')[] = [];
       if (temPermissao('insumos')) allowedCadastrosSubTabs.push('insumos');
@@ -209,8 +242,8 @@ export default function App() {
 
       setSubTabMovimentacoes(prev => (!temPermissao('compras') && prev === 'compras') ? 'transferencia' : prev);
       setSubTabLogistica(prev => (!temPermissao('clientes') && prev === 'clientes') ? 'despacho' : prev);
-      setSubTabFinanceiro(prev => (!checkIsDono && prev === 'calendario') ? 'relatorios_gerais' : prev);
-      setSubSubTabRelatorios(prev => (!checkIsDono && prev === 'dashboard_fin') ? 'fechamento' : prev);
+      setSubTabFinanceiro(prev => (!temPermissao('calendario_contas') && prev === 'calendario') ? 'relatorios_gerais' : prev);
+      setSubSubTabRelatorios(prev => (!temPermissao('dashboard_financeiro') && prev === 'dashboard_fin') ? 'fechamento' : prev);
     }
   }, [currentUser, activeTab, permissoes]);
 
@@ -277,6 +310,18 @@ export default function App() {
   const handleSaveMissingCpf = async () => {
     const limpo = missingCpfInput.replace(/\D/g, '');
     if (limpo.length !== 11 || !currentUser) return;
+    
+    if (!validarCPF(limpo)) {
+      alert('CPF inválido! Por favor, digite um CPF válido.');
+      return;
+    }
+
+    const cpfDuplicado = funcionarios.find(f => (f as any).cpf === limpo && f.id !== currentUser.id);
+    if (cpfDuplicado) {
+      alert('Este CPF já está sendo usado por outro funcionário no sistema. Procure a gerência.');
+      return;
+    }
+
     try {
       await update(ref(db, `funcionarios/${currentUser.id}`), { cpf: limpo });
     } catch (e) {
@@ -621,19 +666,15 @@ export default function App() {
           {activeTab === 'funcionarios' && (
             <div className="space-y-6">
               <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                <button onClick={() => setSubTabFuncionarios('equipe')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'equipe' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Equipe</button>
-                {(Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && (
-                  <>
-                    <button onClick={() => setSubTabFuncionarios('gestao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'gestao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atribuições</button>
-                    <button onClick={() => setSubTabFuncionarios('ia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'ia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gestor IA</button>
-                    <button onClick={() => setSubTabFuncionarios('permissoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'permissoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Cargos e Permissões</button>
-                  </>
-                )}
+                {temPermissao('funcionarios') && <button onClick={() => setSubTabFuncionarios('equipe')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'equipe' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Equipe</button>}
+                {temPermissao('gestao_equipe') && <button onClick={() => setSubTabFuncionarios('gestao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'gestao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atribuições</button>}
+                {temPermissao('gestor_ia') && <button onClick={() => setSubTabFuncionarios('ia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'ia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gestor IA</button>}
+                {temPermissao('permissoes_acesso') && <button onClick={() => setSubTabFuncionarios('permissoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'permissoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Cargos e Permissões</button>}
               </div>
               {subTabFuncionarios === 'equipe' && <FuncionariosManager currentUser={currentUser} />}
-              {subTabFuncionarios === 'gestao' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager activeView="gestao" />}
-              {subTabFuncionarios === 'ia' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <GestaoEquipeManager activeView="ia" />}
-              {subTabFuncionarios === 'permissoes' && (Array.isArray(currentUser.cargo) ? currentUser.cargo.some((c: string) => c === 'Administrador' || c === 'Dono') : (currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono')) && <PermissoesManager />}
+              {subTabFuncionarios === 'gestao' && temPermissao('gestao_equipe') && <GestaoEquipeManager activeView="gestao" />}
+              {subTabFuncionarios === 'ia' && temPermissao('gestor_ia') && <GestaoEquipeManager activeView="ia" />}
+              {subTabFuncionarios === 'permissoes' && temPermissao('permissoes_acesso') && <PermissoesManager />}
             </div>
           )}
           {activeTab === 'producao' && <ProducaoManager currentUser={currentUser} />}
@@ -642,12 +683,12 @@ export default function App() {
           {activeTab === 'financeiro' && (
             <div className="space-y-6">
               <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
-                {isDono && <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário e Contas</button>}
-                {(temPermissao('relatorios') || temPermissao('fechamento_caixa')) && (
+                {temPermissao('calendario_contas') && <button onClick={() => setSubTabFinanceiro('calendario')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'calendario' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Calendário e Contas</button>}
+                {(temPermissao('relatorios') || temPermissao('fechamento_caixa') || temPermissao('dashboard_financeiro')) && (
                   <button onClick={() => setSubTabFinanceiro('relatorios_gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFinanceiro === 'relatorios_gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Relatórios e Fechamento</button>
                 )}
               </div>
-              {subTabFinanceiro === 'calendario' && isDono && (
+              {subTabFinanceiro === 'calendario' && temPermissao('calendario_contas') && (
                 <GestaoFinanceira activeTab="calendario" currentUser={currentUser} />
               )}
               
@@ -655,11 +696,11 @@ export default function App() {
                 <div className="space-y-6">
                   <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
                     {temPermissao('fechamento_caixa') && <button onClick={() => setSubSubTabRelatorios('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento do Dia</button>}
-                    {isDono && <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard</button>}
+                    {temPermissao('dashboard_financeiro') && <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard Financeiro</button>}
                     {temPermissao('relatorios') && <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>}
                   </div>
                   {subSubTabRelatorios === 'fechamento' && temPermissao('fechamento_caixa') && <FechamentoManager />}
-                  {subSubTabRelatorios === 'dashboard_fin' && isDono && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} />}
+                  {subSubTabRelatorios === 'dashboard_fin' && temPermissao('dashboard_financeiro') && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} />}
                   {subSubTabRelatorios === 'movimentacoes' && temPermissao('relatorios') && <RelatoriosManager />}
                 </div>
               )}
@@ -671,11 +712,11 @@ export default function App() {
           <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
             {temPermissao('configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações Gerais</button>}
             {temPermissao('bancos_taxas') && <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>}
-            {temPermissao('configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>}
+            {temPermissao('atualizacoes_sistema') && <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>}
           </div>
           {subSubTabConfiguracoes === 'gerais' && temPermissao('configuracoes') && <ConfiguracoesGerais />}
           {subSubTabConfiguracoes === 'bancos_cartoes' && temPermissao('bancos_taxas') && <BancosCartoes />}
-          {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('configuracoes') && <AtualizacoesSistema />}
+          {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('atualizacoes_sistema') && <AtualizacoesSistema />}
         </div>
       )}
         </div>

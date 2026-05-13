@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket } from 'lucide-react';
 
 export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
@@ -13,11 +13,18 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [promocoes, setPromocoes] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [insumos, setInsumos] = useState<any[]>([]);
+  const [cupons, setCupons] = useState<any[]>([]);
+  const [funcionarios, setFuncionarios] = useState<any[]>([]);
 
   const [pdvItemModal, setPdvItemModal] = useState<any>(null);
   const [pdvItemOptions, setPdvItemOptions] = useState<any>({
     montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1
   });
+
+  const [pdvDescontoAplicado, setPdvDescontoAplicado] = useState<{valor: number, cupom?: string, autorizadoPorId: string, autorizadoPorNome: string} | null>(null);
+  const [showDescontoModal, setShowDescontoModal] = useState(false);
+  const [descontoInput, setDescontoInput] = useState('');
+  const [descontoPin, setDescontoPin] = useState('');
 
 
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
@@ -111,6 +118,16 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       if (snap.val()) setInsumos(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setInsumos([]);
     });
 
+    const cuponsRef = ref(db, 'cupons');
+    onValue(cuponsRef, snap => {
+      if (snap.val()) setCupons(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setCupons([]);
+    });
+
+    const funcRef = ref(db, 'funcionarios');
+    onValue(funcRef, snap => {
+      if (snap.val()) setFuncionarios(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setFuncionarios([]);
+    });
+
     const mesasRef = ref(db, 'mesas_abertas');
     onValue(mesasRef, snap => setMesasAbertas(snap.val() || {}));
 
@@ -127,8 +144,15 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   ];
 
 
-  const rawTotalPdv = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  const rawTotalPdvBase = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  let descontoCalculado = 0;
+  if (pdvDescontoAplicado) {
+     descontoCalculado = pdvDescontoAplicado.valor;
+     if (descontoCalculado > rawTotalPdvBase) descontoCalculado = rawTotalPdvBase;
+  }
+  const rawTotalPdv = rawTotalPdvBase - Math.max(0, descontoCalculado);
   const totalPdv = Number(rawTotalPdv.toFixed(2));
+  
   const rawPagoPdv = pdvPagamentos.reduce((acc, p) => acc + (Number(p.valor) || 0), 0);
   const pagoPdv = Number(rawPagoPdv.toFixed(2));
   const restantePdv = Number((totalPdv - pagoPdv).toFixed(2));
@@ -206,6 +230,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const handleAbrirMesa = (numero: number) => {
     setMesaSelecionada(numero);
     setPdvTipoPedido('Mesa');
+    setPdvDescontoAplicado(null);
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvCarrinho(mesaData.carrinho || {});
@@ -228,6 +253,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       });
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Pedido salvo na Mesa ${mesaSelecionada}!`, 'success');
+      setPdvDescontoAplicado(null);
     }
     setPdvView('mapa');
   };
@@ -287,7 +313,41 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     setPdvItemModal(null);
   };
 
+  const handleAplicarDesconto = () => {
+     // Verificação de segurança e autorização
+     const func = funcionarios.find(f => String(f.pin) === descontoPin);
+     if (!func) return showToast('PIN inválido', 'error');
+     const roles = Array.isArray(func.cargo) ? func.cargo : [func.cargo];
+     if (!roles.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))) {
+        return showToast('Autorização negada! Requer acesso de Caixa, Gerente ou Admin.', 'error');
+     }
+
+     let valorDesconto = 0;
+     let cupomUsado = '';
+     const cupom = cupons.find(c => c.codigo.toLowerCase() === descontoInput.trim().toLowerCase() && c.ativo !== false);
+     
+     if (cupom) {
+        if (cupom.tipo === 'valor') valorDesconto = Number(cupom.valor);
+        else if (cupom.tipo === 'porcentagem') valorDesconto = rawTotalPdvBase * (Number(cupom.valor) / 100);
+        cupomUsado = cupom.codigo;
+     } else {
+        const rawNum = Number(descontoInput.replace(',', '.'));
+        if (!isNaN(rawNum) && rawNum > 0) {
+           valorDesconto = rawNum;
+        } else {
+           return showToast('Cupom não encontrado ou valor inválido.', 'error');
+        }
+     }
+
+     setPdvDescontoAplicado({ valor: valorDesconto, cupom: cupomUsado, autorizadoPorId: func.id, autorizadoPorNome: func.nome });
+     setShowDescontoModal(false);
+     setDescontoInput('');
+     setDescontoPin('');
+     showToast('Desconto autorizado e aplicado!', 'success');
+  };
+
   const handlePdvSalvar = async () => {
+    // Validação inicial do Caixa
     if (totalPdv <= 0) return showToast('Adicione produtos à venda.', 'error');
     const pagamentosValidos = pdvPagamentos.filter(p => p.taxaId && Number(p.valor) > 0);
     if (pagamentosValidos.length === 0) return showToast('Informe uma forma de pagamento.', 'error');
@@ -326,6 +386,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       descricao: pdvDescricao || 'Venda Balcão',
       clienteId: pdvCliente?.id || null,
       clienteNome: pdvCliente?.nome || 'Cliente Balcão',
+      desconto: pdvDescontoAplicado ? pdvDescontoAplicado.valor : 0,
+      cupom: pdvDescontoAplicado?.cupom || null,
+      descontoAutorizadoPor: pdvDescontoAplicado?.autorizadoPorNome || null,
       itens: Object.entries(pdvCarrinho).map(([id, item]) => ({ id, ...item })),
       tipoPedido: pdvTipoPedido,
       mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
@@ -346,6 +409,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     }
 
     setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
+    setPdvDescontoAplicado(null);
     setPdvView('mapa');
     showToast('Venda finalizada com sucesso!', 'success');
   };
@@ -496,7 +560,7 @@ Formato esperado:
       });
       const data = await response.json();
       const jsonText = data.choices?.[0]?.message?.content;
-      if (!jsonText) throw new Error('Resposta inválida da IA.');
+      if (!jsonText) throw new Error('Não foi possível compreender o pedido.');
       const cleanJson = jsonText.replace(/```json/g, '').replace(/```/g, '').trim();
       const itensPedido = JSON.parse(cleanJson);
       
@@ -532,7 +596,7 @@ Formato esperado:
       
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div className="flex items-center">
-          <div className="bg-green-100 p-3 rounded-xl mr-4 text-green-600">
+          <div className="bg-emerald-100 p-3 rounded-xl mr-4 text-emerald-600">
             <Store size={24} />
           </div>
           <div>
@@ -697,6 +761,26 @@ Formato esperado:
               )}
             </div>
 
+            {/* Area de Desconto / Abatimento */}
+            <div className="mb-2 mt-2 px-1">
+               {!pdvDescontoAplicado ? (
+                 <button onClick={() => setShowDescontoModal(true)} className="w-full py-2.5 text-sm font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors flex justify-center items-center">
+                    <Ticket size={16} className="mr-2" /> Adicionar Desconto / Cupom
+                 </button>
+               ) : (
+                 <div className="flex justify-between items-center bg-red-50 p-2.5 rounded-lg border border-red-200">
+                   <div className="flex flex-col">
+                      <span className="text-xs font-bold text-red-700 flex items-center"><Ticket size={14} className="mr-1"/> Desconto {pdvDescontoAplicado.cupom ? `(${pdvDescontoAplicado.cupom})` : ''}</span>
+                      <span className="text-[10px] text-red-500 font-medium">Autorizado por: {pdvDescontoAplicado.autorizadoPorNome}</span>
+                   </div>
+                   <div className="flex items-center space-x-3">
+                     <span className="text-sm font-black text-red-600">- R$ {pdvDescontoAplicado.valor.toFixed(2)}</span>
+                     <button onClick={() => setPdvDescontoAplicado(null)} className="text-red-400 hover:text-red-600 p-1"><X size={16}/></button>
+                   </div>
+                 </div>
+               )}
+            </div>
+
             <div className="pt-4 space-y-3 shrink-0">
                {pdvTipoPedido === 'Mesa' ? (
                  <>
@@ -708,8 +792,11 @@ Formato esperado:
                      <h4 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center justify-center bg-gray-100 py-2 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar Mesa)</h4>
                      
                      <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 mb-3">
-                        <span className="font-bold text-gray-800 uppercase text-xs">Total da Mesa</span>
-                        <span className="font-black text-xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
+                        <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
+                        <div className="text-right">
+                          {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
+                          <span className="font-black text-xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
+                        </div>
                      </div>
                      
                      <div className="space-y-2 mb-3">
@@ -742,8 +829,11 @@ Formato esperado:
                ) : (
                  <>
                    <div className="flex justify-between items-center bg-green-50 p-4 rounded-xl border border-green-100 shadow-inner">
-                      <span className="font-bold text-green-800 uppercase text-sm">Total da Venda</span>
-                      <span className="font-black text-2xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
+                      <span className="font-bold text-green-800 uppercase text-sm">Total a Pagar</span>
+                      <div className="text-right">
+                        {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
+                        <span className="font-black text-2xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
+                      </div>
                    </div>
                    
                    <div className="space-y-2 mt-2">
@@ -1058,6 +1148,13 @@ Formato esperado:
                  ))}
                </div>
 
+               {viewComanda.desconto > 0 && (
+                 <div className="border-t border-gray-200 py-3 mb-2 flex justify-between items-center text-red-600 bg-red-50 px-3 rounded-lg">
+                   <span className="text-sm font-bold flex flex-col">Desconto Aplicado {viewComanda.cupom ? `(${viewComanda.cupom})` : ''} <span className="text-[10px] font-medium mt-0.5">Autorizado por: {viewComanda.descontoAutorizadoPor || 'Desconhecido'}</span></span>
+                   <span className="font-black text-lg">- R$ {viewComanda.desconto.toFixed(2)}</span>
+                 </div>
+               )}
+
                <div className="space-y-2 mb-4">
                  <h4 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Pagamento</h4>
                  {viewComanda.pagamentos ? viewComanda.pagamentos.map((p: any, idx: number) => (
@@ -1168,6 +1265,31 @@ Formato esperado:
           </div>
         </div>
       )}
+
+      {showDescontoModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[130] p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <h3 className="text-xl font-bold text-gray-800 flex items-center justify-center mb-2"><Ticket className="mr-2 text-blue-500"/> Aplicar Desconto</h3>
+            <p className="text-sm text-gray-500 text-center">Informe o código promocional ou o valor exato em R$ do desconto a ser aplicado.</p>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">Cupom ou Valor (R$)</label>
+              <input type="text" value={descontoInput} onChange={e => setDescontoInput(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 mt-1" placeholder="Ex: R$ 10,00 ou NATAL15" />
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase flex items-center">PIN de Autorização (Caixa ou Gerente)</label>
+              <input type="tel" maxLength={4} value={descontoPin} onChange={e => setDescontoPin(e.target.value.replace(/\D/g, ''))} className="w-full text-center tracking-[1em] font-mono p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 mt-1 text-xl" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
+            </div>
+
+            <div className="flex space-x-3 pt-2">
+              <button onClick={() => { setShowDescontoModal(false); setDescontoInput(''); setDescontoPin(''); }} className="flex-1 p-3 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={handleAplicarDesconto} disabled={!descontoInput || descontoPin.length !== 4} className="flex-1 p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors">Autorizar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }
