@@ -191,19 +191,27 @@ export default function ComprasManager() {
       });
 
       if (result.committed) {
-        if ((item.insumo as any).insumoVinculado) {
-          const linkedId = (item.insumo as any).insumoVinculado;
-          const unitRef = ref(db, `insumos/${linkedId}`);
-          await runTransaction(unitRef, (linkedData) => {
-            if (linkedData) {
-              const fardoQtd = Number(item.insumo.qtdPacote || 1);
-              const fardoData = result.snapshot.val();
-              linkedData.precoPacote = Number((fardoData.precoPacote / fardoQtd).toFixed(4));
-              linkedData.ultimoPrecoCompra = Number((fardoData.ultimoPrecoCompra / fardoQtd).toFixed(4));
-            }
-            return linkedData;
-          });
-        }
+        const fardoData = result.snapshot.val();
+        
+        const propagateCost = async (currentId: string, precoAtual: number, ultimoPrecoAtual: number) => {
+          const currentInsumo = insumos.find(i => i.id === currentId);
+          if (currentInsumo && (currentInsumo as any).insumoVinculado) {
+            const linkedId = (currentInsumo as any).insumoVinculado;
+            const fardoQtd = Number(currentInsumo.qtdPacote || 1);
+            const novoPreco = Number((precoAtual / fardoQtd).toFixed(4));
+            const novoUltimoPreco = Number((ultimoPrecoAtual / fardoQtd).toFixed(4));
+            
+            await update(ref(db, `insumos/${linkedId}`), {
+              precoPacote: novoPreco,
+              ultimoPrecoCompra: novoUltimoPreco
+            });
+            
+            await propagateCost(linkedId, novoPreco, novoUltimoPreco);
+          }
+        };
+        
+        await propagateCost(targetId, fardoData.precoPacote, fardoData.ultimoPrecoCompra);
+        
         const tipoEmb = (item.insumo.qtdPacote || 1) > 1 ? 'Volume' : 'UN';
         
         const nomeInsumoLog = item.insumo.nome;
@@ -315,6 +323,17 @@ export default function ComprasManager() {
   };
   
   const valorTotalEntrada = carrinho.reduce((acc, item) => acc + (Number(item.valorTotalStr) || 0), 0);
+
+  const fornecedoresFiltrados = fornecedores.filter(f => {
+    const t = searchFornecedor.toLowerCase();
+    const apenasNumerosBusca = t.replace(/\D/g, '');
+    const docLimpo = (f.documento || '').replace(/\D/g, '');
+    
+    return (f.nomeFantasia || '').toLowerCase().includes(t) ||
+           (f.nome || '').toLowerCase().includes(t) ||
+           (f.documento || '').toLowerCase().includes(t) ||
+           (apenasNumerosBusca && docLimpo.includes(apenasNumerosBusca));
+  });
 
   return (
     <div className="space-y-6">
@@ -446,15 +465,15 @@ export default function ComprasManager() {
                        onFocus={() => setShowFornecedorDropdown(true)}
                        onBlur={() => setTimeout(() => setShowFornecedorDropdown(false), 200)}
                        className="w-full p-2.5 outline-none rounded-lg text-sm bg-transparent font-medium"
-                       placeholder="Buscar fornecedor..."
+                       placeholder="Buscar fornecedor ou CNPJ..."
                      />
                    </div>
                    {showFornecedorDropdown && (
                      <div className="absolute bottom-full mb-1 z-50 w-full bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                       {fornecedores.filter(f => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).map(f => (
+                       {fornecedoresFiltrados.map(f => (
                          <div key={f.id} onClick={() => { setSelectedFornecedorId(f.id); setSearchFornecedor(f.nomeFantasia || f.nome); setShowFornecedorDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{f.nomeFantasia || f.nome} {f.documento ? `(${f.documento})` : ''}</span></div>
                        ))}
-                       {fornecedores.filter(f => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado</div>}
+                       {fornecedoresFiltrados.length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado</div>}
                      </div>
                    )}
                  </div>

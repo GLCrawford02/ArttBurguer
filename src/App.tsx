@@ -331,19 +331,19 @@ export default function App() {
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4" translate="no">
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 md:p-8" translate="no">
         <style>{`@media (min-width: 768px) { html { font-size: clamp(12px, 1vw + 4px, 20px); } }`}</style>
-        <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
-          <div className="flex justify-center mb-8">
-            <img src={logoImg} alt="ArttBurger Logo" className="h-32 w-auto object-contain" />
+        <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-12 w-full max-w-sm md:max-w-md lg:max-w-lg transition-all duration-300">
+          <div className="flex justify-center mb-6 md:mb-10">
+            <img src={logoImg} alt="ArttBurger Logo" className="h-28 md:h-40 w-auto object-contain transition-all duration-300" />
           </div>
-          <p className="text-center text-gray-500 mb-8 text-sm">Digite seu PIN para entrar no sistema</p>
+          <p className="text-center text-gray-500 mb-6 md:mb-10 text-sm md:text-lg font-medium">Digite seu PIN para entrar no sistema</p>
           
-          <form onSubmit={handleLogin}>
-            <input type="tel" autoComplete="off" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl tracking-[0.5em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all mb-4" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
-            {loginError && <p className="text-red-500 text-sm text-center mb-4 font-bold">{loginError}</p>}
-            <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg">
-              Entrar
+          <form onSubmit={handleLogin} className="space-y-4 md:space-y-6">
+            <input type="tel" autoComplete="off" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl md:text-6xl tracking-[0.5em] font-mono p-4 md:p-6 lg:p-8 border-2 border-gray-200 rounded-xl md:rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all text-gray-800" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
+            {loginError && <p className="text-red-500 text-sm md:text-base text-center font-bold">{loginError}</p>}
+            <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 md:p-6 rounded-xl md:rounded-2xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg md:text-2xl shadow-lg hover:shadow-xl">
+              Entrar no Sistema
             </button>
           </form>
         </div>

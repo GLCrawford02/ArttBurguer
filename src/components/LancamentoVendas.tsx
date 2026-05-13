@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer } from 'lucide-react';
 
 export default function LancamentoVendas({ currentUser }: { currentUser?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
@@ -9,6 +9,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [taxas, setTaxas] = useState<any[]>([]);
   const [lancamentos, setLancamentos] = useState<any[]>([]);
   const [vendasPdv, setVendasPdv] = useState<any[]>([]);
+  const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
   const [produtos, setProdutos] = useState<any[]>([]);
   const [promocoes, setPromocoes] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
@@ -30,6 +31,8 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
   const [mesaSelecionada, setMesaSelecionada] = useState<number | null>(null);
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
+  const [entregasAbertas, setEntregasAbertas] = useState<Record<string, any>>({});
+  const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
   const [qtdMesas, setQtdMesas] = useState(30);
 
   const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
@@ -39,6 +42,8 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
   const [pdvSearchCliente, setPdvSearchCliente] = useState('');
   const [pdvCliente, setPdvCliente] = useState<any | null>(null);
   const [pdvTipoPedido, setPdvTipoPedido] = useState<'Balcão' | 'Entrega' | 'Mesa'>('Balcão');
+  const [showPainelEntregas, setShowPainelEntregas] = useState(false);
+  const [isCartExpanded, setIsCartExpanded] = useState(false);
 
 
   const [showConfModal, setShowConfModal] = useState(false);
@@ -73,6 +78,12 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       : ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(currentUser.cargo as string)
   );
 
+  const isCaixaOrAdmin = currentUser && (
+    Array.isArray(currentUser.cargo) 
+      ? currentUser.cargo.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(c))
+      : ['Administrador', 'Gerente', 'Dono', 'TI', 'Caixa'].includes(currentUser.cargo as string)
+  );
+
   useEffect(() => {
     if (!isAdminOrGerente && activeView === 'conferencia') setActiveView('pdv');
     if (!canViewComandas && activeView === 'comandas') setActiveView('pdv');
@@ -96,6 +107,11 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
     const vendasPdvRef = ref(db, 'vendas_pdv');
     onValue(vendasPdvRef, snap => {
       if (snap.val()) setVendasPdv(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setVendasPdv([]);
+    });
+
+    const pedidosCozRef = ref(db, 'pedidos_cozinha');
+    onValue(pedidosCozRef, snap => {
+      if (snap.val()) setPedidosCozinha(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val }))); else setPedidosCozinha([]);
     });
 
     const prodRef = ref(db, 'produtos');
@@ -130,6 +146,9 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
     const mesasRef = ref(db, 'mesas_abertas');
     onValue(mesasRef, snap => setMesasAbertas(snap.val() || {}));
+
+    const entregasAbertasRef = ref(db, 'entregas_abertas');
+    onValue(entregasAbertasRef, snap => setEntregasAbertas(snap.val() || {}));
 
     const configMesasRef = ref(db, 'configuracoes/pdv/qtdMesas');
     onValue(configMesasRef, snap => {
@@ -229,6 +248,7 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
 
   const handleAbrirMesa = (numero: number) => {
     setMesaSelecionada(numero);
+    setEntregaSelecionada(null);
     setPdvTipoPedido('Mesa');
     setPdvDescontoAplicado(null);
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
@@ -256,6 +276,70 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       setPdvDescontoAplicado(null);
     }
     setPdvView('mapa');
+  };
+
+  const handleAbrirEntrega = (id: string) => {
+    setEntregaSelecionada(id);
+    setMesaSelecionada(null);
+    setPdvTipoPedido('Entrega');
+    setPdvDescontoAplicado(null);
+    const entregaData = entregasAbertas[id];
+    if (entregaData) {
+      setPdvCarrinho(entregaData.carrinho || {});
+      const c = clientes.find((client: any) => client.id === entregaData.clienteId);
+      if (c) setPdvCliente(c);
+      else setPdvCliente({ id: entregaData.clienteId, nome: entregaData.clienteNome, telefone: entregaData.clienteTelefone });
+    }
+    setPdvView('caixa');
+  };
+
+  const handleSalvarEntrega = async () => {
+    if (!pdvCliente) return showToast('Selecione um cliente para o Delivery.', 'error');
+    if (Object.keys(pdvCarrinho).length === 0) {
+      if (entregaSelecionada) await remove(ref(db, `entregas_abertas/${entregaSelecionada}`));
+      showToast('Delivery cancelado/removido!', 'success');
+    } else {
+      const id = entregaSelecionada || `delivery_${Date.now()}`;
+      const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega');
+      await set(ref(db, `entregas_abertas/${id}`), {
+        clienteId: pdvCliente.id,
+        clienteNome: pdvCliente.nome,
+        clienteTelefone: pdvCliente.telefone,
+        carrinho: novoCarrinho,
+        timestamp: Date.now()
+      });
+      showToast('Pedido de Delivery salvo!', 'success');
+      setPdvDescontoAplicado(null);
+    }
+    setPdvView('mapa');
+  };
+
+  const handleReimprimirMesa = (e: React.MouseEvent, num: number, isAberta: any) => {
+    e.stopPropagation();
+    if (!isAberta) return;
+    const total = Object.values(isAberta.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+    setViewComanda({
+      timestamp: isAberta.timestamp || Date.now(),
+      descricao: `Mesa ${num} (Parcial)`,
+      itens: Object.values(isAberta.carrinho || {}),
+      valor: total,
+      desconto: 0,
+      pagamentos: []
+    });
+  };
+
+  const handleReabrirEntrega = async (venda: any) => {
+    if (window.confirm('Deseja reabrir este pedido? O pagamento e o registro de venda serão desfeitos até que você finalize no caixa novamente.')) {
+      await remove(ref(db, `vendas_pdv/${venda.id}`));
+      const carrinhoRestaurado: Record<string, any> = {};
+      if (venda.itens) {
+        venda.itens.forEach((item: any) => { carrinhoRestaurado[item.id] = { ...item }; });
+      }
+      const c = clientes.find((client: any) => client.id === venda.clienteId);
+      await set(ref(db, `entregas_abertas/${venda.id}`), { clienteId: venda.clienteId, clienteNome: venda.clienteNome, clienteTelefone: c ? c.telefone : (venda.clienteTelefone || ''), carrinho: carrinhoRestaurado, timestamp: venda.timestamp });
+      setShowPainelEntregas(false);
+      handleAbrirEntrega(venda.id);
+    }
   };
 
   const handleOpenPdvItemModal = (item: any) => {
@@ -407,9 +491,15 @@ export default function LancamentoVendas({ currentUser }: { currentUser?: any })
       await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
     }
+    
+    if (pdvTipoPedido === 'Entrega' && entregaSelecionada) {
+      await remove(ref(db, `entregas_abertas/${entregaSelecionada}`));
+    }
 
     setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
     setPdvDescontoAplicado(null);
+    setMesaSelecionada(null);
+    setEntregaSelecionada(null);
     setPdvView('mapa');
     showToast('Venda finalizada com sucesso!', 'success');
   };
@@ -591,6 +681,27 @@ Formato esperado:
     finally { setIsGenerating(false); }
   };
 
+  const DescontoArea = (
+    <div className="mb-3 px-1">
+       {!pdvDescontoAplicado ? (
+         <button onClick={() => setShowDescontoModal(true)} className="w-full py-2.5 text-sm font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors flex justify-center items-center">
+            <Ticket size={16} className="mr-2" /> Adicionar Desconto / Cupom
+         </button>
+       ) : (
+         <div className="flex justify-between items-center bg-red-50 p-2.5 rounded-lg border border-red-200 shadow-sm">
+           <div className="flex flex-col">
+              <span className="text-xs font-bold text-red-700 flex items-center"><Ticket size={14} className="mr-1"/> Desconto {pdvDescontoAplicado.cupom ? `(${pdvDescontoAplicado.cupom})` : ''}</span>
+              <span className="text-[10px] text-red-500 font-medium">Autorizado por: {pdvDescontoAplicado.autorizadoPorNome}</span>
+           </div>
+           <div className="flex items-center space-x-3">
+             <span className="text-sm font-black text-red-600">- R$ {pdvDescontoAplicado.valor.toFixed(2)}</span>
+             <button onClick={() => setPdvDescontoAplicado(null)} className="text-red-400 hover:text-red-600 p-1 bg-white rounded-md"><X size={16}/></button>
+           </div>
+         </div>
+       )}
+    </div>
+  );
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
@@ -622,39 +733,82 @@ Formato esperado:
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 animate-in fade-in duration-300 min-h-[600px]">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4">
             <h3 className="text-xl font-bold text-gray-800 flex items-center"><Store className="mr-2 text-green-600"/> Controle de Mesas e Pedidos</h3>
-            <div className="flex gap-2 w-full sm:w-auto">
-              <button onClick={() => { setMesaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-gray-800 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center">
-                <Store size={18} className="mr-2" /> Venda Balcão
-              </button>
-              <button onClick={() => { setMesaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
-                <Truck size={18} className="mr-2" /> Novo Delivery
-              </button>
+            <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
+              <div className="flex gap-2 w-full sm:w-auto">
+                {isCaixaOrAdmin && (
+                  <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-gray-800 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center">
+                    <Store size={18} className="mr-2" /> Venda Balcão
+                  </button>
+                )}
+                {isCaixaOrAdmin && (
+                  <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 sm:flex-none bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
+                    <Truck size={18} className="mr-2" /> Novo Delivery
+                  </button>
+                )}
+              </div>
+              {isCaixaOrAdmin && (
+                <button onClick={() => setShowPainelEntregas(true)} className="w-full sm:w-auto bg-blue-100 text-blue-700 px-4 py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center justify-center">
+                  <Map size={18} className="mr-2" /> Painel de Entregas
+                </button>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-4">
-            {Array.from({length: qtdMesas}).map((_, i) => {
-              const num = i + 1;
-              const isAberta = mesasAbertas[`mesa_${num}`] || mesasAbertas[num];
-              const total = isAberta ? Object.values(isAberta.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) : 0;
-              return (
-                <button key={num} onClick={() => handleAbrirMesa(num)} className={`p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-24 ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
-                  <span className="text-2xl font-black leading-none">{num}</span>
-                  <span className="text-[10px] uppercase tracking-wider font-bold mt-2">{isAberta ? `R$ ${total.toFixed(2)}` : 'Livre'}</span>
+          <div className="space-y-8">
+            {isCaixaOrAdmin && (
+              <div>
+              <h4 className="font-bold text-gray-700 mb-4 flex items-center"><Truck className="mr-2 text-orange-500" size={20}/> Entregas em Aberto</h4>
+              {Object.keys(entregasAbertas).length > 0 ? (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3 sm:gap-4">
+                  {Object.entries(entregasAbertas).map(([id, entrega]: any) => {
+                    const total = Object.values(entrega.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+                    return (
+                      <button key={id} onClick={() => handleAbrirEntrega(id)} className="p-3 sm:p-4 rounded-xl border-2 border-orange-500 bg-orange-50 text-orange-700 shadow-sm flex flex-col justify-center items-start transition-all hover:bg-orange-100">
+                        <span className="font-bold text-sm truncate w-full text-left">{entrega.clienteNome}</span>
+                        <span className="text-[10px] text-orange-600 mt-1">{entrega.clienteTelefone}</span>
+                        <span className="text-sm font-black mt-2">R$ {total.toFixed(2)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-400 italic">Nenhum delivery em aberto no momento.</p>
+              )}
+            </div>
+          )}
+
+            <div>
+              <h4 className="font-bold text-gray-700 mb-4 flex items-center"><Store className="mr-2 text-green-500" size={20}/> Mesas</h4>
+              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-8 gap-3 sm:gap-4">
+                {Array.from({length: qtdMesas}).map((_, i) => {
+                  const num = i + 1;
+                  const isAberta = mesasAbertas[`mesa_${num}`] || mesasAbertas[num];
+                  const total = isAberta ? Object.values(isAberta.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) : 0;
+                  return (
+                    <div key={num} onClick={() => handleAbrirMesa(num)} className={`relative p-2 sm:p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-20 sm:h-24 cursor-pointer ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm hover:bg-orange-100' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
+                      <span className="text-xl sm:text-2xl font-black leading-none pointer-events-none">{num}</span>
+                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold mt-1 sm:mt-2 pointer-events-none">{isAberta ? `R$ ${total.toFixed(2)}` : 'Livre'}</span>
+                      {isAberta && (
+                        <button onClick={(e) => handleReimprimirMesa(e, num, isAberta)} className="absolute top-1 sm:top-2 right-1 sm:right-2 p-1 sm:p-1.5 bg-orange-200 hover:bg-orange-300 text-orange-800 rounded-md transition-colors shadow-sm" title="Imprimir Pedido Parcial">
+                          <Printer size={12} />
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+                <button onClick={() => set(ref(db, 'configuracoes/pdv/qtdMesas'), qtdMesas + 1)} className="p-2 sm:p-4 rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-gray-500 hover:text-gray-600 hover:bg-gray-50 flex flex-col items-center justify-center transition-all h-20 sm:h-24">
+                  <Plus size={20} className="sm:w-6 sm:h-6" />
+                  <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold mt-1 sm:mt-2">Adicionar</span>
                 </button>
-              );
-            })}
-            <button onClick={() => set(ref(db, 'configuracoes/pdv/qtdMesas'), qtdMesas + 1)} className="p-4 rounded-xl border-2 border-dashed border-gray-300 text-gray-400 hover:border-gray-500 hover:text-gray-600 hover:bg-gray-50 flex flex-col items-center justify-center transition-all h-24">
-              <Plus size={24} />
-              <span className="text-[10px] uppercase tracking-wider font-bold mt-2">Adicionar</span>
-            </button>
+              </div>
+            </div>
           </div>
         </div>
       )}
 
       {activeView === 'pdv' && pdvView === 'caixa' && (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in slide-in-from-left-4 duration-300">
-          <div className="lg:col-span-8 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[60vh] min-h-[400px] lg:h-[750px]">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-6 animate-in slide-in-from-left-4 duration-300 flex-col-reverse lg:flex-row">
+          <div className="lg:col-span-8 order-2 lg:order-1 bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[45vh] sm:h-[60vh] min-h-[350px] lg:h-[calc(100vh-10rem)] lg:min-h-[600px]">
             <div className="flex items-center gap-2 mb-6">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
@@ -664,9 +818,9 @@ Formato esperado:
                 <Sparkles size={24} />
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-4 overflow-y-auto pr-2 pb-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-3 lg:gap-4 overflow-y-auto pr-2 pb-4">
               {pdvFilteredItems.map(item => (
-                <div key={item.id} onClick={() => handleOpenPdvItemModal(item)} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-36 relative overflow-hidden group">
+                <div key={item.id} onClick={() => handleOpenPdvItemModal(item)} className="bg-white p-3 sm:p-4 rounded-xl border border-gray-200 shadow-sm hover:border-green-500 hover:shadow-md cursor-pointer transition-all flex flex-col justify-between h-28 sm:h-36 relative overflow-hidden group">
                   <div className="absolute top-0 left-0 w-1 h-full bg-green-500 opacity-0 group-hover:opacity-100 transition-opacity"></div>
                   <p className="font-bold text-sm text-gray-800 leading-tight line-clamp-2">{item.nome}</p>
                   <div className="mt-auto">
@@ -678,7 +832,7 @@ Formato esperado:
             </div>
           </div>
 
-          <div className="lg:col-span-4 bg-white p-4 sm:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[85vh] min-h-[500px] lg:h-[750px]">
+          <div className="lg:col-span-4 order-1 lg:order-2 bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[auto] sm:h-[70vh] min-h-[450px] lg:h-[calc(100vh-10rem)] lg:min-h-[600px]">
             <h3 className="font-bold text-gray-800 flex items-center mb-6 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
             
             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg items-center">
@@ -687,10 +841,18 @@ Formato esperado:
               </button>
               {pdvTipoPedido === 'Mesa' ? (
                 <div className="flex-1 text-center font-bold text-gray-700">Mesa {mesaSelecionada}</div>
+              ) : entregaSelecionada ? (
+                <div className="flex-1 text-center font-bold text-green-700">Edição de Delivery</div>
               ) : (
                 <div className="flex flex-1 gap-1">
-                  <button onClick={() => setPdvTipoPedido('Balcão')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Balcão' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Balcão</button>
-                  <button onClick={() => setPdvTipoPedido('Entrega')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Entrega' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Delivery</button>
+                {isCaixaOrAdmin ? (
+                  <>
+                    <button onClick={() => setPdvTipoPedido('Balcão')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Balcão' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Balcão</button>
+                    <button onClick={() => setPdvTipoPedido('Entrega')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Entrega' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Delivery</button>
+                  </>
+                ) : (
+                  <div className="flex-1 text-center font-bold text-gray-500 py-1.5">Selecione uma mesa no mapa</div>
+                )}
                 </div>
               )}
             </div>
@@ -720,9 +882,14 @@ Formato esperado:
               )}
             </div>
 
-            <div className="flex-1 overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3">
-              {Object.entries(pdvCarrinho).map(([id, item]) => (
-                <div key={id} className="flex justify-between items-start text-sm group border-b border-gray-50 pb-3 last:border-0 last:pb-0">
+            <div className="flex-1 overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3 pr-1">
+              {(() => {
+                const cartItemsList = Object.entries(pdvCarrinho);
+                const displayedItems = isCartExpanded ? cartItemsList : cartItemsList.slice(0, 3);
+                return (
+                  <>
+                    {displayedItems.map(([id, item]) => (
+                      <div key={id} className="flex justify-between items-start text-sm group border-b border-gray-50 pb-3 last:border-0 last:pb-0">
                   <div className="flex-1 min-w-0 pr-2">
                     <div className="flex items-center">
                       <div className="flex items-center space-x-1 mr-2 bg-gray-100 rounded p-0.5 shrink-0">
@@ -751,45 +918,33 @@ Formato esperado:
                     )}
                   </div>
                   <span className="font-bold text-gray-800 shrink-0 mt-1">R$ {(item.preco * item.qtd).toFixed(2)}</span>
-                </div>
-              ))}
+                      </div>
+                    ))}
+                    {cartItemsList.length > 3 && (
+                      <button onClick={() => setIsCartExpanded(!isCartExpanded)} className="w-full text-center text-xs font-bold text-gray-500 hover:text-gray-800 py-2 bg-gray-100 rounded-lg transition-colors flex items-center justify-center">
+                        {isCartExpanded ? 'Recolher Itens' : `Ver mais ${cartItemsList.length - 3} itens...`}
+                      </button>
+                    )}
+                  </>
+                );
+              })()}
               {Object.keys(pdvCarrinho).length === 0 && (
-                <div className="h-full flex flex-col items-center justify-center text-gray-300 opacity-80">
+                <div className="h-full flex flex-col items-center justify-center text-gray-300 opacity-80 py-4">
                   <Receipt size={48} className="mb-3" />
                   <p className="text-sm font-medium">Caixa Livre</p>
                 </div>
               )}
             </div>
 
-            {/* Area de Desconto / Abatimento */}
-            <div className="mb-2 mt-2 px-1">
-               {!pdvDescontoAplicado ? (
-                 <button onClick={() => setShowDescontoModal(true)} className="w-full py-2.5 text-sm font-bold text-blue-600 bg-blue-50 border border-blue-100 rounded-lg hover:bg-blue-100 transition-colors flex justify-center items-center">
-                    <Ticket size={16} className="mr-2" /> Adicionar Desconto / Cupom
-                 </button>
-               ) : (
-                 <div className="flex justify-between items-center bg-red-50 p-2.5 rounded-lg border border-red-200">
-                   <div className="flex flex-col">
-                      <span className="text-xs font-bold text-red-700 flex items-center"><Ticket size={14} className="mr-1"/> Desconto {pdvDescontoAplicado.cupom ? `(${pdvDescontoAplicado.cupom})` : ''}</span>
-                      <span className="text-[10px] text-red-500 font-medium">Autorizado por: {pdvDescontoAplicado.autorizadoPorNome}</span>
-                   </div>
-                   <div className="flex items-center space-x-3">
-                     <span className="text-sm font-black text-red-600">- R$ {pdvDescontoAplicado.valor.toFixed(2)}</span>
-                     <button onClick={() => setPdvDescontoAplicado(null)} className="text-red-400 hover:text-red-600 p-1"><X size={16}/></button>
-                   </div>
-                 </div>
-               )}
-            </div>
-
             <div className="pt-4 space-y-3 shrink-0">
-               {pdvTipoPedido === 'Mesa' ? (
+               {pdvTipoPedido === 'Mesa' || pdvTipoPedido === 'Entrega' ? (
                  <>
-                   <button onClick={handleSalvarMesa} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold text-lg hover:bg-orange-600 transition-colors shadow-md flex justify-center items-center mb-4">
+                   <button onClick={pdvTipoPedido === 'Mesa' ? handleSalvarMesa : handleSalvarEntrega} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold text-lg hover:bg-orange-600 transition-colors shadow-md flex justify-center items-center mb-4">
                      <Save className="mr-2" size={20}/> Salvar Pedido
                    </button>
 
                    <div className="border-t border-gray-200 pt-4">
-                     <h4 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center justify-center bg-gray-100 py-2 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar Mesa)</h4>
+                     <h4 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center justify-center bg-gray-100 py-2 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar {pdvTipoPedido})</h4>
                      
                      <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 mb-3">
                         <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
@@ -822,12 +977,14 @@ Formato esperado:
                      </div>
                      
                      <button onClick={handlePdvSalvar} disabled={totalPdv <= 0 || pdvPagamentos.some(p => !p.taxaId) || Math.abs(restantePdv) > 0.05} className="w-full bg-green-600 text-white p-4 rounded-xl font-bold text-sm hover:bg-green-700 transition-colors shadow-md disabled:opacity-50 flex justify-center items-center">
-                       <CheckCircle className="mr-2" size={18}/> Finalizar e Liberar Mesa
+                       <CheckCircle className="mr-2" size={18}/> Finalizar e Liberar {pdvTipoPedido}
                      </button>
                    </div>
                  </>
                ) : (
                  <>
+                  {DescontoArea}
+
                    <div className="flex justify-between items-center bg-green-50 p-4 rounded-xl border border-green-100 shadow-inner">
                       <span className="font-bold text-green-800 uppercase text-sm">Total a Pagar</span>
                       <div className="text-right">
@@ -1259,6 +1416,113 @@ Formato esperado:
                   </div>
                   
                   <button onClick={handleConfSalvar} disabled={totalConf <= 0 || confPagamentos.some(p => !p.taxaId) || Math.abs(restanteConf) > 0.05} className="w-full bg-gray-800 text-white p-3 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm disabled:opacity-50">{editConfId ? 'Atualizar Conferência' : 'Registrar Conferência'}</button>
+                </div>
+              </div>
+            )
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showPainelEntregas && isCaixaOrAdmin && (
+        <div className="fixed inset-0 bg-gray-100 z-[100] flex flex-col animate-in slide-in-from-bottom-4 duration-300 p-2 sm:p-4">
+          <div className="bg-white p-4 rounded-t-xl border-b border-gray-200 flex justify-between items-center shadow-sm shrink-0">
+            <h2 className="text-lg sm:text-xl font-black text-gray-800 flex items-center"><Truck className="mr-2 text-blue-600" size={24}/> Painel Geral de Entregas</h2>
+            <button onClick={() => setShowPainelEntregas(false)} className="bg-gray-200 text-gray-600 hover:bg-gray-300 p-2 rounded-full transition-colors"><X size={20}/></button>
+          </div>
+          <div className="flex-1 bg-gray-100 overflow-y-auto rounded-b-xl pb-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6 h-full p-2 sm:p-4">
+              
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden max-h-full">
+                <div className="bg-orange-50 p-4 border-b border-orange-100 shrink-0">
+                  <h3 className="font-bold text-orange-800 flex items-center"><Store className="mr-2" size={18}/> Em Aberto / Editando ({Object.keys(entregasAbertas).length})</h3>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                  {Object.keys(entregasAbertas).length > 0 ? Object.entries(entregasAbertas).map(([id, entrega]: any) => {
+                    const total = Object.values(entrega.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+                    return (
+                      <button key={id} onClick={() => { setShowPainelEntregas(false); handleAbrirEntrega(id); }} className="w-full text-left p-3 rounded-xl border border-orange-200 bg-white hover:bg-orange-50 transition-colors shadow-sm group">
+                        <div className="flex justify-between items-start">
+                          <div className="overflow-hidden pr-2">
+                            <span className="font-bold text-sm text-gray-800 block truncate">{entrega.clienteNome}</span>
+                            <span className="text-[10px] text-gray-500 mt-1 block truncate">{entrega.clienteTelefone}</span>
+                          </div>
+                          <span className="text-sm font-black text-orange-600 shrink-0">R$ {total.toFixed(2)}</span>
+                        </div>
+                      </button>
+                    );
+                  }) : <p className="text-center text-sm text-gray-400 italic py-8">Nenhum pedido em aberto.</p>}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden max-h-full">
+                <div className="bg-blue-50 p-4 border-b border-blue-100 shrink-0">
+                  <h3 className="font-bold text-blue-800 flex items-center"><Package className="mr-2" size={18}/> Aguardando Despacho ({vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Pendente').length})</h3>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                  {vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Pendente').length > 0 ? vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Pendente').sort((a, b) => b.timestamp - a.timestamp).map(v => (
+                    <div key={v.id} className="p-3 rounded-xl border border-blue-200 bg-white shadow-sm">
+                      <div className="flex justify-between items-start">
+                        <div className="overflow-hidden pr-2">
+                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="text-[10px] text-gray-500 mt-1 block truncate">Finalizado às {new Date(v.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <span className="text-sm font-black text-blue-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
+                      </div>
+                      {(() => {
+                        const pedido = pedidosCozinha.find(p => p.identificador === `Delivery: ${v.clienteNome}` && Math.abs(p.timestamp - v.timestamp) < 120000);
+                        if (!pedido) return <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold mt-2 inline-block">Sem envio à cozinha</span>;
+                        return pedido.status === 'Pendente' 
+                          ? <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded font-bold flex items-center w-fit mt-2"><Flame size={10} className="mr-1"/> Preparando (Cozinha)</span>
+                          : <span className="text-[10px] bg-green-100 text-green-600 px-2 py-0.5 rounded font-bold flex items-center w-fit mt-2"><CheckCircle size={10} className="mr-1"/> Pronto (Aguardando Motoboy)</span>;
+                      })()}
+                      <button onClick={() => handleReabrirEntrega(v)} className="mt-3 w-full bg-blue-50 text-blue-700 py-1.5 rounded text-[10px] font-bold hover:bg-blue-100 transition-colors border border-blue-200 flex justify-center items-center">
+                        <Pencil size={12} className="mr-1" /> Reabrir para Editar
+                      </button>
+                    </div>
+                  )) : <p className="text-center text-sm text-gray-400 italic py-8">Nenhum pedido aguardando despacho.</p>}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden max-h-full">
+                <div className="bg-green-50 p-4 border-b border-green-100 shrink-0">
+                  <h3 className="font-bold text-green-800 flex items-center"><MapPin className="mr-2" size={18}/> Em Rota de Entrega ({vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Em Rota').length})</h3>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                  {vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Em Rota').length > 0 ? vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Em Rota').sort((a, b) => b.timestamp - a.timestamp).map(v => (
+                  <div key={v.id} className="p-3 rounded-xl border border-green-200 bg-white shadow-sm flex flex-col">
+                      <div className="flex justify-between items-start">
+                        <div className="overflow-hidden pr-2">
+                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="text-[10px] text-green-600 mt-1 font-bold block truncate">Saiu p/ entrega</span>
+                        </div>
+                        <span className="text-sm font-black text-green-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
+                      </div>
+                    <button onClick={() => { if(confirm('Marcar esta entrega como concluída?')) update(ref(db, `vendas_pdv/${v.id}`), { statusEntrega: 'Concluída' }); }} className="mt-3 w-full bg-green-50 text-green-700 py-1.5 rounded text-[10px] font-bold hover:bg-green-100 transition-colors border border-green-200 flex justify-center items-center">
+                      <CheckCircle size={12} className="mr-1" /> Finalizar Entrega
+                    </button>
+                    </div>
+                  )) : <p className="text-center text-sm text-gray-400 italic py-8">Nenhum pedido em rota.</p>}
+                </div>
+              </div>
+
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 flex flex-col overflow-hidden max-h-full">
+                <div className="bg-gray-100 p-4 border-b border-gray-200 shrink-0">
+                  <h3 className="font-bold text-gray-800 flex items-center"><CheckCircle className="mr-2 text-gray-500" size={18}/> Entregues Hoje ({vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Concluída' && v.timestamp >= getInicioDiaComercial()).length})</h3>
+                </div>
+                <div className="p-4 flex-1 overflow-y-auto space-y-3">
+                  {vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Concluída' && v.timestamp >= getInicioDiaComercial()).sort((a, b) => b.timestamp - a.timestamp).map(v => (
+                    <div key={v.id} className="p-3 rounded-xl border border-gray-200 bg-gray-50 shadow-sm flex flex-col">
+                      <div className="flex justify-between items-start">
+                        <div className="overflow-hidden pr-2">
+                          <span className="font-bold text-sm text-gray-800 block truncate">{v.clienteNome}</span>
+                          <span className="text-[10px] text-gray-500 mt-1 font-bold block truncate">Entregue às {new Date(v.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
+                        </div>
+                        <span className="text-sm font-black text-gray-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
+                      </div>
+                    </div>
+                  ))}
+                  {vendasPdv.filter(v => v.tipoPedido === 'Entrega' && v.statusEntrega === 'Concluída' && v.timestamp >= getInicioDiaComercial()).length === 0 && <p className="text-center text-sm text-gray-400 italic py-8">Nenhum pedido entregue hoje.</p>}
                 </div>
               </div>
             </div>

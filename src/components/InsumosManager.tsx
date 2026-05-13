@@ -138,26 +138,40 @@ export default function InsumosManager() {
   };
 
   const handleSincronizarCustos = async () => {
-    if (!window.confirm('Deseja sincronizar os custos de todos os insumos vinculados? Isso repassará o custo atual dos pacotes/fardos para as suas unidades de quebra (Ex: O custo da Caixa atualizará o custo da Unidade).')) return;
+    if (!window.confirm('Deseja sincronizar os custos de todos os insumos vinculados? Isso repassará o custo em cascata para todas as quebras (Caixa -> Pacote -> Unidade).')) return;
     
-    let atualizados = 0;
     setLoading(true);
     try {
-      const promessas = insumos.map(async (insumo) => {
-        const linkedId = (insumo as any).insumoVinculado;
-        if (linkedId) {
-          const linkedInsumo = insumos.find(i => i.id === linkedId);
-          if (linkedInsumo) {
-            const novoPreco = Number((insumo.precoPacote / (insumo.qtdPacote || 1)).toFixed(4));
-            if (linkedInsumo.precoPacote !== novoPreco) {
-              await update(ref(db, `insumos/${linkedId}`), { precoPacote: novoPreco });
-              atualizados++;
+      const insumosLocais = JSON.parse(JSON.stringify(insumos));
+      const updatesToApply: Record<string, any> = {};
+      let hasChanges = true;
+
+      while (hasChanges) {
+        hasChanges = false;
+        for (const insumo of insumosLocais) {
+          const linkedId = insumo.insumoVinculado;
+          if (linkedId) {
+            const linkedInsumo = insumosLocais.find((i: any) => i.id === linkedId);
+            if (linkedInsumo) {
+              const novoPreco = Number((insumo.precoPacote / (insumo.qtdPacote || 1)).toFixed(4));
+              if (linkedInsumo.precoPacote !== novoPreco) {
+                linkedInsumo.precoPacote = novoPreco;
+                updatesToApply[linkedId] = novoPreco;
+                hasChanges = true;
+              }
             }
           }
         }
-      });
-      await Promise.all(promessas);
-      showToast(`${atualizados} insumos vinculados tiveram seus custos sincronizados!`, 'success');
+      }
+
+      if (Object.keys(updatesToApply).length > 0) {
+        const promessas = Object.entries(updatesToApply).map(async ([id, novoPreco]) => {
+          await update(ref(db, `insumos/${id}`), { precoPacote: novoPreco });
+        });
+        await Promise.all(promessas);
+      }
+
+      showToast(`${Object.keys(updatesToApply).length} insumos tiveram seus custos sincronizados em cascata!`, 'success');
     } catch (error: any) {
       showToast('Erro ao sincronizar custos: ' + error.message, 'error');
     } finally {
