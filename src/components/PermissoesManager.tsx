@@ -35,7 +35,7 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
       ]
     },
     {
-      id: 'aba_logistica', nome: 'Entregas e Logística',
+      id: 'aba_logistica', nome: 'Clientes e Entregas',
       modulos: [
         { id: 'clientes', nome: 'Base de Clientes', admin: false },
         { id: 'despacho', nome: 'Despacho e Rotas', admin: false },
@@ -69,8 +69,8 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
     {
       id: 'aba_tarefas', nome: 'Tarefas',
       modulos: [
-        { id: 'tarefas', nome: 'Gerenciamento de Tarefas', admin: false },
-        { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal', admin: false }
+        { id: 'tarefas', nome: 'Gerenciamento de Tarefas', admin: true },
+        { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal', admin: true }
       ]
     },
     {
@@ -108,7 +108,7 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
       modulos: [
         { id: 'configuracoes', nome: 'Configurações Gerais', admin: true },
         { id: 'bancos_taxas', nome: 'Bancos e Taxas Fiscais', admin: true },
-        { id: 'atualizacoes_sistema', nome: 'Histórico de Atualizações', admin: false }
+        { id: 'atualizacoes_sistema', nome: 'Histórico de Atualizações', admin: true }
       ]
     }
   ];

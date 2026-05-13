@@ -480,7 +480,7 @@ export default function App() {
             }`}
           >
             <Truck size={20} />
-            <span>Entregas e Logística</span>
+            <span>Clientes e Entregas</span>
           </button>
           )}
 
