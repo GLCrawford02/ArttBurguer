@@ -206,7 +206,7 @@ export default function ModalContas({
     const matchDesc = (c.descricao || '').toLowerCase().includes(term);
     const matchTipo = (c.tipo || '').toLowerCase().includes(term);
     const forn = fornecedores.find((f:any)=>f.id===c.fornecedorId);
-    const matchForn = forn ? (forn.nomeFantasia || forn.nome).toLowerCase().includes(term) : false;
+    const matchForn = forn ? (forn.nomeFantasia || '').toLowerCase().includes(term) || (forn.nome || '').toLowerCase().includes(term) || (forn.documento || '').includes(term) : false;
     return matchDesc || matchTipo || matchForn;
   });
 
@@ -223,6 +223,16 @@ export default function ModalContas({
     if (valA < valB) return direction === 'asc' ? -1 : 1;
     if (valA > valB) return direction === 'asc' ? 1 : -1;
     return 0;
+  });
+
+  const fornecedoresFiltrados = fornecedores.filter((f: any) => {
+    const t = searchFornecedor.toLowerCase();
+    const apenasNumerosBusca = t.replace(/\D/g, '');
+    const docLimpo = (f.documento || '').replace(/\D/g, '');
+    return (f.nomeFantasia || '').toLowerCase().includes(t) ||
+           (f.nome || '').toLowerCase().includes(t) ||
+           (f.documento || '').toLowerCase().includes(t) ||
+           (apenasNumerosBusca && docLimpo.includes(apenasNumerosBusca));
   });
 
   return (
@@ -369,15 +379,15 @@ export default function ModalContas({
                           onFocus={() => setShowFornecedorDropdown(true)}
                           onBlur={() => setTimeout(() => setShowFornecedorDropdown(false), 200)}
                           className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
-                          placeholder="Buscar fornecedor (Opcional)..."
+                          placeholder="Buscar fornecedor ou CNPJ..."
                         />
                       </div>
                       {showFornecedorDropdown && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                          {fornecedores.filter((f: any) => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).map((f: any) => (
-                            <div key={f.id} onClick={() => { setFornecedorId(f.id); setSearchFornecedor(f.nomeFantasia || f.nome); setShowFornecedorDropdown(false); }} className="p-2 text-sm hover:bg-red-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{f.nomeFantasia || f.nome}</span></div>
+                          {fornecedoresFiltrados.map((f: any) => (
+                            <div key={f.id} onClick={() => { setFornecedorId(f.id); setSearchFornecedor(f.nomeFantasia || f.nome); setShowFornecedorDropdown(false); }} className="p-2 text-sm hover:bg-red-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{f.nomeFantasia || f.nome} {f.documento ? `(${f.documento})` : ''}</span></div>
                           ))}
-                          {fornecedores.filter((f: any) => (f.nomeFantasia || f.nome).toLowerCase().includes(searchFornecedor.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado</div>}
+                          {fornecedoresFiltrados.length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum fornecedor encontrado</div>}
                         </div>
                       )}
                     </div>
