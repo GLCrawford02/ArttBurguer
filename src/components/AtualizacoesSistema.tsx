@@ -3,6 +3,20 @@ import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calcul
 export default function AtualizacoesSistema() {
   const updates = [
     {
+      versao: '1.2.1',
+      titulo: 'Gestão de Tags Avançada e Otimizações de Permissões',
+      descricao: 'Novos controles rigorosos na visualização de botões, melhorias no PDV e gestão inteligente no estoque de adicionais.',
+      features: [
+        'Permissões Visuais Rigorosas: Botões de edição, exclusão e criação desaparecem da interface se o usuário não possuir a autorização prévia.',
+        'Gerenciador de Tags Exclusivo: O controle de categorias de clientes agora exige permissão de administrador na aba de Logística.',
+        'Restrições Manuais Livres: Crie restrições (ex: sem cebola) sem dar baixa no estoque, mantendo a flexibilidade.',
+        'Adicionais Precisos no PDV: Informe a porção exata gasta de cada adicional (ex: 0.040kg de Bacon) para uma baixa perfeita no estoque.',
+        'Cadastro Rápido e CNPJ: O sistema agora abre modais sobrepostos em compras e despesas para cadastro ágil de fornecedores com preenchimento via CNPJ.',
+        'Cortesia e Descontos Totais: O caixa finaliza transações zeradas (R$ 0,00) de forma inteligente como cortesia, evitando erros de taxa.'
+      ],
+      icon: <Shield className="text-emerald-500" size={20} />
+    },
+    {
       versao: '1.2.0',
       titulo: 'Gestão de Entregas Turbinada, GPS Inteligente e Permissões Avançadas',
       descricao: 'O módulo de delivery ganhou aplicativo próprio, a comunicação pelo WhatsApp foi automatizada e a segurança de acessos foi completamente reestruturada.',

@@ -6,7 +6,7 @@ import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, Aler
 import React from 'react';
 import ModalProduto from './ModalProduto';
 
-export default function ProdutosManager() {
+export default function ProdutosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -25,6 +25,9 @@ export default function ProdutosManager() {
     }
     setSortConfig({ key, direction });
   };
+
+  const canEdit = temPermissao ? temPermissao('produtos', 'aba_cardapio', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('produtos', 'aba_cardapio', 'apagar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -208,9 +211,11 @@ export default function ProdutosManager() {
 
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Base de Produtos</h2>
-        <button onClick={() => { setEditProduto(null); setShowForm(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
-          <Plus size={20} className="mr-2" /> Novo Produto
-        </button>
+        {canEdit && (
+          <button onClick={() => { setEditProduto(null); setShowForm(true); }} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
+            <Plus size={20} className="mr-2" /> Novo Produto
+          </button>
+        )}
       </div>
 
       <ModalProduto 
@@ -234,10 +239,14 @@ export default function ProdutosManager() {
           <button onClick={exportarProdutos} className="text-xs flex items-center bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center">
             <Download size={14} className="mr-1" /> Exportar CSV
           </button>
-          <label htmlFor="import-csv-produtos" className="text-xs flex items-center bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center cursor-pointer mb-2 sm:mb-0">
-            <Upload size={14} className="mr-1" /> Importar CSV
-          </label>
-          <input type="file" accept=".csv" id="import-csv-produtos" className="hidden" onChange={handleFileUpload} />
+          {canEdit && (
+            <>
+              <label htmlFor="import-csv-produtos" className="text-xs flex items-center bg-white border border-gray-200 text-gray-600 px-3 py-2 rounded-lg hover:bg-gray-50 transition-colors w-full sm:w-auto justify-center cursor-pointer mb-2 sm:mb-0">
+                <Upload size={14} className="mr-1" /> Importar CSV
+              </label>
+              <input type="file" accept=".csv" id="import-csv-produtos" className="hidden" onChange={handleFileUpload} />
+            </>
+          )}
           <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input
@@ -293,8 +302,8 @@ export default function ProdutosManager() {
                     </button>
                   </td>
                   <td className="px-6 py-4 flex justify-end space-x-2">
-                    <button onClick={() => handleEdit(p)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="Editar Produto"><Pencil size={18} /></button>
-                    <button onClick={() => excluirProduto(p.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="Excluir Produto"><Trash2 size={18} /></button>
+                    {canEdit && <button onClick={() => handleEdit(p)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors" title="Editar Produto"><Pencil size={18} /></button>}
+                    {canDelete && <button onClick={() => excluirProduto(p.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors" title="Excluir Produto"><Trash2 size={18} /></button>}
                   </td>
                 </tr>
                 {expandedProdutoId === p.id && (

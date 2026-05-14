@@ -3,7 +3,7 @@ import { ref, onValue, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
-import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame } from 'lucide-react';
+import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
@@ -19,6 +19,7 @@ interface ParadaRota {
   numeroDiario?: number;
   googleMapsLink?: string;
   status?: string;
+  timestampEntrega?: number;
 }
 
 interface Despacho {
@@ -31,7 +32,7 @@ interface Despacho {
   paradas: ParadaRota[];
 }
 
-export default function DespachoManager() {
+export default function DespachoManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [despachos, setDespachos] = useState<Despacho[]>([]);
@@ -44,8 +45,12 @@ export default function DespachoManager() {
   const [selectedMotoboy, setSelectedMotoboy] = useState('');
   const [rotaAtual, setRotaAtual] = useState<ParadaRota[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [modalMotoboyAtivo, setModalMotoboyAtivo] = useState<Despacho | null>(null);
+  const [modalResumoMotoboy, setModalResumoMotoboy] = useState<string | null>(null);
   const [geocodedStops, setGeocodedStops] = useState<Record<string, {lat: number, lng: number} | null>>({});
   const geocodingQueue = useRef<Set<string>>(new Set());
+  
+  const canEdit = temPermissao ? temPermissao('despacho', 'aba_logistica', 'editar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -260,22 +265,6 @@ export default function DespachoManager() {
           } else if (p.pedidoId) {
             await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluída' });
           }
-
-          // Notifica o cliente agradecendo pelo pedido após o motoboy retornar
-          const c = clientes.find(client => client.id === p.clienteId);
-          if (c && c.telefone) {
-            let telLimpo = c.telefone.replace(/\D/g, '');
-            if (telLimpo.length >= 10) {
-              if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
-              const msg = `Olá *${c.nome.split(' ')[0]}*! ✅\n\nSeu pedido foi entregue.\nMuito obrigado por escolher a *ArttBurger*!\nEsperamos que tenha gostado e até a próxima! 🍔\n\nMe conta, correu tudo bem com a sua entrega?`;
-              await set(push(ref(db, 'fila_mensagens')), {
-                telefone: telLimpo,
-                mensagem: msg,
-                status: 'pendente',
-                timestamp: Date.now()
-              });
-            }
-          }
         }
       }
 
@@ -329,12 +318,13 @@ export default function DespachoManager() {
     .filter(d => d.timestampSaida >= hoje.getTime() && d.status === 'Concluído')
     .reduce((acc, d) => {
       if (!acc[d.motoboyId]) {
-        acc[d.motoboyId] = { nome: d.motoboyNome, viagens: 0, paradas: 0 };
+        acc[d.motoboyId] = { nome: d.motoboyNome, viagens: 0, paradas: 0, despachos: [] };
       }
       acc[d.motoboyId].viagens += 1;
       acc[d.motoboyId].paradas += d.paradas.length;
+      acc[d.motoboyId].despachos.push(d);
       return acc;
-    }, {} as Record<string, { nome: string, viagens: number, paradas: number }>);
+    }, {} as Record<string, { nome: string, viagens: number, paradas: number, despachos: Despacho[] }>);
 
   return (
     <div className="animate-in fade-in duration-300 flex flex-col h-full">
@@ -383,9 +373,11 @@ export default function DespachoManager() {
                         {!isPronto && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold flex items-center"><Flame size={12} className="mr-1" /> Na Cozinha</span>}
                       </div>
                     </div>
-                    <button onClick={() => isPronto ? handleAddParada(ped) : showToast('Aguarde a cozinha finalizar o pedido.', 'error')} className={`${isPronto ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 bg-gray-200 cursor-not-allowed'} p-3 rounded-xl font-bold flex items-center transition-colors shrink-0`}>
-                      <Plus size={20} />
-                    </button>
+                    {canEdit && (
+                      <button onClick={() => isPronto ? handleAddParada(ped) : showToast('Aguarde a cozinha finalizar o pedido.', 'error')} className={`${isPronto ? 'text-indigo-600 bg-indigo-50 hover:bg-indigo-100' : 'text-gray-400 bg-gray-200 cursor-not-allowed'} p-3 rounded-xl font-bold flex items-center transition-colors shrink-0`}>
+                        <Plus size={20} />
+                      </button>
+                    )}
                   </div>
                 );
               })}
@@ -425,11 +417,13 @@ export default function DespachoManager() {
                       </div>
                     </div>
                     <div className="flex space-x-1 flex-shrink-0 opacity-100 sm:opacity-50 group-hover:opacity-100 transition-opacity">
-                      <div className="flex flex-col border-r border-gray-100 pr-1 mr-1">
-                        <button onClick={() => moveParada(idx, 'up')} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowUp size={12}/></button>
-                        <button onClick={() => moveParada(idx, 'down')} disabled={idx === rotaAtual.length - 1} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowDown size={12}/></button>
-                      </div>
-                      <button onClick={() => handleRemoveParada(idx)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>
+                      {canEdit && (
+                        <div className="flex flex-col border-r border-gray-100 pr-1 mr-1">
+                          <button onClick={() => moveParada(idx, 'up')} disabled={idx === 0} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowUp size={12}/></button>
+                          <button onClick={() => moveParada(idx, 'down')} disabled={idx === rotaAtual.length - 1} className="p-0.5 text-gray-400 hover:text-indigo-600 disabled:opacity-30"><ArrowDown size={12}/></button>
+                        </div>
+                      )}
+                      {canEdit && <button onClick={() => handleRemoveParada(idx)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14}/></button>}
                     </div>
                   </div>
                 ))}
@@ -440,9 +434,11 @@ export default function DespachoManager() {
                 <button onClick={() => openGoogleMaps(rotaAtual)} disabled={rotaAtual.length === 0} className="w-full bg-white border border-indigo-200 text-indigo-700 py-2 rounded-lg font-bold text-sm hover:bg-indigo-50 transition-colors flex items-center justify-center disabled:opacity-50">
                   <ExternalLink size={16} className="mr-2"/> Abrir Rota no GPS
                 </button>
-                <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
-                  <Truck size={16} className="mr-2"/> Despachar Entregador
-                </button>
+                {canEdit && (
+                  <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
+                    <Truck size={16} className="mr-2"/> Despachar Entregador
+                  </button>
+                )}
               </div>
             </div>
 
@@ -453,14 +449,14 @@ export default function DespachoManager() {
                 {despachosAtivos.map(d => (
                   <div key={d.id} className="bg-white/10 backdrop-blur-sm border border-white/20 p-3 rounded-lg flex flex-col">
                     <div className="flex justify-between items-start mb-2">
-                      <div><h4 className="font-bold text-indigo-100 text-sm flex items-center"><Truck size={14} className="mr-1.5"/> {d.motoboyNome}</h4><p className="text-[10px] text-indigo-300 mt-1">Saiu às {new Date(d.timestampSaida).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p></div>
+                      <div><h4 onClick={() => setModalMotoboyAtivo(d)} className="font-bold text-indigo-100 text-sm flex items-center cursor-pointer hover:text-white transition-colors" title="Ver detalhes da rota"><Truck size={14} className="mr-1.5"/> {d.motoboyNome}</h4><p className="text-[10px] text-indigo-300 mt-1">Saiu às {new Date(d.timestampSaida).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p></div>
                       <span className="bg-orange-500 text-white text-[9px] font-bold px-2 py-1 rounded-full uppercase tracking-wider animate-pulse">Na Rua</span>
                     </div>
                     <p className="text-[11px] text-gray-300 mb-3 line-clamp-2 leading-relaxed border-l-2 border-indigo-500 pl-2 ml-1">Destinos: {d.paradas.map(p => p.clienteNome).join(', ')}</p>
                     <div className="flex flex-wrap gap-2 mt-auto">
                       <button onClick={() => enviarWhatsApp(d)} className="flex-1 bg-green-500 hover:bg-green-400 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><MessageSquare size={12} className="mr-1"/> Enviar</button>
                       <button onClick={() => openGoogleMaps(d.paradas)} className="flex-1 bg-white/10 hover:bg-white/20 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><MapPin size={12} className="mr-1"/> GPS</button>
-                      <button onClick={() => handleConcluirDespacho(d.id)} className="w-full bg-blue-500 hover:bg-blue-400 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><CheckCircle size={12} className="mr-1"/> Retornou</button>
+                      {canEdit && <button onClick={() => handleConcluirDespacho(d.id)} className="w-full bg-blue-500 hover:bg-blue-400 text-white py-1.5 rounded text-[10px] font-bold transition-colors flex items-center justify-center"><CheckCircle size={12} className="mr-1"/> Retornou</button>}
                     </div>
                   </div>
                 ))}
@@ -558,10 +554,10 @@ export default function DespachoManager() {
         <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex-1 flex flex-col min-h-[400px]">
           <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center"><CheckCircle className="mr-2 text-green-500"/> Resumo do Dia (Concluídos)</h3>
           <div className="space-y-3 flex-1 overflow-y-auto pr-1">
-             {Object.values(resumoMotoboys).map((m: any) => (
-               <div key={m.nome} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-green-200 transition-colors">
-                 <span className="font-bold text-gray-800 flex items-center text-lg"><Truck size={20} className="mr-3 text-gray-400"/>{m.nome}</span>
-                 <div className="text-sm text-right">
+             {Object.entries(resumoMotoboys).map(([motoboyId, m]: [string, any]) => (
+               <div key={motoboyId} className="flex justify-between items-center p-4 bg-gray-50 rounded-xl border border-gray-100 hover:border-green-200 transition-colors">
+                 <span onClick={() => setModalResumoMotoboy(motoboyId)} className="font-bold text-gray-800 flex items-center text-lg cursor-pointer hover:text-indigo-600 transition-colors" title="Ver histórico da noite"><Truck size={20} className="mr-3 text-gray-400"/>{m.nome}</span>
+                 <div className="text-sm text-right pointer-events-none">
                    <p className="text-indigo-600 font-black text-lg">{m.viagens} {m.viagens === 1 ? 'viagem' : 'viagens'}</p>
                    <p className="text-gray-500 font-medium">{m.paradas} {m.paradas === 1 ? 'entrega finalizada' : 'entregas finalizadas'}</p>
                  </div>
@@ -573,6 +569,65 @@ export default function DespachoManager() {
       )}
 
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}
+
+      {modalMotoboyAtivo && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4" onClick={() => setModalMotoboyAtivo(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-lg flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-indigo-50">
+              <h3 className="font-bold text-indigo-800 flex items-center"><Truck size={20} className="mr-2"/> Entregas na Rota: {modalMotoboyAtivo.motoboyNome}</h3>
+              <button onClick={() => setModalMotoboyAtivo(null)} className="text-indigo-400 hover:text-indigo-600 bg-indigo-100 hover:bg-indigo-200 rounded-full p-1"><X size={20}/></button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-3">
+              <p className="text-xs text-gray-500 mb-2 font-bold">Despachado às {new Date(modalMotoboyAtivo.timestampSaida).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</p>
+              {modalMotoboyAtivo.paradas.map((p, i) => (
+                <div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
+                  <div className="pr-2">
+                     <p className="font-bold text-gray-800 text-sm">#{p.numeroDiario || '?'} - {p.clienteNome}</p>
+                     <p className="text-[10px] text-gray-500 mt-1">{p.endereco}</p>
+                  </div>
+                  <span className={`text-[10px] font-bold px-2 py-1 rounded border whitespace-nowrap ${p.status === 'Concluída' ? 'bg-green-100 text-green-700 border-green-200' : 'bg-orange-100 text-orange-700 border-orange-200'}`}>
+                    {p.status === 'Concluída' ? 'Entregue' : 'Pendente'}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalResumoMotoboy && resumoMotoboys[modalResumoMotoboy] && (
+        <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4" onClick={() => setModalResumoMotoboy(null)}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+              <h3 className="font-bold text-gray-800 flex items-center"><CheckCircle size={20} className="mr-2 text-green-500"/> Entregas da Noite: {resumoMotoboys[modalResumoMotoboy].nome}</h3>
+              <button onClick={() => setModalResumoMotoboy(null)} className="text-gray-400 hover:text-gray-600 bg-gray-200 hover:bg-gray-300 rounded-full p-1"><X size={20}/></button>
+            </div>
+            <div className="p-4 max-h-[60vh] overflow-y-auto space-y-4">
+              {resumoMotoboys[modalResumoMotoboy].despachos.sort((a, b) => b.timestampSaida - a.timestampSaida).map((d: Despacho, idx: number) => (
+                <div key={d.id} className="border border-gray-200 rounded-lg overflow-hidden shadow-sm">
+                  <div className="bg-gray-100 p-3 flex justify-between items-center border-b border-gray-200">
+                    <span className="font-bold text-gray-700 text-sm flex items-center"><MapPin size={16} className="mr-1.5 text-gray-400"/> Rota {resumoMotoboys[modalResumoMotoboy].despachos.length - idx}</span>
+                    <div className="text-xs text-gray-500 flex gap-3 font-medium">
+                       <span><strong className="text-gray-600">Saiu:</strong> {new Date(d.timestampSaida).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}</span>
+                       <span><strong className="text-gray-600">Retornou:</strong> {d.timestampRetorno ? new Date(d.timestampRetorno).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'}) : '--:--'}</span>
+                    </div>
+                  </div>
+                  <div className="p-3 bg-white space-y-2">
+                    {d.paradas.map((p, i) => (
+                      <div key={i} className="flex justify-between items-center text-sm border-b border-gray-50 pb-2 last:border-0 last:pb-0">
+                        <span className="font-medium text-gray-800">#{p.numeroDiario || '?'} - {p.clienteNome}</span>
+                        <span className={`text-xs font-bold px-2 py-1 rounded ${p.timestampEntrega ? 'text-green-600 bg-green-50' : 'text-orange-600 bg-orange-50'}`}>
+                          {p.timestampEntrega ? `Entregue às ${new Date(p.timestampEntrega).toLocaleTimeString('pt-BR', {hour:'2-digit', minute:'2-digit'})}` : 'Não finalizada'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

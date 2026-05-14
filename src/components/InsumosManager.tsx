@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Insumo } from '../types';
 import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon, ChevronUp, ChevronDown } from 'lucide-react';
 
-export default function InsumosManager() {
+export default function InsumosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -43,6 +43,9 @@ export default function InsumosManager() {
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+
+  const canEdit = temPermissao ? temPermissao('insumos', 'aba_cadastros', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('insumos', 'aba_cadastros', 'apagar') : true;
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -470,9 +473,11 @@ Formato esperado para cada objeto:
           <button onClick={handlePadronizarSkus} className="bg-gray-100 text-gray-600 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center text-sm">
             <RefreshCw size={16} className="mr-2" /> Padronizar SKUs
           </button>
-          <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center">
-            <Plus size={20} className="mr-2" /> Novo Insumo
-          </button>
+          {canEdit && (
+            <button onClick={() => { handleCancelEdit(); setShowForm(true); }} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center w-full sm:w-auto justify-center">
+              <Plus size={20} className="mr-2" /> Novo Insumo
+            </button>
+          )}
         </div>
       </div>
       
@@ -757,8 +762,8 @@ Formato esperado para cada objeto:
                     {i.qtdPacote > 1 && <div className="text-xs text-gray-400 mt-1">(R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un)</div>}
                   </td>
                   <td className="px-6 py-4 flex justify-end space-x-2">
-                    <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors"><Pencil size={18} /></button>
-                    <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"><Trash2 size={18} /></button>
+                    {canEdit && <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors"><Pencil size={18} /></button>}
+                    {canDelete && <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"><Trash2 size={18} /></button>}
                   </td>
                 </tr>
               ))}
@@ -783,15 +788,17 @@ Formato esperado para cada objeto:
               <h3 className="text-lg font-bold text-gray-800">Tipos de Uso</h3>
               <button onClick={() => setShowTiposModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            <div className="flex space-x-2">
-              <input type="text" value={novoTipoForm} onChange={e => setNovoTipoForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTipo()} placeholder="Novo tipo (ex: Embalagem)" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm" />
-              <button onClick={handleAddTipo} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors text-sm">Adicionar</button>
-            </div>
+            {canEdit && (
+              <div className="flex space-x-2">
+                <input type="text" value={novoTipoForm} onChange={e => setNovoTipoForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTipo()} placeholder="Novo tipo (ex: Embalagem)" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm" />
+                <button onClick={handleAddTipo} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors text-sm">Adicionar</button>
+              </div>
+            )}
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
               {tiposUsoDb.map(t => (
                 <div key={t.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
                   <span className="text-sm font-medium text-gray-700">{t.nome}</span>
-                  <button onClick={() => handleDeleteTipo(t.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                  {canDelete && <button onClick={() => handleDeleteTipo(t.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}
                 </div>
               ))}
               {tiposUsoDb.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhum tipo cadastrado.</p>}

@@ -5,7 +5,7 @@ import { TrendingDown, TrendingUp, Repeat, Pencil, Trash2, X, Search, ChevronUp,
 
 export default function ModalContas({
   isOpen, onClose, tipoConta, contas, categoriasDespesa, fornecedores, funcionarios,
-  currentUser, onManageCategorias, showToast, excluir, itemEdit, setItemEdit, loading
+  currentUser, onManageCategorias, showToast, excluir, itemEdit, setItemEdit, loading, temPermissao
 }: any) {
   const [descricao, setDescricao] = useState('');
   const [valor, setValor] = useState('');
@@ -34,6 +34,9 @@ export default function ModalContas({
   const [showFornecedorModal, setShowFornecedorModal] = useState(false);
   const [fornForm, setFornForm] = useState({ nome: '', nomeFantasia: '', documento: '', telefone: '', email: '', chavePix: '' });
   const [loadingCnpj, setLoadingCnpj] = useState(false);
+
+  const canEdit = temPermissao ? temPermissao('calendario_contas', 'aba_financeiro', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('calendario_contas', 'aba_financeiro', 'apagar') : true;
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -440,7 +443,7 @@ export default function ModalContas({
                   <div className="space-y-1">
                 <div className="flex justify-between items-end mb-1">
                   <label className="text-[10px] font-bold text-gray-500 uppercase">Fornecedor</label>
-                  <button type="button" onClick={() => setShowFornecedorModal(true)} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">+ Novo</button>
+                  {canEdit && <button type="button" onClick={() => setShowFornecedorModal(true)} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">+ Novo</button>}
                 </div>
                     <div className="relative w-full">
                       <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-red-500">
@@ -477,7 +480,7 @@ export default function ModalContas({
                 <div className="pt-4 border-t border-gray-100 space-y-3 mt-4"><label className="flex items-center space-x-2 cursor-pointer w-fit"><input type="checkbox" checked={gerarLembrete} onChange={e => setGerarLembrete(e.target.checked)} className="rounded focus:ring-2 w-4 h-4 cursor-pointer" /><span className="text-sm font-bold text-gray-700">Criar tarefa no WhatsApp</span></label>{gerarLembrete && (<div className="grid grid-cols-1 sm:grid-cols-2 gap-3 bg-gray-50 p-4 rounded-lg border border-gray-200 animate-in fade-in"><div><label className="text-xs font-bold text-gray-500 uppercase flex items-center">Responsável pelo Lembrete</label><select value={responsavelLembrete} onChange={e=>setResponsavelLembrete(e.target.value)} className="w-full p-2 mt-1 border border-gray-200 rounded-lg text-sm bg-white"><option value="">Selecione...</option>{funcionarios.map((f: any) => <option key={f.id} value={f.id}>{f.nome}</option>)}</select></div><div><label className="text-xs font-bold text-gray-500 uppercase flex items-center">Horário do Disparo</label><input type="time" value={horaLembrete} onChange={e=>setHoraLembrete(e.target.value)} className="w-full p-2 mt-1 border border-gray-200 rounded-lg text-sm bg-white" /></div></div>)}</div>
               )}
               <div className="flex gap-2">
-                <button onClick={salvarConta} className={`flex-1 text-white p-2 rounded-lg font-bold transition-colors ${tipoConta === 'pagar' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar</button>
+                {canEdit && <button onClick={salvarConta} className={`flex-1 text-white p-2 rounded-lg font-bold transition-colors ${tipoConta === 'pagar' ? 'bg-red-600 hover:bg-red-700' : 'bg-blue-600 hover:bg-blue-700'}`}>Salvar</button>}
                 {itemEdit && <button onClick={() => setItemEdit(null)} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
               </div>
             </div>
@@ -509,8 +512,11 @@ export default function ModalContas({
                        <td className="p-4 font-medium text-gray-800">{c.descricao} {c.recorrencia && c.recorrencia !== 'Nenhuma' && <span className="ml-2 text-[10px] bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded-full"><Repeat size={10} className="inline mr-1"/>{c.recorrencia}{c.fimRecorrencia ? ` até ${formatarData(c.fimRecorrencia)}` : ''}</span>} {tipoConta === 'pagar' && <span className="block text-xs text-gray-400 mt-0.5">{c.tipo} {c.fornecedorId ? `| ${fornecedores.find((f:any)=>f.id===c.fornecedorId)?.nomeFantasia || fornecedores.find((f:any)=>f.id===c.fornecedorId)?.nome}` : ''}</span>}{c.observacoes && <span className="block text-[10px] text-gray-400 mt-0.5 italic" title={c.observacoes}>{c.observacoes.length > 50 ? c.observacoes.substring(0, 50) + '...' : c.observacoes}</span>}</td>
                        <td className={`p-4 font-bold ${tipoConta === 'pagar' ? 'text-red-600' : 'text-blue-600'}`}>{formatarMoeda(c.valor)}</td>
                        <td className={`p-4 ${c.vencimento < hoje && c.status === 'Pendente' ? 'text-red-500 font-bold' : 'text-gray-600'}`}>{formatarData(c.vencimento)}</td>
-                       <td className="p-4"><button onClick={()=>alternarStatusLocal(c.id, c.status.includes('Pendente') ? (tipoConta === 'pagar' ? 'Pago' : 'Recebido') : 'Pendente')} className={`px-2 py-1 rounded-full text-xs font-bold ${!c.status.includes('Pendente') ? 'bg-green-100 text-green-700' : (tipoConta === 'pagar' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')}`}>{c.status}</button></td>
-                       <td className="p-4 text-right flex justify-end space-x-2"><button onClick={()=>setItemEdit(c)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button><button onClick={()=>excluir(`contas_${tipoConta}/${c.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button></td>
+                       <td className="p-4"><button onClick={()=>canEdit && alternarStatusLocal(c.id, c.status.includes('Pendente') ? (tipoConta === 'pagar' ? 'Pago' : 'Recebido') : 'Pendente')} className={`px-2 py-1 rounded-full text-xs font-bold ${!c.status.includes('Pendente') ? 'bg-green-100 text-green-700' : (tipoConta === 'pagar' ? 'bg-red-100 text-red-700' : 'bg-blue-100 text-blue-700')} ${!canEdit ? 'cursor-default' : ''}`}>{c.status}</button></td>
+                       <td className="p-4 text-right flex justify-end space-x-2">
+                         {canEdit && <button onClick={()=>setItemEdit(c)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>}
+                         {canDelete && <button onClick={()=>excluir(`contas_${tipoConta}/${c.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button>}
+                       </td>
                      </tr>
                    ))}
                    {sortedContas.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-gray-400">Nenhum registro encontrado.</td></tr>}

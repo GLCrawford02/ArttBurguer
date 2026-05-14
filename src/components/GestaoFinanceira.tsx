@@ -44,7 +44,7 @@ interface Agendamento {
   fimRecorrencia?: string;
 }
 
-export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab: 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario', currentUser?: any }) {
+export default function GestaoFinanceira({ activeTab, currentUser, temPermissao }: { activeTab: 'dashboard_fin' | 'pagar' | 'receber' | 'fornecedores' | 'calendario', currentUser?: any, temPermissao?: any }) {
   const [fornecedores, setFornecedores] = useState<Fornecedor[]>([]);
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
@@ -72,6 +72,15 @@ export default function GestaoFinanceira({ activeTab, currentUser }: { activeTab
   const [aiPrompt, setAiPrompt] = useState('');
   const [isGenerating, setIsGenerating] = useState(false);
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
+
+  const getModuloName = () => {
+    if (activeTab === 'fornecedores') return { mod: 'fornecedores', aba: 'aba_cadastros' };
+    if (activeTab === 'dashboard_fin') return { mod: 'dashboard_financeiro', aba: 'aba_financeiro' };
+    return { mod: 'calendario_contas', aba: 'aba_financeiro' };
+  };
+  const { mod, aba } = getModuloName();
+  const canEdit = temPermissao ? temPermissao(mod, aba, 'editar') : true;
+  const canDelete = temPermissao ? temPermissao(mod, aba, 'apagar') : true;
 
   useEffect(() => {
     const fornRef = ref(db, 'fornecedores');
@@ -551,8 +560,8 @@ Formato:
                       <span className="font-bold text-red-600 text-sm">{formatarMoeda(c.valor)}</span>
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Pago' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{c.status}</span>
                       <div className="flex space-x-1 ml-2">
-                        <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('pagar'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); excluir(`contas_pagar/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
+                        {canEdit && <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('pagar'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>}
+                        {canDelete && <button onClick={(e) => { e.stopPropagation(); excluir(`contas_pagar/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>}
                       </div>
                     </div>
                   </div>
@@ -564,8 +573,8 @@ Formato:
                       <span className="font-bold text-blue-600 text-sm">{formatarMoeda(c.valor)}</span>
                       <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full ${c.status === 'Recebido' ? 'bg-green-100 text-green-700' : 'bg-blue-100 text-blue-700'}`}>{c.status}</span>
                       <div className="flex space-x-1 ml-2">
-                        <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('receber'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>
-                        <button onClick={(e) => { e.stopPropagation(); excluir(`contas_receber/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>
+                        {canEdit && <button onClick={(e) => { e.stopPropagation(); setItemEdit(c); setModalAberto('receber'); }} className="p-1.5 text-blue-500 hover:bg-blue-100 rounded-md bg-white border border-blue-100 shadow-sm"><Pencil size={14}/></button>}
+                        {canDelete && <button onClick={(e) => { e.stopPropagation(); excluir(`contas_receber/${c.id}`); }} className="p-1.5 text-red-500 hover:bg-red-100 rounded-md bg-white border border-red-100 shadow-sm"><Trash2 size={14}/></button>}
                       </div>
                     </div>
                   </div>
@@ -582,7 +591,7 @@ Formato:
                     </div>
                     <div className="flex space-x-2">
                       <button onClick={() => { window.location.hash = 'tarefas'; }} className="text-blue-500 hover:text-blue-700 bg-white p-1.5 rounded-md shadow-sm border border-blue-100" title="Ver nas Tarefas"><CheckSquare size={16}/></button>
-                      <button onClick={() => excluir(`tarefas/${tar.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100" title="Excluir"><Trash2 size={16}/></button>
+                      {(!temPermissao || temPermissao('tarefas', 'aba_tarefas', 'apagar')) && <button onClick={() => excluir(`tarefas/${tar.id}`)} className="text-red-500 hover:text-red-700 bg-white p-1.5 rounded-md shadow-sm border border-red-100" title="Excluir"><Trash2 size={16}/></button>}
                     </div>
                   </div>
                 ))}
@@ -599,15 +608,15 @@ Formato:
   return (
     <div className="animate-in fade-in duration-300">
       {activeTab === 'dashboard_fin' && renderDashboard()}
-      {activeTab === 'fornecedores' && <TabFornecedores fornecedores={fornecedores} loading={loading} showToast={showToast} excluir={excluir} />}
+      {activeTab === 'fornecedores' && <TabFornecedores fornecedores={fornecedores} loading={loading} showToast={showToast} excluir={excluir} temPermissao={temPermissao} />}
       
       {activeTab === 'calendario' && (
         <div className="space-y-6">
           <div className="flex flex-wrap gap-3">
-            <button onClick={() => setModalAberto('pagar')} className="bg-red-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-red-700 transition-colors shadow-sm flex items-center"><TrendingDown size={18} className="mr-2"/> Lançar Despesa (A Pagar)</button>
-            <button onClick={() => setModalAberto('receber')} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center"><TrendingUp size={18} className="mr-2"/> Lançar Receita (A Receber)</button>
-            <button onClick={() => { window.location.hash = 'tarefas'; setTimeout(() => window.dispatchEvent(new CustomEvent('openNewTask')), 150); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><CheckSquare size={18} className="mr-2"/> Nova Tarefa</button>
-            <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm flex items-center"><Sparkles size={18} className="mr-2"/> Assistente IA</button>
+            {canEdit && <button onClick={() => setModalAberto('pagar')} className="bg-red-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-red-700 transition-colors shadow-sm flex items-center"><TrendingDown size={18} className="mr-2"/> Lançar Despesa (A Pagar)</button>}
+            {canEdit && <button onClick={() => setModalAberto('receber')} className="bg-blue-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-blue-700 transition-colors shadow-sm flex items-center"><TrendingUp size={18} className="mr-2"/> Lançar Receita (A Receber)</button>}
+            {(!temPermissao || temPermissao('tarefas', 'aba_tarefas', 'editar')) && <button onClick={() => { window.location.hash = 'tarefas'; setTimeout(() => window.dispatchEvent(new CustomEvent('openNewTask')), 150); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:bg-purple-700 transition-colors shadow-sm flex items-center"><CheckSquare size={18} className="mr-2"/> Nova Tarefa</button>}
+            {canEdit && <button onClick={() => setShowIaModal(true)} className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white px-4 py-2.5 rounded-lg font-bold text-sm hover:from-purple-700 hover:to-indigo-700 transition-colors shadow-sm flex items-center"><Sparkles size={18} className="mr-2"/> Assistente IA</button>}
           </div>
           {renderCalendario()}
         </div>
@@ -628,6 +637,7 @@ Formato:
         itemEdit={itemEdit}
         setItemEdit={setItemEdit}
         loading={loading}
+        temPermissao={temPermissao}
       />
 
       {showCategoriasModal && (
@@ -637,10 +647,12 @@ Formato:
               <h3 className="text-lg font-bold text-gray-800">Tipos de Despesa</h3>
               <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            <div className="flex space-x-2">
-              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Ex: Impostos, Folha..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm" />
-              <button onClick={handleAddCategoria} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition-colors text-sm">Adicionar</button>
-            </div>
+            {canEdit && (
+              <div className="flex space-x-2">
+                <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Ex: Impostos, Folha..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500 text-sm" />
+                <button onClick={handleAddCategoria} className="bg-red-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-red-700 transition-colors text-sm">Adicionar</button>
+              </div>
+            )}
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
               {categoriasDespesa.map(c => (
                 <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
@@ -654,8 +666,8 @@ Formato:
                     <>
                       <span className="text-sm font-medium text-gray-700">{c.nome}</span>
                       <div className="flex space-x-1">
-                        <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>
-                        <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                        {canEdit && <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>}
+                        {canDelete && <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}
                       </div>
                     </>
                   )}

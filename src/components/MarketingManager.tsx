@@ -3,7 +3,7 @@ import { ref, onValue, push, set, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Megaphone, Ticket, Plus, Trash2, Save, X, CheckCircle, AlertTriangle, Send, Users } from 'lucide-react';
 
-export default function MarketingManager() {
+export default function MarketingManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [cupons, setCupons] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   
@@ -20,6 +20,9 @@ export default function MarketingManager() {
   const [showForm, setShowForm] = useState(false);
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const canEdit = temPermissao ? temPermissao('marketing', 'aba_marketing', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('marketing', 'aba_marketing', 'apagar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -153,12 +156,16 @@ export default function MarketingManager() {
           </div>
         </div>
         <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
-          <button onClick={() => setShowMassaModal(true)} className="bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
-            <Send size={20} className="mr-2"/> Disparo WhatsApp
-          </button>
-          <button onClick={() => { setEditId(null); setCodigo(''); setValor(''); setShowForm(!showForm); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm flex items-center justify-center">
-            {showForm ? <><X size={20} className="mr-2"/> Cancelar</> : <><Plus size={20} className="mr-2"/> Novo Cupom</>}
-          </button>
+          {canEdit && (
+            <button onClick={() => setShowMassaModal(true)} className="bg-green-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center">
+              <Send size={20} className="mr-2"/> Disparo WhatsApp
+            </button>
+          )}
+          {canEdit && (
+            <button onClick={() => { setEditId(null); setCodigo(''); setValor(''); setShowForm(!showForm); }} className="bg-purple-600 text-white px-4 py-2.5 rounded-lg font-bold hover:bg-purple-700 transition-colors shadow-sm flex items-center justify-center">
+              {showForm ? <><X size={20} className="mr-2"/> Cancelar</> : <><Plus size={20} className="mr-2"/> Novo Cupom</>}
+            </button>
+          )}
         </div>
       </div>
 
@@ -234,7 +241,7 @@ export default function MarketingManager() {
       )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-        {cupons.map(c => (<div key={c.id} className={`bg-white p-5 rounded-xl border-l-4 shadow-sm flex flex-col justify-between transition-colors ${c.ativo !== false ? 'border-l-purple-500' : 'border-l-gray-300 opacity-60'}`}><div className="flex justify-between items-start mb-2"><h4 className="font-black text-xl text-gray-900 tracking-tight">{c.codigo}</h4><div className="flex space-x-1"><button onClick={() => handleEdit(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Ticket size={16}/></button><button onClick={() => handleExcluir(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button></div></div><div className="mt-2"><span className="text-2xl font-black text-purple-600">{c.tipo === 'porcentagem' ? `${c.valor}%` : `R$ ${Number(c.valor).toFixed(2).replace('.', ',')}`}</span><p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">{c.ativo !== false ? 'Disponível no PDV' : 'Inativo'}</p></div></div>))}
+        {cupons.map(c => (<div key={c.id} className={`bg-white p-5 rounded-xl border-l-4 shadow-sm flex flex-col justify-between transition-colors ${c.ativo !== false ? 'border-l-purple-500' : 'border-l-gray-300 opacity-60'}`}><div className="flex justify-between items-start mb-2"><h4 className="font-black text-xl text-gray-900 tracking-tight">{c.codigo}</h4><div className="flex space-x-1">{canEdit && <button onClick={() => handleEdit(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Ticket size={16}/></button>}{canDelete && <button onClick={() => handleExcluir(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}</div></div><div className="mt-2"><span className="text-2xl font-black text-purple-600">{c.tipo === 'porcentagem' ? `${c.valor}%` : `R$ ${Number(c.valor).toFixed(2).replace('.', ',')}`}</span><p className="text-xs font-bold text-gray-400 mt-1 uppercase tracking-wider">{c.ativo !== false ? 'Disponível no PDV' : 'Inativo'}</p></div></div>))}
         {cupons.length === 0 && <div className="col-span-full py-12 text-center text-gray-400 bg-white rounded-xl border border-gray-100 border-dashed"><Ticket size={48} className="mx-auto mb-3 opacity-20" /><p className="font-medium">Nenhum cupom promocional criado.</p></div>}
       </div>
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span>{toast.message}</span></div>)}

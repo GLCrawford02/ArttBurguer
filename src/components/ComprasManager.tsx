@@ -14,7 +14,7 @@ interface ItemCarrinho {
   isIndefinida: boolean;
 }
 
-export default function ComprasManager() {
+export default function ComprasManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [carrinho, setCarrinho] = useState<ItemCarrinho[]>([]);
@@ -37,6 +37,8 @@ export default function ComprasManager() {
   const [isFetchingCnpj, setIsFetchingCnpj] = useState(false);
   const [pendingCart, setPendingCart] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const canEdit = temPermissao ? temPermissao('compras', 'aba_movimentacoes', 'editar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -346,39 +348,43 @@ export default function ComprasManager() {
             </h3>
             <p className="text-sm text-gray-500 mt-1">Busque os insumos da nota, adicione à lista e finalize tudo de uma vez.</p>
           </div>
-          <button onClick={enviarWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-600 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center">
-            <MessageCircle size={18} className="mr-2" />
-            Pedir Reposição
-          </button>
-        </div>
-        
-        <div className="mt-6 relative w-full lg:w-1/2">
-          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar insumo por nome ou SKU para adicionar..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="pl-10 pr-4 py-3 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 text-sm w-full transition-all bg-white"
-          />
-          
-          {searchTerm && (
-            <div className="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())).map(i => (
-                 <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
-                    <div>
-                       <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
-                       <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
-                    </div>
-                    <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
-                 </div>
-               ))}
-               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
-                 <p className="p-4 text-center text-sm text-gray-500">Nenhum insumo encontrado.</p>
-               )}
-            </div>
+          {canEdit && (
+            <button onClick={enviarWhatsApp} className="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-sm hover:bg-green-600 transition-colors flex items-center shadow-sm w-full sm:w-auto justify-center">
+              <MessageCircle size={18} className="mr-2" />
+              Pedir Reposição
+            </button>
           )}
         </div>
+        
+        {canEdit && (
+          <div className="mt-6 relative w-full lg:w-1/2">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar insumo por nome ou SKU para adicionar..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="pl-10 pr-4 py-3 border-2 border-blue-100 rounded-xl outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-50 text-sm w-full transition-all bg-white"
+            />
+            
+            {searchTerm && (
+              <div className="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
+                 {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())).map(i => (
+                   <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
+                      <div>
+                         <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
+                         <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
+                      </div>
+                      <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
+                   </div>
+                 ))}
+                 {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                   <p className="p-4 text-center text-sm text-gray-500">Nenhum insumo encontrado.</p>
+                 )}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
@@ -423,9 +429,11 @@ export default function ComprasManager() {
                     </div>
                   </td>
                   <td className="p-2 text-center">
-                    <button onClick={() => removerDoCarrinho(item.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="Remover da lista">
-                      <Trash2 size={16} />
-                    </button>
+                    {canEdit && (
+                      <button onClick={() => removerDoCarrinho(item.id)} className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors" title="Remover da lista">
+                        <Trash2 size={16} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -453,7 +461,7 @@ export default function ComprasManager() {
                <div className="sm:ml-8 flex-1 max-w-sm w-full">
                  <div className="flex justify-between items-center mb-1">
                    <label className="text-xs font-bold text-gray-500 uppercase">Fornecedor (Opcional)</label>
-                   <button onClick={() => setShowNovoFornecedorModal(true)} className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase flex items-center bg-blue-50 px-2 py-0.5 rounded transition-colors"><Plus size={12} className="mr-1"/> Novo</button>
+                   {canEdit && <button onClick={() => setShowNovoFornecedorModal(true)} className="text-blue-600 hover:text-blue-800 text-[10px] font-bold uppercase flex items-center bg-blue-50 px-2 py-0.5 rounded transition-colors"><Plus size={12} className="mr-1"/> Novo</button>}
                  </div>
                  <div className="relative w-full">
                    <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500">
@@ -479,9 +487,11 @@ export default function ComprasManager() {
                  </div>
                </div>
            </div>
-             <button onClick={() => handleFinalizarEntrada(false)} disabled={loading} className="w-full sm:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl disabled:opacity-70">
-                {loading ? <span className="animate-pulse">Salvando Estoque...</span> : <><CheckCircle size={24} className="mr-2"/> Confirmar Entrada de Mercadoria</>}
-             </button>
+             {canEdit && (
+               <button onClick={() => handleFinalizarEntrada(false)} disabled={loading} className="w-full sm:w-auto bg-blue-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-blue-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl disabled:opacity-70">
+                  {loading ? <span className="animate-pulse">Salvando Estoque...</span> : <><CheckCircle size={24} className="mr-2"/> Confirmar Entrada de Mercadoria</>}
+               </button>
+             )}
           </div>
         )}
       </div>

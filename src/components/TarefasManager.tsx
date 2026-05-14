@@ -36,7 +36,7 @@ export interface Tarefa {
   novaContaVinculadaId?: string; // Usado internamente na recorrência
 }
 
-export default function TarefasManager({ currentUser }: { currentUser?: any }) {
+export default function TarefasManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [gestaoData, setGestaoData] = useState<Record<string, any>>({});
@@ -71,6 +71,9 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [selectedTask, setSelectedTask] = useState<Tarefa | null>(null);
+  
+  const canEdit = temPermissao ? temPermissao('tarefas', 'aba_tarefas', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('tarefas', 'aba_tarefas', 'apagar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -407,8 +410,8 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
               {tarefa.titulo}
             </h4>
             <div className="flex space-x-1 sm:space-x-2 shrink-0">
-              <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-green-600 rounded transition-colors" title="Voltar para pendente"><CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-              <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+              {canEdit && <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-gray-200 text-green-600 rounded transition-colors" title="Voltar para pendente"><CheckCircle size={16} className="sm:w-[18px] sm:h-[18px]" /></button>}
+              {canDelete && <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>}
             </div>
           </div>
           <div className="mt-2 flex gap-2 text-xs font-bold text-gray-400">
@@ -438,9 +441,9 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
             {tarefa.url && <a href={tarefa.url.startsWith('http') ? tarefa.url : `https://${tarefa.url}`} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-500 hover:underline mt-1 flex items-center"><LinkIcon size={12} className="mr-1"/> Acessar Link</a>}
           </div>
           <div className="flex space-x-1 sm:space-x-2 shrink-0">
-            <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-            <button onClick={() => editarTarefa(tarefa)} className="p-1.5 bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 rounded transition-colors" title="Editar tarefa"><Pencil size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
-            <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>
+            {canEdit && <button onClick={() => toggleStatus(tarefa)} className="p-1.5 bg-gray-100 hover:bg-green-100 text-gray-500 hover:text-green-600 rounded transition-colors" title="Marcar como concluída"><Check size={16} className="sm:w-[18px] sm:h-[18px]" /></button>}
+            {canEdit && <button onClick={() => editarTarefa(tarefa)} className="p-1.5 bg-gray-100 hover:bg-blue-100 text-gray-500 hover:text-blue-600 rounded transition-colors" title="Editar tarefa"><Pencil size={16} className="sm:w-[18px] sm:h-[18px]" /></button>}
+            {canDelete && <button onClick={() => excluirTarefa(tarefa.id)} className="p-1.5 bg-gray-100 hover:bg-red-100 text-gray-500 hover:text-red-600 rounded transition-colors" title="Excluir tarefa"><Trash2 size={16} className="sm:w-[18px] sm:h-[18px]" /></button>}
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold">
@@ -465,9 +468,11 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
             <p className="text-sm text-gray-500">Programe tarefas para a equipe (Limpeza, Auditoria, Produção).</p>
           </div>
         </div>
-        <button onClick={() => showForm ? resetForm() : setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
-          {showForm ? <><X size={20} className="mr-2" /> Cancelar</> : <><Plus size={20} className="mr-2" /> Nova Task</>}
-        </button>
+        {canEdit && (
+          <button onClick={() => showForm ? resetForm() : setShowForm(true)} className="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-blue-700 transition-colors shadow-sm flex items-center">
+            {showForm ? <><X size={20} className="mr-2" /> Cancelar</> : <><Plus size={20} className="mr-2" /> Nova Task</>}
+          </button>
+        )}
       </div>
 
       <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
@@ -784,12 +789,16 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
             </div>
 
             <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-between">
-               <button onClick={() => { setSelectedTask(null); editarTarefa(selectedTask); }} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center transition-colors">
-                 <Pencil size={16} className="mr-2" /> Editar
-               </button>
-               <button onClick={() => { toggleStatus(selectedTask); setSelectedTask(null); }} className={`px-6 py-2 text-white rounded-lg text-sm font-bold flex items-center shadow-sm transition-colors ${selectedTask.status === 'concluida' ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}>
-                 <CheckCircle size={16} className="mr-2" /> {selectedTask.status === 'concluida' ? 'Reabrir Tarefa' : 'Marcar como Concluída'}
-               </button>
+               {canEdit && (
+                 <button onClick={() => { setSelectedTask(null); editarTarefa(selectedTask); }} className="px-4 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg text-sm font-bold hover:bg-gray-50 flex items-center transition-colors">
+                   <Pencil size={16} className="mr-2" /> Editar
+                 </button>
+               )}
+               {canEdit && (
+                 <button onClick={() => { toggleStatus(selectedTask); setSelectedTask(null); }} className={`px-6 py-2 text-white rounded-lg text-sm font-bold flex items-center shadow-sm transition-colors ${selectedTask.status === 'concluida' ? 'bg-gray-500 hover:bg-gray-600' : 'bg-green-600 hover:bg-green-700'}`}>
+                   <CheckCircle size={16} className="mr-2" /> {selectedTask.status === 'concluida' ? 'Reabrir Tarefa' : 'Marcar como Concluída'}
+                 </button>
+               )}
             </div>
           </div>
         </div>
@@ -802,10 +811,12 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
               <h3 className="text-lg font-bold text-gray-800">Categorias de Tarefas</h3>
               <button onClick={() => setShowCategoriasModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            <div className="flex space-x-2">
-              <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Nova categoria..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-              <button onClick={handleAddCategoria} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">Adicionar</button>
-            </div>
+            {canEdit && (
+              <div className="flex space-x-2">
+                <input type="text" value={novaCategoriaForm} onChange={e => setNovaCategoriaForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddCategoria()} placeholder="Nova categoria..." className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                <button onClick={handleAddCategoria} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors text-sm">Adicionar</button>
+              </div>
+            )}
             <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
               {categoriasDb.map(c => (
                 <div key={c.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
@@ -819,8 +830,8 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
                     <>
                       <span className="text-sm font-medium text-gray-700">{c.nome}</span>
                       <div className="flex space-x-1">
-                        <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>
-                        <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>
+                        {canEdit && <button onClick={() => handleEditCategoria(c)} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>}
+                        {canDelete && <button onClick={() => handleDeleteCategoria(c.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}
                       </div>
                     </>
                   )}

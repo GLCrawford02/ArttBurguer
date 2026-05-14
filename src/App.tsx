@@ -180,7 +180,7 @@ export default function App() {
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
 
-  const temPermissao = (modulo: string, abaId?: string) => {
+  const temPermissao = (modulo: string, abaId?: string, acao: 'visualizar' | 'editar' | 'apagar' = 'visualizar') => {
     if (!currentUser) return false;
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
     if (cargos.includes('Dono') || cargos.includes('TI')) return true;
@@ -188,7 +188,7 @@ export default function App() {
       const p = permissoes[c];
       if (!p) return false;
       if (abaId && p[abaId] && p[abaId].visualizar === false) return false;
-      return p[modulo]?.visualizar;
+      return p[modulo]?.[acao];
     });
   };
 
@@ -217,7 +217,7 @@ export default function App() {
 
     if (hasPerm('dashboard_geral', 'aba_dashboard')) allowed.push('dashboard');
     if (hasPerm('vendas', 'aba_pdv') || hasPerm('pdv_comandas', 'aba_pdv') || hasPerm('pdv_conferencia', 'aba_pdv')) allowed.push('pdv');
-    if (hasPerm('clientes', 'aba_logistica') || hasPerm('despacho', 'aba_logistica') || hasPerm('minhas_entregas', 'aba_logistica') || cargos.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'))) allowed.push('logistica');
+    if (hasPerm('clientes', 'aba_logistica') || hasPerm('despacho', 'aba_logistica') || hasPerm('minhas_entregas', 'aba_logistica') || hasPerm('gerenciar_tags', 'aba_logistica') || cargos.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'))) allowed.push('logistica');
     if (hasPerm('insumos', 'aba_cadastros') || hasPerm('fornecedores', 'aba_cadastros')) allowed.push('cadastros');
     if (hasPerm('produtos', 'aba_cardapio') || hasPerm('promocoes', 'aba_cardapio')) allowed.push('cardapio');
     if (hasPerm('compras', 'aba_movimentacoes') || hasPerm('transferencias', 'aba_movimentacoes') || hasPerm('descartes', 'aba_movimentacoes') || hasPerm('visibilidade_estoque', 'aba_movimentacoes') || hasPerm('balanco', 'aba_movimentacoes')) allowed.push('movimentacoes');
@@ -633,7 +633,7 @@ export default function App() {
                 {temPermissao('tarefas', 'aba_tarefas') && <button onClick={() => setSubTabTarefas('gerenciamento')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'gerenciamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gerenciamento de Tarefas</button>}
                 {temPermissao('bloco_notas', 'aba_tarefas') && <button onClick={() => setSubTabTarefas('notas')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'notas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bloco de Notas</button>}
               </div>
-              {subTabTarefas === 'gerenciamento' && <TarefasManager currentUser={currentUser} />}
+              {subTabTarefas === 'gerenciamento' && <TarefasManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabTarefas === 'notas' && <BlocoNotasManager currentUser={currentUser} />}
             </div>
           )}
@@ -644,8 +644,8 @@ export default function App() {
                 {temPermissao('insumos', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>} 
                 {temPermissao('fornecedores', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('fornecedores')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>}
               </div>
-          {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} />}
-              {subTabCadastros === 'insumos' && <InsumosManager />}
+          {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabCadastros === 'insumos' && <InsumosManager currentUser={currentUser} temPermissao={temPermissao} />}
             </div>
           )}
 
@@ -659,7 +659,7 @@ export default function App() {
                   <button onClick={() => setSubTabCardapio('promocoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCardapio === 'promocoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Promoções</button>
                 )}
               </div>
-              {subTabCardapio === 'produtos' && <ProdutosManager />}
+              {subTabCardapio === 'produtos' && <ProdutosManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabCardapio === 'promocoes' && <PromocoesManager />}
             </div>
           )}
@@ -677,7 +677,7 @@ export default function App() {
                 {temPermissao('descartes', 'aba_movimentacoes') && <button onClick={() => setSubTabMovimentacoes('descartes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'descartes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Descartes / Perdas</button>}
                 {temPermissao('balanco', 'aba_movimentacoes') && <button onClick={() => setSubTabMovimentacoes('balanco')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabMovimentacoes === 'balanco' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Balanço / Ajuste</button>}
               </div>
-              {subTabMovimentacoes === 'compras' && <ComprasManager />}
+              {subTabMovimentacoes === 'compras' && <ComprasManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabMovimentacoes === 'transferencia' && <TransferenciaManager currentUser={currentUser} />}
               {subTabMovimentacoes === 'visibilidade' && <VisibilidadeManager />}
               {subTabMovimentacoes === 'descartes' && <DescarteManager currentUser={currentUser} />}
@@ -701,13 +701,13 @@ export default function App() {
                 })()}
               </div>
               )}
-              {subTabLogistica === 'clientes' && <ClientesManager />}
-              {subTabLogistica === 'despacho' && <DespachoManager />}
+              {subTabLogistica === 'clientes' && <ClientesManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabLogistica === 'despacho' && <DespachoManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabLogistica === 'minhas_entregas' && <MinhasEntregas currentUser={currentUser} />}
             </div>
           )}
 
-          {activeTab === 'marketing' && <MarketingManager />}
+          {activeTab === 'marketing' && <MarketingManager currentUser={currentUser} temPermissao={temPermissao} />}
 
           {activeTab === 'funcionarios' && (
             <div className="space-y-6">
@@ -734,7 +734,7 @@ export default function App() {
                 )}
               </div>
               {subTabFinanceiro === 'calendario' && temPermissao('calendario_contas', 'aba_financeiro') && (
-                <GestaoFinanceira activeTab="calendario" currentUser={currentUser} />
+                <GestaoFinanceira activeTab="calendario" currentUser={currentUser} temPermissao={temPermissao} />
               )}
               
               {subTabFinanceiro === 'relatorios_gerais' && (
@@ -745,7 +745,7 @@ export default function App() {
                     {temPermissao('relatorios', 'aba_financeiro') && <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>}
                   </div>
                   {subSubTabRelatorios === 'fechamento' && temPermissao('fechamento_caixa', 'aba_financeiro') && <FechamentoManager />}
-                  {subSubTabRelatorios === 'dashboard_fin' && temPermissao('dashboard_financeiro', 'aba_financeiro') && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} />}
+                  {subSubTabRelatorios === 'dashboard_fin' && temPermissao('dashboard_financeiro', 'aba_financeiro') && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} temPermissao={temPermissao} />}
                   {subSubTabRelatorios === 'movimentacoes' && temPermissao('relatorios', 'aba_financeiro') && <RelatoriosManager />}
                 </div>
               )}

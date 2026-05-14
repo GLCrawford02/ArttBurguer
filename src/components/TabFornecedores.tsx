@@ -3,7 +3,7 @@ import { ref, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Pencil, Trash2, Loader2 } from 'lucide-react';
 
-export default function TabFornecedores({ fornecedores, loading, showToast, excluir }: any) {
+export default function TabFornecedores({ fornecedores, loading, showToast, excluir, temPermissao }: any) {
   const [editId, setEditId] = useState<string | null>(null);
   const [nomeForn, setNomeForn] = useState('');
   const [telForn, setTelefoneForn] = useState('');
@@ -11,6 +11,9 @@ export default function TabFornecedores({ fornecedores, loading, showToast, excl
   const [nomeFantasiaForn, setNomeFantasiaForn] = useState('');
   const [observacaoForn, setObservacaoForn] = useState('');
   const [isFetchingCnpj, setIsFetchingCnpj] = useState(false);
+
+  const canEdit = temPermissao ? temPermissao('fornecedores', 'aba_cadastros', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('fornecedores', 'aba_cadastros', 'apagar') : true;
 
   const formatDocumento = (val: string) => {
     let v = val.replace(/\D/g, '');
@@ -55,22 +58,24 @@ export default function TabFornecedores({ fornecedores, loading, showToast, excl
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
-        <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h3>
-        <div className="relative">
-          <input type="text" placeholder="CNPJ ou CPF (Opcional)" value={documentoForn} onChange={handleDocumentoChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm" />
-          {isFetchingCnpj && <Loader2 size={16} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-500 animate-spin" />}
+      {canEdit && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 h-fit space-y-4">
+          <h3 className="text-lg font-bold text-gray-800 mb-2">{editId ? 'Editar Fornecedor' : 'Novo Fornecedor'}</h3>
+          <div className="relative">
+            <input type="text" placeholder="CNPJ ou CPF (Opcional)" value={documentoForn} onChange={handleDocumentoChange} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 font-mono text-sm" />
+            {isFetchingCnpj && <Loader2 size={16} className="absolute right-3 top-1/2 transform -translate-y-1/2 text-purple-500 animate-spin" />}
+          </div>
+          <input type="text" placeholder="Razão Social / Nome" value={nomeForn} onChange={e=>setNomeForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
+          <input type="text" placeholder="Nome Fantasia (Opcional)" value={nomeFantasiaForn} onChange={e=>setNomeFantasiaForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
+          <input type="text" placeholder="Telefone / Contato" value={telForn} onChange={e=>setTelefoneForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
+          <textarea placeholder="Observação (Opcional)" value={observacaoForn} onChange={e=>setObservacaoForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 resize-none" rows={3}></textarea>
+          <div className="flex gap-2">
+            <button onClick={salvarFornecedor} className="flex-1 bg-purple-600 text-white p-2 rounded-lg font-bold hover:bg-purple-700 transition-colors">Salvar</button>
+            {editId && <button onClick={() => { setEditId(null); setNomeForn(''); setNomeFantasiaForn(''); setTelefoneForn(''); setDocumentoForn(''); setObservacaoForn(''); }} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
+          </div>
         </div>
-        <input type="text" placeholder="Razão Social / Nome" value={nomeForn} onChange={e=>setNomeForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-        <input type="text" placeholder="Nome Fantasia (Opcional)" value={nomeFantasiaForn} onChange={e=>setNomeFantasiaForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-        <input type="text" placeholder="Telefone / Contato" value={telForn} onChange={e=>setTelefoneForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500" />
-        <textarea placeholder="Observação (Opcional)" value={observacaoForn} onChange={e=>setObservacaoForn(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-500 resize-none" rows={3}></textarea>
-        <div className="flex gap-2">
-          <button onClick={salvarFornecedor} className="flex-1 bg-purple-600 text-white p-2 rounded-lg font-bold hover:bg-purple-700 transition-colors">Salvar</button>
-          {editId && <button onClick={() => { setEditId(null); setNomeForn(''); setNomeFantasiaForn(''); setTelefoneForn(''); setDocumentoForn(''); setObservacaoForn(''); }} className="p-2 bg-gray-200 text-gray-700 rounded-lg font-bold hover:bg-gray-300">Cancelar</button>}
-        </div>
-      </div>
-      <div className="lg:col-span-2 bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto">
+      )}
+      <div className={`${canEdit ? 'lg:col-span-2' : 'lg:col-span-3'} bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto`}>
          <table className="w-full text-left min-w-[400px]">
            <thead className="bg-gray-50 border-b border-gray-100 text-xs text-gray-500 uppercase"><tr><th className="p-4">Nome / Razão Social</th><th className="p-4">Nome Fantasia</th><th className="p-4">CNPJ / CPF</th><th className="p-4">Contato</th><th className="p-4 text-right">Ações</th></tr></thead>
            {loading ? (
@@ -86,7 +91,10 @@ export default function TabFornecedores({ fornecedores, loading, showToast, excl
                  <td className="p-4 text-gray-700">{f.nomeFantasia || '-'}</td>
                  <td className="p-4 text-gray-600 font-mono text-xs">{f.documento || '-'}</td>
                  <td className="p-4 text-gray-600">{f.telefone || '-'}</td>
-                 <td className="p-4 text-right flex justify-end space-x-2"><button onClick={()=>{setEditId(f.id || null); setNomeForn(f.nome); setNomeFantasiaForn(f.nomeFantasia || ''); setTelefoneForn(f.telefone); setDocumentoForn(f.documento || ''); setObservacaoForn(f.observacao || '');}} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button><button onClick={()=>excluir(`fornecedores/${f.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button></td>
+                 <td className="p-4 text-right flex justify-end space-x-2">
+                   {canEdit && <button onClick={()=>{setEditId(f.id || null); setNomeForn(f.nome); setNomeFantasiaForn(f.nomeFantasia || ''); setTelefoneForn(f.telefone); setDocumentoForn(f.documento || ''); setObservacaoForn(f.observacao || '');}} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded"><Pencil size={16}/></button>}
+                   {canDelete && <button onClick={()=>excluir(`fornecedores/${f.id}`)} className="p-1.5 text-red-500 hover:bg-red-50 rounded"><Trash2 size={16}/></button>}
+                 </td>
                </tr>
              ))}
              {fornecedores.length === 0 && <tr><td colSpan={5} className="p-4 text-center text-gray-400">Nenhum fornecedor registrado.</td></tr>}

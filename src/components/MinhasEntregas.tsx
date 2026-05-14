@@ -142,11 +142,27 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
 
      // Risca a parada atual (colocando o status nela)
      const novasParadas = [...activeRoute.paradas];
-     novasParadas[paradaIndex] = { ...novasParadas[paradaIndex], status: 'Concluída' };
+     novasParadas[paradaIndex] = { ...novasParadas[paradaIndex], status: 'Concluída', timestampEntrega: Date.now() };
      
      await update(ref(db, `despachos/${activeRoute.id}`), {
        paradas: novasParadas
      });
+
+     // Dispara mensagem automática de feedback de entrega para o cliente recém-entregue
+     const clienteAtualMsg = clientes.find(client => client.id === parada.clienteId);
+     if (clienteAtualMsg && clienteAtualMsg.telefone) {
+        let telLimpo = clienteAtualMsg.telefone.replace(/\D/g, '');
+        if (telLimpo.length >= 10) {
+           if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+           const msgFeedback = `Olá *${clienteAtualMsg.nome.split(' ')[0]}*! ✅\n\nSeu pedido foi entregue.\nMuito obrigado por escolher a *ArttBurger*!\nEsperamos que tenha gostado e até a próxima! 🍔\n\nMe conta, correu tudo bem com a sua entrega?`;
+           await set(push(ref(db, 'fila_mensagens')), {
+               telefone: telLimpo,
+               mensagem: msgFeedback,
+               status: 'pendente',
+               timestamp: Date.now()
+           });
+        }
+     }
 
      let proxAvisado = false;
 

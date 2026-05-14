@@ -55,7 +55,7 @@ const validarCPF = (cpf: string): boolean => {
   return digito2 === (apenasNumeros.charCodeAt(10) - 48);
 };
 
-export default function ClientesManager() {
+export default function ClientesManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [vendasPdv, setVendasPdv] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -68,6 +68,9 @@ export default function ClientesManager() {
   const [selectedClientesIds, setSelectedClientesIds] = useState<string[]>([]);
   const [showBulkCategoryModal, setShowBulkCategoryModal] = useState(false);
   const [bulkCategory, setBulkCategory] = useState('');
+  const [showGerenciarTagsModal, setShowGerenciarTagsModal] = useState(false);
+  const [editTagOldName, setEditTagOldName] = useState<string | null>(null);
+  const [editTagNewName, setEditTagNewName] = useState('');
 
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
@@ -86,6 +89,10 @@ export default function ClientesManager() {
 
   const [isFetchingCep, setIsFetchingCep] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const canEdit = temPermissao ? temPermissao('clientes', 'aba_logistica', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('clientes', 'aba_logistica', 'apagar') : true;
+  const canManageTags = temPermissao ? temPermissao('gerenciar_tags', 'aba_logistica', 'visualizar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -240,16 +247,67 @@ export default function ClientesManager() {
     (c.cpf || '').includes(searchTerm)
   );
 
-  const todasCategorias = Array.from(new Set(clientes.flatMap(c => c.categorias || []))).sort();
+  const todasCategorias = Array.from(new Set([...clientes.flatMap(c => c.categorias || []), ...categoriasSelecionadas])).sort();
+
+  const handleEditTag = async () => {
+    if (!editTagNewName.trim() || !editTagOldName) return;
+    const oldName = editTagOldName;
+    const newName = editTagNewName.trim();
+    if (oldName === newName) {
+      setEditTagOldName(null);
+      setEditTagNewName('');
+      return;
+    }
+    
+    let atualizados = 0;
+    for (const c of clientes) {
+      if (c.categorias && c.categorias.includes(oldName)) {
+        const novasCats = c.categorias.map(cat => cat === oldName ? newName : cat);
+        const uniqueCats = Array.from(new Set(novasCats));
+        await update(ref(db, `clientes/${c.id}`), { categorias: uniqueCats });
+        atualizados++;
+      }
+    }
+    
+    setCategoriasSelecionadas(prev => {
+      if (prev.includes(oldName)) {
+        const novas = prev.map(cat => cat === oldName ? newName : cat);
+        return Array.from(new Set(novas));
+      }
+      return prev;
+    });
+
+    showToast(`Tag renomeada em ${atualizados} clientes!`, 'success');
+    setEditTagOldName(null);
+    setEditTagNewName('');
+  };
+
+  const handleDeleteTag = async (tagToDel: string) => {
+    if (!window.confirm(`Tem certeza que deseja excluir a tag "${tagToDel}" de todos os clientes?`)) return;
+    
+    let atualizados = 0;
+    for (const c of clientes) {
+      if (c.categorias && c.categorias.includes(tagToDel)) {
+        const novasCats = c.categorias.filter(cat => cat !== tagToDel);
+        await update(ref(db, `clientes/${c.id}`), { categorias: novasCats });
+        atualizados++;
+      }
+    }
+
+    setCategoriasSelecionadas(prev => prev.filter(cat => cat !== tagToDel));
+    showToast(`Tag removida de ${atualizados} clientes!`, 'success');
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Base de Clientes</h2>
-        <button onClick={() => { resetForm(); setShowForm(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm flex items-center">
-          <Plus size={20} className="mr-2" /> Novo Cliente
-        </button>
+        {canEdit && (
+          <button onClick={() => { resetForm(); setShowForm(true); }} className="bg-indigo-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm flex items-center">
+            <Plus size={20} className="mr-2" /> Novo Cliente
+          </button>
+        )}
       </div>
 
       {showForm && (
@@ -346,7 +404,10 @@ export default function ClientesManager() {
           </div>
 
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4 lg:col-span-2">
-            <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Categorias / Tags do Cliente</h4>
+            <div className="flex justify-between items-center mb-2 border-b border-gray-200 pb-2">
+              <h4 className="text-sm font-bold text-gray-700">Categorias / Tags do Cliente</h4>
+              {canManageTags && <button type="button" onClick={() => setShowGerenciarTagsModal(true)} className="text-[10px] font-bold text-indigo-500 hover:text-indigo-700 uppercase leading-none pb-0.5">Gerenciar Tags</button>}
+            </div>
             <div className="flex flex-wrap gap-2 mb-2">
               {todasCategorias.map(cat => (
                  <button
@@ -395,6 +456,40 @@ export default function ClientesManager() {
       </div>
       )}
 
+      {showGerenciarTagsModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[150] p-4" onClick={() => setShowGerenciarTagsModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full space-y-4 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-lg font-bold text-gray-800">Gerenciar Tags</h3>
+              <button onClick={() => setShowGerenciarTagsModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <p className="text-sm text-gray-500 mb-4">Atenção: Renomear ou excluir uma tag afetará todos os clientes que a possuem.</p>
+            <div className="max-h-[60vh] overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
+              {todasCategorias.map((cat: string) => (
+                <div key={cat} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                  {editTagOldName === cat ? (
+                    <div className="flex w-full space-x-2">
+                      <input type="text" value={editTagNewName} onChange={e => setEditTagNewName(e.target.value)} className="flex-1 p-1 border border-indigo-300 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white" autoFocus />
+                      <button onClick={handleEditTag} className="text-green-600 hover:bg-green-50 px-2 rounded font-bold text-sm">Salvar</button>
+                      <button onClick={() => { setEditTagOldName(null); setEditTagNewName(''); }} className="text-gray-500 hover:bg-gray-100 px-2 rounded font-bold text-sm">Cancelar</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="text-sm font-medium text-gray-700">{cat}</span>
+                      <div className="flex space-x-1">
+                        {canManageTags && <button onClick={() => { setEditTagOldName(cat); setEditTagNewName(cat); }} className="text-blue-500 hover:bg-blue-50 p-1.5 rounded"><Pencil size={16}/></button>}
+                        {canManageTags && <button onClick={() => handleDeleteTag(cat)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+              {todasCategorias.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhuma tag cadastrada.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Lista de Clientes */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
@@ -402,7 +497,7 @@ export default function ClientesManager() {
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input type="text" placeholder="Buscar por nome ou telefone..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full" />
           </div>
-          {!isSelectionMode && (
+          {!isSelectionMode && canEdit && (
             <button onClick={() => setIsSelectionMode(true)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm text-sm">
               Selecionar Múltiplos
             </button>
@@ -452,8 +547,8 @@ export default function ClientesManager() {
                   )}
                 </div>
                 <div className="flex space-x-1 shrink-0">
-                  <button onClick={() => handleEdit(c)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>
-                  <button onClick={() => handleExcluir(c.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>
+                  {canEdit && <button onClick={() => handleEdit(c)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors"><Pencil size={16} /></button>}
+                  {canDelete && <button onClick={() => handleExcluir(c.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"><Trash2 size={16} /></button>}
                 </div>
               </div>
               
