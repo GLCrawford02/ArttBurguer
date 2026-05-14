@@ -82,6 +82,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const isAdminOrGerente = temPermissao('pdv_conferencia', 'aba_pdv');
   const canViewComandas = temPermissao('pdv_comandas', 'aba_pdv');
   const isCaixaOrAdmin = temPermissao('vendas', 'aba_pdv');
+  const canDelivery = temPermissao('pdv_delivery', 'aba_pdv');
 
   useEffect(() => {
     if (!isAdminOrGerente && activeView === 'conferencia') setActiveView('pdv');
@@ -463,7 +464,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       pontoCarne: pdvItemOptions.pontoCarne,
       adicionais: Object.entries(pdvItemOptions.adicionais).map(([addId, qtd]: [string, any]) => {
         const add = adicionaisDoProduto.find((a: any) => a.id === addId);
-        return { id: add?.id, nome: add?.nome, qtd, preco: Number(add?.preco || 0) };
+        return { id: add?.id, nome: add?.nome, qtd, preco: Number(add?.preco || 0), insumoId: add?.insumoId, quantidadeInsumo: add?.quantidade || 1 };
       }),
       restricoes: pdvItemOptions.restricoes,
       observacao: pdvItemOptions.observacao
@@ -522,10 +523,11 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
   const handlePdvSalvar = async () => {
     // Validação inicial do Caixa
-    if (totalPdv <= 0) return showToast('Adicione produtos à venda.', 'error');
+    if (totalPdv < 0) return showToast('O total não pode ser negativo.', 'error');
+    if (totalPdv === 0 && Object.keys(pdvCarrinho).length === 0) return showToast('Adicione produtos à venda.', 'error');
     const pagamentosValidos = pdvPagamentos.filter(p => p.taxaId && Number(p.valor) > 0);
-    if (pagamentosValidos.length === 0) return showToast('Informe uma forma de pagamento.', 'error');
-    if (Math.abs(restantePdv) > 0.05) return showToast(`O valor pago deve ser exatamente R$ ${totalPdv.toFixed(2)}.`, 'error');
+    if (totalPdv > 0 && pagamentosValidos.length === 0) return showToast('Informe uma forma de pagamento.', 'error');
+    if (Math.abs(restantePdv) > 0.05) return showToast(`O valor pago deve ser exatamente R$ ${totalPdv.toFixed(2)} para liberar a mesa/venda.`, 'error');
     if (pdvTipoPedido === 'Entrega' && !pdvCliente) return showToast('Para entregas, é obrigatório selecionar o cliente.', 'error');
 
     try {
@@ -822,6 +824,93 @@ Formato esperado:
     </div>
   );
 
+  const PaymentSection = (
+    <div className="flex flex-col gap-3">
+      {pdvTipoPedido === 'Mesa' || pdvTipoPedido === 'Entrega' ? (
+        <>
+          <button onClick={pdvTipoPedido === 'Mesa' ? handleSalvarMesa : handleSalvarEntrega} className="w-full bg-orange-500 text-white p-3 rounded-lg font-bold text-sm hover:bg-orange-600 transition-colors shadow-md flex justify-center items-center">
+            <Save className="mr-2" size={16}/> Salvar / Enviar para Cozinha
+          </button>
+          
+          <div className="border-t border-gray-200 pt-3">
+            <h4 className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center justify-center bg-gray-100 py-1.5 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar {pdvTipoPedido})</h4>
+            
+            <div className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg border border-gray-200 mb-2">
+              <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
+              <div className="text-right">
+                {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
+                <span className="font-black text-lg text-green-600">R$ {totalPdv.toFixed(2)}</span>
+              </div>
+            </div>
+            
+            <div className="space-y-2 mb-2 max-h-[120px] overflow-y-auto">
+              {pdvPagamentos.map((p, index) => (
+                <div key={index} className="flex items-center space-x-2">
+                  <select value={p.taxaId} onChange={e => handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'taxaId', e.target.value)} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-xs font-medium">
+                    <option value="">Forma de Pagto...</option>
+                    {taxasComPadroes.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                  </select>
+                  <div className="relative w-28">
+                    <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-xs font-medium">R$</span>
+                    <input type="text" value={p.valor === '' ? '' : Number(p.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'valor', digits ? parseInt(digits, 10) / 100 : ''); }} className="w-full pl-6 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-xs font-bold text-right" placeholder="0,00" />
+                  </div>
+                  {pdvPagamentos.length > 1 && <button onClick={() => setPdvPagamentos(pdvPagamentos.filter((_, i) => i !== index))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>}
+                </div>
+              ))}
+              {restantePdv > 0.05 && (
+                <div className="flex justify-between items-center text-xs px-1">
+                  <span className="text-red-500 font-bold">Falta: R$ {restantePdv.toFixed(2)}</span>
+                  <button onClick={() => setPdvPagamentos([...pdvPagamentos, { taxaId: '', valor: restantePdv > 0 ? Number(restantePdv.toFixed(2)) : '' }])} className="text-blue-600 font-bold flex items-center hover:text-blue-800"><Plus size={12} className="mr-1" /> Dividir</button>
+                </div>
+              )}
+            </div>
+            
+            <button onClick={handlePdvSalvar} disabled={totalPdv < 0 || (totalPdv > 0 && pdvPagamentos.some(p => !p.taxaId)) || Math.abs(restantePdv) > 0.05} className="w-full bg-green-600 text-white p-3 rounded-lg font-bold text-sm hover:bg-green-700 transition-colors shadow-md disabled:opacity-50 flex justify-center items-center mt-2">
+              <CheckCircle className="mr-2" size={16}/> Finalizar e Liberar {pdvTipoPedido}
+            </button>
+          </div>
+        </>
+      ) : (
+        <>
+          {DescontoArea}
+          <div className="flex justify-between items-center bg-green-50 p-3 rounded-xl border border-green-100 shadow-inner">
+            <span className="font-bold text-green-800 uppercase text-xs">Total a Pagar</span>
+            <div className="text-right">
+              {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
+              <span className="font-black text-xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
+            </div>
+          </div>
+          
+          <div className="space-y-2 mt-2 max-h-[120px] overflow-y-auto">
+            {pdvPagamentos.map((p, index) => (
+              <div key={index} className="flex items-center space-x-2">
+                <select value={p.taxaId} onChange={e => handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'taxaId', e.target.value)} className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-xs font-medium">
+                  <option value="">Forma de Pagto...</option>
+                  {taxasComPadroes.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+                </select>
+                <div className="relative w-28">
+                  <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-xs font-medium">R$</span>
+                  <input type="text" value={p.valor === '' ? '' : Number(p.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'valor', digits ? parseInt(digits, 10) / 100 : ''); }} className="w-full pl-6 pr-2 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-xs font-bold text-right" placeholder="0,00" />
+                </div>
+                {pdvPagamentos.length > 1 && <button onClick={() => setPdvPagamentos(pdvPagamentos.filter((_, i) => i !== index))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={14} /></button>}
+              </div>
+            ))}
+            {restantePdv > 0.05 && (
+              <div className="flex justify-between items-center text-xs px-1">
+                <span className="text-red-500 font-bold">Falta: R$ {restantePdv.toFixed(2)}</span>
+                <button onClick={() => setPdvPagamentos([...pdvPagamentos, { taxaId: '', valor: restantePdv > 0 ? Number(restantePdv.toFixed(2)) : '' }])} className="text-blue-600 font-bold flex items-center hover:text-blue-800"><Plus size={12} className="mr-1" /> Dividir</button>
+              </div>
+            )}
+          </div>
+          
+          <button onClick={handlePdvSalvar} disabled={totalPdv < 0 || (totalPdv > 0 && pdvPagamentos.some(p => !p.taxaId)) || Math.abs(restantePdv) > 0.05} className="w-full bg-green-600 text-white p-3 rounded-lg font-bold text-base hover:bg-green-700 transition-colors shadow-md disabled:opacity-50 mt-2 flex justify-center items-center">
+            <CheckCircle className="mr-2" size={18}/> Finalizar Venda
+          </button>
+        </>
+      )}
+    </div>
+  );
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       
@@ -859,12 +948,12 @@ Formato esperado:
                   <Store size={18} className="mr-2 shrink-0" /> Venda Balcão
                 </button>
               )}
-              {isCaixaOrAdmin && (
+              {canDelivery && (
                 <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 bg-green-600 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
                   <Truck size={18} className="mr-2 shrink-0" /> Novo Delivery
                 </button>
               )}
-              {isCaixaOrAdmin && (
+              {canDelivery && (
                 <button onClick={() => setShowPainelEntregas(true)} className="flex-1 bg-blue-100 text-blue-700 px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
                   <Map size={18} className="mr-2 shrink-0" /> Painel de Entregas
                 </button>
@@ -873,7 +962,7 @@ Formato esperado:
           </div>
 
           <div className="space-y-8">
-            {isCaixaOrAdmin && (
+            {canDelivery && (
               <div>
               <h4 className="font-bold text-gray-700 mb-4 flex items-center"><Truck className="mr-2 text-orange-500" size={20}/> Entregas em Aberto</h4>
               {Object.keys(entregasAbertas).length > 0 ? (
@@ -927,10 +1016,11 @@ Formato esperado:
       )}
 
       {activeView === 'pdv' && pdvView === 'caixa' && (
-        <div className="flex flex-col gap-4 lg:gap-6 animate-in slide-in-from-left-4 duration-300">
+        <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 animate-in slide-in-from-left-4 duration-300 pb-52 lg:pb-0 lg:h-[calc(100vh-140px)]">
           
-          <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-auto z-10">
-            <h3 className="font-bold text-gray-800 flex items-center mb-4 sm:mb-6 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
+          <div className="flex flex-col w-full lg:w-[400px] xl:w-[450px] gap-4 h-full shrink-0">
+            <div className="bg-white p-3 sm:p-4 rounded-xl shadow-sm border border-gray-100 flex flex-col flex-1 min-h-[300px] max-h-[50vh] lg:max-h-none z-10 overflow-hidden">
+              <h3 className="font-bold text-gray-800 flex items-center mb-4 text-lg"><ShoppingCart className="mr-2 text-green-600"/> Caixa Aberto</h3>
             
             <div className="flex gap-2 mb-4 bg-gray-100 p-1 rounded-lg items-center">
               <button onClick={() => setPdvView('mapa')} className="p-1.5 text-gray-500 hover:bg-gray-200 rounded-md transition-colors" title="Voltar para Mapa">
@@ -942,14 +1032,9 @@ Formato esperado:
                 <div className="flex-1 text-center font-bold text-green-700">Edição de Delivery</div>
               ) : (
                 <div className="flex flex-1 gap-1">
-                {isCaixaOrAdmin ? (
-                  <>
-                    <button onClick={() => setPdvTipoPedido('Balcão')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Balcão' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Balcão</button>
-                    <button onClick={() => setPdvTipoPedido('Entrega')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Entrega' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Delivery</button>
-                  </>
-                ) : (
-                  <div className="flex-1 text-center font-bold text-gray-500 py-1.5">Selecione uma mesa no mapa</div>
-                )}
+                {isCaixaOrAdmin && <button onClick={() => setPdvTipoPedido('Balcão')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Balcão' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Balcão</button>}
+                {canDelivery && <button onClick={() => setPdvTipoPedido('Entrega')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Entrega' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Delivery</button>}
+                {!isCaixaOrAdmin && !canDelivery && <div className="flex-1 text-center font-bold text-gray-500 py-1.5">Selecione uma mesa no mapa</div>}
                 </div>
               )}
             </div>
@@ -979,7 +1064,7 @@ Formato esperado:
               )}
             </div>
 
-            <div className="max-h-[40vh] overflow-y-auto border-t border-b border-gray-100 py-4 space-y-3 pr-1">
+            <div className="flex-1 overflow-y-auto border-t border-b border-gray-100 py-3 space-y-3 pr-1">
               {(() => {
                 const cartItemsList = Object.entries(pdvCarrinho);
                 const displayedItems = isCartExpanded ? cartItemsList : cartItemsList.slice(0, 3);
@@ -1041,95 +1126,14 @@ Formato esperado:
                 </div>
               )}
             </div>
-
-            <div className="pt-4 space-y-3 shrink-0">
-               {pdvTipoPedido === 'Mesa' || pdvTipoPedido === 'Entrega' ? (
-                 <>
-                   <button onClick={pdvTipoPedido === 'Mesa' ? handleSalvarMesa : handleSalvarEntrega} className="w-full bg-orange-500 text-white p-4 rounded-xl font-bold text-lg hover:bg-orange-600 transition-colors shadow-md flex justify-center items-center mb-4">
-                     <Save className="mr-2" size={20}/> Salvar Pedido
-                   </button>
-
-                   <div className="border-t border-gray-200 pt-4">
-                     <h4 className="text-xs font-bold text-gray-500 uppercase mb-3 flex items-center justify-center bg-gray-100 py-2 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar {pdvTipoPedido})</h4>
-                     
-                     <div className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200 mb-3">
-                        <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
-                        <div className="text-right">
-                          {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
-                          <span className="font-black text-xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
-                        </div>
-                     </div>
-                     
-                     <div className="space-y-2 mb-3">
-                       {pdvPagamentos.map((p, index) => (
-                         <div key={index} className="flex items-center space-x-2">
-                           <select value={p.taxaId} onChange={e => handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'taxaId', e.target.value)} className="flex-1 p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm font-medium">
-                             <option value="">Forma de Pagto...</option>
-                             {taxasComPadroes.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-                           </select>
-                           <div className="relative w-32">
-                             <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
-                             <input type="text" value={p.valor === '' ? '' : Number(p.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'valor', digits ? parseInt(digits, 10) / 100 : ''); }} className="w-full pl-7 pr-2 py-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm font-bold text-right" placeholder="0,00" />
-                           </div>
-                           {pdvPagamentos.length > 1 && <button onClick={() => setPdvPagamentos(pdvPagamentos.filter((_, i) => i !== index))} className="p-2.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>}
-                         </div>
-                       ))}
-                       {restantePdv > 0.05 && (
-                         <div className="flex justify-between items-center text-sm px-1">
-                           <span className="text-red-500 font-bold">Falta: R$ {restantePdv.toFixed(2)}</span>
-                           <button onClick={() => setPdvPagamentos([...pdvPagamentos, { taxaId: '', valor: restantePdv > 0 ? Number(restantePdv.toFixed(2)) : '' }])} className="text-blue-600 font-bold flex items-center hover:text-blue-800"><Plus size={14} className="mr-1" /> Dividir</button>
-                         </div>
-                       )}
-                     </div>
-                     
-                     <button onClick={handlePdvSalvar} disabled={totalPdv <= 0 || pdvPagamentos.some(p => !p.taxaId) || Math.abs(restantePdv) > 0.05} className="w-full bg-green-600 text-white p-4 rounded-xl font-bold text-sm hover:bg-green-700 transition-colors shadow-md disabled:opacity-50 flex justify-center items-center">
-                       <CheckCircle className="mr-2" size={18}/> Finalizar e Liberar {pdvTipoPedido}
-                     </button>
-                   </div>
-                 </>
-               ) : (
-                 <>
-                  {DescontoArea}
-
-                   <div className="flex justify-between items-center bg-green-50 p-4 rounded-xl border border-green-100 shadow-inner">
-                      <span className="font-bold text-green-800 uppercase text-sm">Total a Pagar</span>
-                      <div className="text-right">
-                        {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
-                        <span className="font-black text-2xl text-green-600">R$ {totalPdv.toFixed(2)}</span>
-                      </div>
-                   </div>
-                   
-                   <div className="space-y-2 mt-2">
-                     {pdvPagamentos.map((p, index) => (
-                       <div key={index} className="flex items-center space-x-2">
-                         <select value={p.taxaId} onChange={e => handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'taxaId', e.target.value)} className="flex-1 p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm font-medium">
-                           <option value="">Forma de Pagto...</option>
-                           {taxasComPadroes.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
-                         </select>
-                         <div className="relative w-32">
-                           <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
-                           <input type="text" value={p.valor === '' ? '' : Number(p.valor).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={e => { const digits = e.target.value.replace(/\D/g, ''); handlePagamentoChange(setPdvPagamentos, pdvPagamentos, index, 'valor', digits ? parseInt(digits, 10) / 100 : ''); }} className="w-full pl-7 pr-2 py-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm font-bold text-right" placeholder="0,00" />
-                         </div>
-                         {pdvPagamentos.length > 1 && <button onClick={() => setPdvPagamentos(pdvPagamentos.filter((_, i) => i !== index))} className="p-2.5 text-red-500 hover:bg-red-50 rounded-lg"><Trash2 size={16} /></button>}
-                       </div>
-                     ))}
-                     {restantePdv > 0.05 && (
-                       <div className="flex justify-between items-center text-sm px-1">
-                         <span className="text-red-500 font-bold">Falta: R$ {restantePdv.toFixed(2)}</span>
-                         <button onClick={() => setPdvPagamentos([...pdvPagamentos, { taxaId: '', valor: restantePdv > 0 ? Number(restantePdv.toFixed(2)) : '' }])} className="text-blue-600 font-bold flex items-center hover:text-blue-800"><Plus size={14} className="mr-1" /> Dividir</button>
-                       </div>
-                     )}
-                   </div>
-                   
-                   <button onClick={handlePdvSalvar} disabled={totalPdv <= 0 || pdvPagamentos.some(p => !p.taxaId) || Math.abs(restantePdv) > 0.05} className="w-full bg-green-600 text-white p-4 rounded-xl font-bold text-lg hover:bg-green-700 transition-colors shadow-md disabled:opacity-50 mt-4 flex justify-center items-center">
-                     <CheckCircle className="mr-2" size={20}/> Finalizar Venda
-                   </button>
-                 </>
-               )}
-            </div>
           </div>
 
-          <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col h-[55vh] sm:h-[60vh] min-h-[400px]">
+          <div className="hidden lg:flex bg-white p-4 rounded-xl shadow-sm border border-gray-100 shrink-0 flex-col">
+            {PaymentSection}
+          </div>
+          </div>
+
+          <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col flex-1 h-[60vh] lg:h-full min-h-[400px]">
             <div className="flex items-center gap-2 mb-4">
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
@@ -1165,6 +1169,11 @@ Formato esperado:
               ))}
             </div>
           </div>
+
+          <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white p-4 border-t border-gray-200 shadow-[0_-10px_20px_-5px_rgba(0,0,0,0.1)] z-50 rounded-t-2xl max-h-[50vh] overflow-y-auto">
+             {PaymentSection}
+          </div>
+
         </div>
       )}
 
@@ -1334,23 +1343,10 @@ Formato esperado:
                <div className="space-y-2">
                  <div className="flex justify-between items-end"><h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Restrições (Sem)</h4></div>
                  <div className="flex flex-wrap gap-2">
-                   {pdvItemModal.ingredientes && pdvItemModal.ingredientes.length > 0 ? (
-                     pdvItemModal.ingredientes
-                       .map((ing: any) => insumos.find(i => i.id === ing.insumoId))
-                       .filter((insumo: any) => {
-                         if (!insumo) return false;
-                         const nome = (insumo.nome || '').toLowerCase();
-                         const tipoUso = (insumo.tipoUso || '').toLowerCase();
-                         if (tipoUso === 'embalagem') return false;
-                         if (['embalagem', 'palito', 'sacola', 'sache', 'sachê', 'lacre', 'adesivo', 'ch3', 'papel'].some(word => nome.includes(word))) return false;
-                         return true;
-                       })
-                       .map((r: any) => (
-                         <button key={r.id} onClick={() => setPdvItemOptions((prev: any) => ({ ...prev, restricoes: prev.restricoes.includes(r.nome) ? prev.restricoes.filter((n: any) => n !== r.nome) : [...prev.restricoes, r.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${pdvItemOptions.restricoes.includes(r.nome) ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{r.nome}</button>
-                       ))
-                   ) : (
-                     <span className="text-xs text-gray-400">Nenhum ingrediente configurado.</span>
-                   )}
+                   {(pdvItemModal.opcoes?.restricoesLivres || []).map((r: any) => (
+                     <button key={r.id} onClick={() => setPdvItemOptions((prev: any) => ({ ...prev, restricoes: prev.restricoes.includes(r.nome) ? prev.restricoes.filter((n: any) => n !== r.nome) : [...prev.restricoes, r.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${pdvItemOptions.restricoes.includes(r.nome) ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{r.nome}</button>
+                   ))}
+                   {(pdvItemModal.opcoes?.restricoesLivres || []).length === 0 && <span className="text-xs text-gray-400">Nenhuma restrição configurada.</span>}
                  </div>
                </div>
 
@@ -1567,7 +1563,7 @@ Formato esperado:
         </div>
       )}
 
-      {showPainelEntregas && isCaixaOrAdmin && (
+      {showPainelEntregas && canDelivery && (
         <div className="fixed inset-0 bg-gray-100 z-[100] flex flex-col animate-in slide-in-from-bottom-4 duration-300 p-2 sm:p-4">
           <div className="bg-white p-4 rounded-t-xl border-b border-gray-200 flex justify-between items-center shadow-sm shrink-0">
             <h2 className="text-lg sm:text-xl font-black text-gray-800 flex items-center"><Truck className="mr-2 text-blue-600" size={24}/> Painel Geral de Entregas</h2>

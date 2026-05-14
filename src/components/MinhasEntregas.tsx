@@ -2,6 +2,9 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, update, set, push } from 'firebase/database';
 import { db } from '../firebase';
 import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X } from 'lucide-react';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
+import { KeepAwake } from '@capacitor-community/keep-awake';
 
 export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [despachos, setDespachos] = useState<any[]>([]);
@@ -9,6 +12,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [isTracking, setIsTracking] = useState(false);
   const wakeLockRef = useRef<any>(null);
   const watchIdRef = useRef<number | null>(null);
+  const capWatchIdRef = useRef<string | null>(null);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [reportModal, setReportModal] = useState<number | null>(null);
 
@@ -48,49 +52,63 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   }, [activeRoute, isTracking]);
 
   const iniciarRastreamento = async () => {
-    // 1. Manter a tela ligada (Wake Lock API)
-    if ('wakeLock' in navigator) {
-      try {
-        wakeLockRef.current = await (navigator as any).wakeLock.request('screen');
-        console.log('Tela mantida acesa para o rastreamento.');
-      } catch (err) {
-        console.error('Erro ao solicitar Wake Lock', err);
-      }
-    }
-
-    // 2. Iniciar captura do GPS
-    if ('geolocation' in navigator) {
-      watchIdRef.current = navigator.geolocation.watchPosition(
-        (pos) => {
-          const { latitude, longitude, speed } = pos.coords;
-          // Atualiza a posição no Firebase para o gerente ver no mapa
-          if (currentUser?.id) {
-            update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-              lat: latitude,
-              lng: longitude,
-              velocidade: speed || 0,
-              timestamp: Date.now()
-            });
+    if (Capacitor.isNativePlatform()) {
+      // Rodando dentro do Aplicativo (APK)
+      await KeepAwake.keepAwake(); // Trava a tela para não apagar no bolso/painel
+      const perm = await Geolocation.requestPermissions();
+      if (perm.location === 'granted') {
+        capWatchIdRef.current = await Geolocation.watchPosition(
+          { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 },
+          (pos, err) => {
+            if (pos && currentUser?.id) {
+              update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+                lat: pos.coords.latitude,
+                lng: pos.coords.longitude,
+                velocidade: pos.coords.speed || 0,
+                timestamp: Date.now()
+              });
+            }
           }
-        },
-        (err) => console.error('Erro de GPS', err),
-        { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
-      );
-      setIsTracking(true);
+        );
+        setIsTracking(true);
+      } else {
+        showToast('Você precisa autorizar o GPS do celular!', 'error');
+      }
     } else {
-      alert('Seu navegador não suporta geolocalização.');
+      // Rodando no Navegador (Computador/Safari)
+      if ('wakeLock' in navigator) {
+        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } 
+        catch (err) { console.error('Erro Wake Lock', err); }
+      }
+
+      if ('geolocation' in navigator) {
+        watchIdRef.current = navigator.geolocation.watchPosition(
+          (pos) => {
+            if (currentUser?.id) {
+              update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+                lat: pos.coords.latitude, lng: pos.coords.longitude,
+                velocidade: pos.coords.speed || 0, timestamp: Date.now()
+              });
+            }
+          },
+          (err) => console.error('Erro de GPS', err),
+          { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 }
+        );
+        setIsTracking(true);
+      }
     }
   };
 
   const pararRastreamento = () => {
-    if (watchIdRef.current !== null) {
-      navigator.geolocation.clearWatch(watchIdRef.current);
-      watchIdRef.current = null;
-    }
-    if (wakeLockRef.current !== null) {
-      wakeLockRef.current.release().then(() => {
-        wakeLockRef.current = null;
-      });
+    if (Capacitor.isNativePlatform()) {
+      KeepAwake.allowSleep();
+      if (capWatchIdRef.current !== null) {
+        Geolocation.clearWatch({ id: capWatchIdRef.current });
+        capWatchIdRef.current = null;
+      }
+    } else {
+      if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
+      if (wakeLockRef.current !== null) { wakeLockRef.current.release().then(() => wakeLockRef.current = null); }
     }
     setIsTracking(false);
   };
@@ -245,6 +263,16 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
            )
          })}
       </div>
+
+      {activeRoute.paradas.length > 0 && activeRoute.paradas.every((p: any) => p.status === 'Concluída') && (
+        <div className="mt-6 bg-emerald-50 border border-emerald-200 p-6 rounded-xl text-center shadow-sm animate-in slide-in-from-bottom-4 duration-300">
+          <div className="bg-emerald-100 text-emerald-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+            <CheckCircle size={32} />
+          </div>
+          <h3 className="text-xl font-black text-emerald-800 mb-2">Todas as entregas concluídas!</h3>
+          <p className="text-sm text-emerald-700 font-medium leading-relaxed">Você já pode voltar para a loja em segurança. O seu GPS continuará ligado para o Gerente te acompanhar no mapa!</p>
+        </div>
+      )}
 
       {reportModal !== null && activeRoute && (
         <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4" onClick={() => setReportModal(null)}>

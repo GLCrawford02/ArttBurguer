@@ -29,7 +29,8 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
     {
       id: 'aba_pdv', nome: 'Caixa / PDV',
       modulos: [
-        { id: 'vendas', nome: 'Frente de Caixa (Balcão/Mesa/Delivery)', admin: false },
+        { id: 'vendas', nome: 'Frente de Caixa (Balcão/Mesa)', admin: false },
+        { id: 'pdv_delivery', nome: 'Frente de Caixa (Novo Delivery e Painel)', admin: false },
         { id: 'pdv_comandas', nome: 'Comandas do Dia', admin: false },
         { id: 'pdv_conferencia', nome: 'Conferência de Fechamento', admin: true }
       ]
@@ -173,7 +174,13 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
   const handleToggle = (moduloId: string, acao: 'visualizar' | 'editar' | 'apagar') => {
     if (selectedCargo === 'Dono' || selectedCargo === 'TI') return;
 
-    const currentVal = permissoes[selectedCargo]?.[moduloId]?.[acao] || false;
+    let currentVal = permissoes[selectedCargo]?.[moduloId]?.[acao];
+    if (currentVal === undefined && acao === 'visualizar') {
+      currentVal = !!categorias.find(c => c.id === moduloId);
+    } else if (currentVal === undefined) {
+      currentVal = false;
+    }
+
     const newVal = !currentVal;
 
     const modulo = categorias.flatMap(c => c.modulos).find(m => m.id === moduloId) || categorias.find(c => c.id === moduloId);

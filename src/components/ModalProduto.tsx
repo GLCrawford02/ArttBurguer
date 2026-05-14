@@ -26,11 +26,18 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
 
   const [tiposMontagem, setTiposMontagem] = useState<{id: string, nome: string}[]>([]);
   const [pontosCarne, setPontosCarne] = useState<{id: string, nome: string}[]>([]);
-  const [adicionais, setAdicionais] = useState<{id: string, nome: string, preco: number}[]>([]);
+  const [adicionais, setAdicionais] = useState<{id: string, nome: string, preco: number, insumoId?: string | null, quantidade?: number}[]>([]);
   const [novaMontagem, setNovaMontagem] = useState('');
   const [novoPonto, setNovoPonto] = useState('');
   const [novoAdicionalNome, setNovoAdicionalNome] = useState('');
   const [novoAdicionalPreco, setNovoAdicionalPreco] = useState('');
+  const [novoAdicionalInsumoId, setNovoAdicionalInsumoId] = useState('');
+  const [novoAdicionalQtd, setNovoAdicionalQtd] = useState('');
+  const [showAdicionalDropdown, setShowAdicionalDropdown] = useState(false);
+  const [restricoes, setRestricoes] = useState<{id: string, nome: string, insumoId: string | null}[]>([]);
+  const [novaRestricao, setNovaRestricao] = useState('');
+  const [novaRestricaoInsumoId, setNovaRestricaoInsumoId] = useState('');
+  const [showRestricaoDropdown, setShowRestricaoDropdown] = useState(false);
   const [produtoCopiaId, setProdutoCopiaId] = useState('');
   const [searchProdutoCopia, setSearchProdutoCopia] = useState('');
   const [showProdutoCopiaDropdown, setShowProdutoCopiaDropdown] = useState(false);
@@ -48,6 +55,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       setTiposMontagem((produtoEdit as any).opcoes?.tiposMontagem || []);
       setPontosCarne((produtoEdit as any).opcoes?.pontosCarne || []);
       setAdicionais((produtoEdit as any).opcoes?.adicionais || []);
+      setRestricoes((produtoEdit as any).opcoes?.restricoesLivres || []);
       setCadastroMode('manual');
     } else {
       setNomeProduto('');
@@ -58,6 +66,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       setTiposMontagem([]);
       setPontosCarne([]);
       setAdicionais([]);
+      setRestricoes([]);
       setCriarDuplo(false);
       setCadastroMode('manual');
     }
@@ -129,11 +138,21 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
 
   const handleAddAdicional = () => {
     if (!novoAdicionalNome.trim()) return;
-    setAdicionais([...adicionais, { id: Date.now().toString(), nome: novoAdicionalNome.trim(), preco: Number(novoAdicionalPreco) || 0 }]);
+    setAdicionais([...adicionais, { id: Date.now().toString(), nome: novoAdicionalNome.trim(), preco: Number(novoAdicionalPreco) || 0, insumoId: novoAdicionalInsumoId || null, quantidade: Number(novoAdicionalQtd) || 1 }]);
     setNovoAdicionalNome('');
     setNovoAdicionalPreco('');
+    setNovoAdicionalInsumoId('');
+    setNovoAdicionalQtd('');
   };
   const handleRemoveAdicional = (id: string) => setAdicionais(adicionais.filter(i => i.id !== id));
+
+  const handleAddRestricao = () => {
+    if (!novaRestricao.trim()) return;
+    setRestricoes([...restricoes, { id: Date.now().toString(), nome: novaRestricao.trim(), insumoId: novaRestricaoInsumoId || null }]);
+    setNovaRestricao('');
+    setNovaRestricaoInsumoId('');
+  };
+  const handleRemoveRestricao = (id: string) => setRestricoes(restricoes.filter(i => i.id !== id));
 
   const handleCopiarOpcoes = () => {
     if (!produtoCopiaId) return;
@@ -142,6 +161,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       setTiposMontagem((p as any).opcoes.tiposMontagem || []);
       setPontosCarne((p as any).opcoes.pontosCarne || []);
       setAdicionais((p as any).opcoes.adicionais || []);
+      setRestricoes((p as any).opcoes.restricoesLivres || []);
       showToast('Opções copiadas com sucesso!', 'success');
     } else {
       showToast('Este produto não possui opções cadastradas.', 'error');
@@ -168,7 +188,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
     }
     
     try {
-      const opcoesData = { tiposMontagem, pontosCarne, adicionais };
+      const opcoesData = { tiposMontagem, pontosCarne, adicionais, restricoesLivres: restricoes };
       const produtosRef = ref(db, 'produtos');
       
       if (produtoEdit) {
@@ -311,10 +331,11 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
                   <button onClick={handleCopiarOpcoes} className="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition-colors">Copiar</button>
                 </div>
               </div>
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Tipos de Montagem</p><div className="flex space-x-2 mb-3"><input type="text" value={novaMontagem} onChange={e => setNovaMontagem(e.target.value)} placeholder="Ex: No Prato" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddMontagem} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{tiposMontagem.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><button onClick={() => handleRemoveMontagem(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}</div></div>
                 <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Ponto da Carne</p><div className="flex space-x-2 mb-3"><input type="text" value={novoPonto} onChange={e => setNovoPonto(e.target.value)} placeholder="Ex: Mal Passada" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddPonto} className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{pontosCarne.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><button onClick={() => handleRemovePonto(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}</div></div>
-                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Adicionais (Cobrados)</p><div className="flex space-x-2 mb-3"><input type="text" value={novoAdicionalNome} onChange={e => setNovoAdicionalNome(e.target.value)} placeholder="Ex: Bacon" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none w-1/2 bg-white" /><input type="number" value={novoAdicionalPreco} onChange={e => setNovoAdicionalPreco(e.target.value)} placeholder="R$ 0,00" className="p-2 border border-gray-200 rounded-lg text-xs outline-none w-20 bg-white" /><button onClick={handleAddAdicional} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{adicionais.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome} <strong className="text-green-600">R$ {t.preco.toFixed(2)}</strong></span><button onClick={() => handleRemoveAdicional(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}</div></div>
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Adicionais (Cobrados)</p><div className="flex flex-col gap-2 mb-3"><div className="relative"><input type="text" value={novoAdicionalNome} onChange={e => { setNovoAdicionalNome(e.target.value); setNovoAdicionalInsumoId(''); setShowAdicionalDropdown(true); }} onFocus={() => setShowAdicionalDropdown(true)} onBlur={() => setTimeout(() => setShowAdicionalDropdown(false), 200)} placeholder="Ex: Bacon" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showAdicionalDropdown && novoAdicionalNome && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => i.nome.toLowerCase().includes(novoAdicionalNome.toLowerCase())).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovoAdicionalNome(i.nome); setNovoAdicionalInsumoId(i.id); setShowAdicionalDropdown(false); }} className="p-2 text-xs hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center"><span className="font-medium text-gray-800">{i.nome}</span><span className="text-gray-400 text-[10px]">{i.unidade}</span></div>))}<div onMouseDown={() => setShowAdicionalDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-green-600 font-bold italic">Usar texto livre: "{novoAdicionalNome}"</div></div>)}</div><div className="flex space-x-2"><input type="number" value={novoAdicionalPreco} onChange={e => setNovoAdicionalPreco(e.target.value)} placeholder="R$ 0,00" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><input type="number" step="any" value={novoAdicionalQtd} onChange={e => setNovoAdicionalQtd(e.target.value)} placeholder="Qtd" title="Quantidade consumida do insumo" className="w-16 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddAdicional} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"><Plus size={16}/></button></div></div><div className="space-y-1 max-h-32 overflow-y-auto">{adicionais.map((t: any) => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><div><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-green-100 text-green-600 px-1 rounded-sm ml-1">Estoque ({t.quantidade})</span>}</span><strong className="text-green-600 block mt-0.5">R$ {t.preco.toFixed(2)}</strong></div><button onClick={() => handleRemoveAdicional(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit"><Trash2 size={12}/></button></div>))}</div></div>
+            <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Restrições (Sem)</p><div className="flex space-x-2 mb-3"><div className="relative flex-1"><input type="text" value={novaRestricao} onChange={e => { setNovaRestricao(e.target.value); setNovaRestricaoInsumoId(''); setShowRestricaoDropdown(true); }} onFocus={() => setShowRestricaoDropdown(true)} onBlur={() => setTimeout(() => setShowRestricaoDropdown(false), 200)} placeholder="Ex: Cebola" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showRestricaoDropdown && novaRestricao && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => i.nome.toLowerCase().includes(novaRestricao.toLowerCase())).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovaRestricao(i.nome); setNovaRestricaoInsumoId(i.id); setShowRestricaoDropdown(false); }} className="p-2 text-xs hover:bg-orange-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{i.nome}</span></div>))}<div onMouseDown={() => setShowRestricaoDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-orange-600 font-bold italic">Usar texto livre: "{novaRestricao}"</div></div>)}</div><button onClick={handleAddRestricao} className="bg-orange-500 text-white p-2 rounded-lg hover:bg-orange-600"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{restricoes.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-orange-100 text-orange-600 px-1 rounded-sm ml-1" title="Vinculado ao Estoque">Estoque</span>}</span><button onClick={() => handleRemoveRestricao(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded"><Trash2 size={12}/></button></div>))}</div></div>
               </div>
             </div>
             

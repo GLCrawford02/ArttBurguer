@@ -207,7 +207,7 @@ export default function App() {
     const allowed: string[] = [];
     
     const hasPerm = (mod: string, abaId?: string, acao: 'visualizar' | 'editar' | 'apagar' = 'visualizar') => {
-      return cargos.some(c => {
+      return cargos.some((c: string) => {
         const p = permissoes[c];
         if (!p) return false;
         if (abaId && p[abaId] && p[abaId].visualizar === false) return false;
@@ -299,7 +299,7 @@ export default function App() {
 
     const isExempt = currentUser && (() => {
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-      return cargosArr.some(c => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c) || c.toUpperCase().includes('KDS'));
+      return cargosArr.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c) || c.toUpperCase().includes('KDS'));
     })();
 
     if (currentUser && !isExempt) {
@@ -370,7 +370,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 md:p-8" translate="no">
-        <style>{`html { font-size: clamp(14px, 2.5vw + 10px, 24px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+        <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
         <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-12 w-full max-w-sm md:max-w-md lg:max-w-lg transition-all duration-300">
           <div className="flex justify-center mb-6 md:mb-10">
             <img src={logoImg} alt="ArttBurger Logo" className="h-28 md:h-40 w-auto object-contain transition-all duration-300" />
@@ -406,7 +406,7 @@ export default function App() {
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col xl:flex-row overflow-hidden" translate="no">
-      <style>{`html { font-size: clamp(14px, 2.5vw + 10px, 24px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+      <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
       {/* Mobile Header */}
       {!hideSidebar && (
       <div className="xl:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">

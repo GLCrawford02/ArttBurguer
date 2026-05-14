@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, remove, update } from 'firebase/database';
+import { ref, onValue, push, set, remove, update, get } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
 import { CheckSquare, Calendar, Clock, Plus, Trash2, CheckCircle, AlertTriangle, Check, X, BarChart2, Flag, Tags, RotateCw, Users, Link as LinkIcon, Bell, AlertCircle, Pencil, Search, Plane } from 'lucide-react';
@@ -19,6 +19,7 @@ export interface Tarefa {
   timestamp: number;
   dataConclusao?: number;
   notificadoWhatsApp?: boolean;
+  notificadoAtraso24h?: boolean;
   notificadoAntecipado?: boolean;
   prioridade?: 'Nenhuma' | 'Baixa' | 'Média' | 'Alta';
   sinalizado?: boolean;
@@ -30,6 +31,9 @@ export interface Tarefa {
   dataFimRepeticao?: string;
   lembreteAntecipado?: number; // minutos
   criadoPor?: string | null;
+  contaVinculadaId?: string;
+  contaVinculadaTipo?: 'pagar' | 'receber';
+  novaContaVinculadaId?: string; // Usado internamente na recorrência
 }
 
 export default function TarefasManager({ currentUser }: { currentUser?: any }) {
@@ -271,6 +275,36 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
     if (novoStatus === 'concluida') updates.dataConclusao = Date.now();
     else updates.dataConclusao = null;
 
+    let nextContaVinculadaId = null;
+    if (novoStatus === 'concluida' && tarefa.contaVinculadaId && tarefa.contaVinculadaTipo) {
+      const contaPath = `contas_${tarefa.contaVinculadaTipo}/${tarefa.contaVinculadaId}`;
+      const snap = await get(ref(db, contaPath));
+      if (snap.exists()) {
+        const conta = snap.val();
+        const contaFinalStatus = tarefa.contaVinculadaTipo === 'pagar' ? 'Pago' : 'Recebido';
+        if (conta.status !== contaFinalStatus) {
+          await update(ref(db, contaPath), { status: contaFinalStatus });
+          showToast(`Conta vinculada marcada como ${contaFinalStatus} automaticamente!`, 'success');
+          
+          if (conta.recorrencia && conta.recorrencia !== 'Nenhuma') {
+              const nextDate = new Date(conta.vencimento + 'T12:00:00');
+              if (conta.recorrencia === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
+              else if (conta.recorrencia === 'Semanal') nextDate.setDate(nextDate.getDate() + 7);
+              else if (conta.recorrencia === 'Diária') nextDate.setDate(nextDate.getDate() + 1);
+              else if (conta.recorrencia === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
+              
+              const nextVencimento = nextDate.toISOString().split('T')[0];
+              if (!conta.fimRecorrencia || nextVencimento <= conta.fimRecorrencia) {
+                  const novaConta = { ...conta, status: 'Pendente', vencimento: nextVencimento };
+                  const novaContaRef = push(ref(db, `contas_${tarefa.contaVinculadaTipo}`));
+                  await set(novaContaRef, novaConta);
+                  nextContaVinculadaId = novaContaRef.key;
+              }
+          }
+        }
+      }
+    }
+
     await update(ref(db, `tarefas/${tarefa.id}`), updates);
     
     // Lógica de Recorrência
@@ -309,6 +343,7 @@ export default function TarefasManager({ currentUser }: { currentUser?: any }) {
         novaTarefa.notificadoAntecipado = false;
         novaTarefa.criadoPor = tarefa.criadoPor || null;
         novaTarefa.timestamp = Date.now();
+        if (nextContaVinculadaId) novaTarefa.contaVinculadaId = nextContaVinculadaId;
         
         await set(push(ref(db, 'tarefas')), novaTarefa);
         showToast(`Próxima recorrência agendada automaticamente para ${nextDateStr.split('-').reverse().join('/')}`, 'success');

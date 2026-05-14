@@ -155,21 +155,7 @@ client.on('message', async (msg) => {
     // Remove acentos e converte para minúsculas (Ex: "Concluído" -> "concluido")
     const textoLimpo = msg.body.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").trim();
 
-    const codigoMatch = textoLimpo.match(/#?(\d{4})/);
-    const codigoInformado = codigoMatch ? codigoMatch[1] : null;
-    const temPalavraConclusao = /(conclui|ok|pronto|feit)/.test(textoLimpo);
-    
-    const ehMensagemDeFalta = /passando mal|vou faltar|não vou|nao vou|doente|atestado|hospital|emergencia|emergência/.test(textoLimpo);
-
-    // Verifica se é um comando válido do bot antes de consultar o banco
-    const isComando = textoLimpo === 'ping' || textoLimpo.startsWith('vincular') || 
-                      textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || 
-                      (codigoInformado && temPalavraConclusao) ||
-                      textoLimpo.startsWith('assistente ') || ehMensagemDeFalta;
-
-    if (!isComando) return; // Ignora mensagens comuns (ex: clientes fazendo pedidos)
-
-    // 1. Autenticação Global e Criação de Vínculo
+    // 1. Autenticação Global e Criação de Vínculo (Verifica sempre primeiro)
     const funcionarios = cacheFuncionarios; // Uso imediato da RAM (Zero download)
     let funcionarioId = null;
     let funcionarioNome = '';
@@ -264,45 +250,138 @@ client.on('message', async (msg) => {
         return;
     }
 
-    if (textoLimpo === 'concluido' || textoLimpo === 'concluida' || textoLimpo === 'ok' || (codigoInformado && temPalavraConclusao)) {
-        try {
-            const tarefas = cacheTarefas; // Uso imediato da RAM (Zero download)
+    // 2. Inteligência Artificial Mestra (Lê TODAS as mensagens dos funcionários)
+    try {
+        const tarefas = cacheTarefas;
+        const tarefasPendentes = [];
+        for (const [id, tar] of Object.entries(tarefas)) {
+            if (tar.status === 'pendente') {
+                const responsaveis = tar.responsaveisIds || (tar.responsavelId ? [tar.responsavelId] : []);
+                if (responsaveis.includes(funcionarioId)) {
+                    tarefasPendentes.push({ id: id, titulo: tar.titulo, codigo: tar.codigo });
+                }
+            }
+        }
+
+        const contextoTarefas = tarefasPendentes.length > 0 
+            ? `O funcionário possui as seguintes tarefas pendentes: ${tarefasPendentes.map(t => `"${t.titulo}" (Código: #${t.codigo})`).join(', ')}.`
+            : `O funcionário NÃO possui tarefas pendentes no momento.`;
+
+        // Pequeno feedback de processamento para não deixar o funcionário no vácuo
+        await msg.reply('🧠 *Assistente IA:* Processando...');
+
+            const response = await fetch('https://api.x.ai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROK_KEY}` },
+                body: JSON.stringify({
+                    model: 'grok-3-mini',
+                    messages: [
+                    { 
+                        role: 'system', 
+                        content: `Você é o Assistente Virtual Oficial da hamburgueria ArttBurger conversando no WhatsApp com o funcionário ${funcionarioNome} (${funcionarioCargo}).
+${contextoTarefas}
+
+Sua missão principal é ler a mensagem do usuário e CLASSIFICAR a intenção.
+REGRAS DE CLASSIFICAÇÃO OBRIGATÓRIAS:
+Você deve adicionar EXATAMENTE UMA destas tags ocultas no FINAL da sua resposta, caso a intenção do usuário seja clara:
+1. Se o funcionário estiver respondendo a um lembrete confirmando que JÁ FEZ, CONCLUIU ou TERMINOU uma tarefa (ex: "sim", "já fiz", "pronto", "concluído #1234"), adicione a tag [CONCLUSAO_TAREFA]. Se ele mencionou um código na frase, inclua o código na tag, ex: [CONCLUSAO_TAREFA_1234].
+2. Se o funcionário avisar que vai faltar, que está doente ou não vai trabalhar, adicione a tag [REGISTRAR_FALTA].
+3. Se for uma conversa normal, pergunta avulsa, ou não se encaixar acima, NÃO adicione nenhuma tag.
+
+Responda sempre de forma amigável, educada e bem curta. Se for registrar falta, diga que avisou a gerência e deseje melhoras.` 
+                    },
+                    { role: 'user', content: msg.body }
+                    ]
+                })
+            });
+
+            const data = await response.json();
+            let respostaIA = data.choices?.[0]?.message?.content || 'Desculpe, tive um problema de conexão com meus servidores cerebrais.';
+
+        // Processa as tags mágicas geradas pela IA
+        let isTarefa = false;
+        let isFalta = false;
+        let codigoTarefaIA = null;
+
+        const regexTarefa = /\[CONCLUSAO_TAREFA(?:_(\d{4}))?\]/;
+        const matchTarefa = respostaIA.match(regexTarefa);
+
+        if (matchTarefa) {
+            isTarefa = true;
+            codigoTarefaIA = matchTarefa[1] || null;
+            respostaIA = respostaIA.replace(regexTarefa, '').trim();
+        }
+
+        if (respostaIA.includes('[REGISTRAR_FALTA]')) {
+            isFalta = true;
+            respostaIA = respostaIA.replace('[REGISTRAR_FALTA]', '').trim();
+        }
+
+        if (isTarefa) {
             let tarefaParaBaixar = null;
             let idDaTarefa = null;
 
-            for (const [id, tar] of Object.entries(tarefas)) {
-                if (tar.status === 'pendente') {
-                    const responsaveis = tar.responsaveisIds || (tar.responsavelId ? [tar.responsavelId] : []);
-                    if (responsaveis.includes(funcionarioId)) {
-                        if (codigoInformado) {
-                            if (tar.codigo === codigoInformado) {
-                                tarefaParaBaixar = tar;
-                                idDaTarefa = id;
-                                break;
-                            }
-                        } else {
-                            tarefaParaBaixar = tar;
-                            idDaTarefa = id;
-                            break; 
-                        }
+            if (tarefasPendentes.length > 0) {
+                if (codigoTarefaIA) {
+                    const tarEncontrada = tarefasPendentes.find(t => t.codigo === codigoTarefaIA);
+                    if (tarEncontrada) {
+                        tarefaParaBaixar = tarEncontrada;
+                        idDaTarefa = tarEncontrada.id;
                     }
+                } 
+                if (!tarefaParaBaixar) {
+                    // Se a IA não pegou um código específico, apenas conclui a primeira pendente da lista
+                    tarefaParaBaixar = tarefasPendentes[0];
+                    idDaTarefa = tarefaParaBaixar.id;
                 }
             }
 
             if (tarefaParaBaixar) {
+                const tarCompleta = cacheTarefas[idDaTarefa];
                 await db.ref(`tarefas/${idDaTarefa}`).update({ status: 'concluida', dataConclusao: Date.now() });
-                await msg.reply(`✅ Excelente, ${funcionarioNome.split(' ')[0]}!\nA tarefa *"${tarefaParaBaixar.titulo}"* foi marcada como concluída!`);
+                await msg.reply(`✅ *Tarefa Concluída!*\n\nA tarefa *"${tarefaParaBaixar.titulo}"* foi marcada como concluída no sistema.`);
 
-                if (tarefaParaBaixar.recorrencia && tarefaParaBaixar.recorrencia !== 'Nenhuma') {
-                    const d = new Date(`${tarefaParaBaixar.dataAgendada}T12:00:00`);
-                    if (tarefaParaBaixar.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
-                    else if (tarefaParaBaixar.recorrencia === 'Semanal') d.setDate(d.getDate() + 7);
-                    else if (tarefaParaBaixar.recorrencia === 'Quinzenal') d.setDate(d.getDate() + 14);
-                    else if (tarefaParaBaixar.recorrencia === 'Mensal') d.setMonth(d.getMonth() + 1);
-                    else if (tarefaParaBaixar.recorrencia === 'Anual') d.setFullYear(d.getFullYear() + 1);
-                    else if (tarefaParaBaixar.recorrencia === 'Personalizado') {
-                        const v = tarefaParaBaixar.recorrenciaCustomValor || 1;
-                        const u = tarefaParaBaixar.recorrenciaCustomUnidade || 'dia';
+                let nextContaVinculadaId = null;
+                if (tarCompleta.contaVinculadaId && tarCompleta.contaVinculadaTipo) {
+                    const contaPath = `contas_${tarCompleta.contaVinculadaTipo}/${tarCompleta.contaVinculadaId}`;
+                    const snap = await db.ref(contaPath).once('value');
+                    if (snap.exists()) {
+                        const conta = snap.val();
+                        const contaFinalStatus = tarCompleta.contaVinculadaTipo === 'pagar' ? 'Pago' : 'Recebido';
+                        if (conta.status !== contaFinalStatus) {
+                            await db.ref(contaPath).update({ status: contaFinalStatus });
+                            console.log(`✅ Conta vinculada ${tarCompleta.contaVinculadaId} marcada como ${contaFinalStatus}`);
+                            
+                            if (conta.recorrencia && conta.recorrencia !== 'Nenhuma') {
+                                const nextDate = new Date(conta.vencimento + 'T12:00:00');
+                                if (conta.recorrencia === 'Mensal') nextDate.setMonth(nextDate.getMonth() + 1);
+                                else if (conta.recorrencia === 'Semanal') nextDate.setDate(nextDate.getDate() + 7);
+                                else if (conta.recorrencia === 'Diária') nextDate.setDate(nextDate.getDate() + 1);
+                                else if (conta.recorrencia === 'Anual') nextDate.setFullYear(nextDate.getFullYear() + 1);
+                                
+                                const nextVencimento = nextDate.toISOString().split('T')[0];
+                                if (!conta.fimRecorrencia || nextVencimento <= conta.fimRecorrencia) {
+                                    const novaConta = { ...conta, status: 'Pendente', vencimento: nextVencimento };
+                                    const novaContaRef = db.ref(`contas_${tarCompleta.contaVinculadaTipo}`).push();
+                                    await novaContaRef.set(novaConta);
+                                    nextContaVinculadaId = novaContaRef.key;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Reagendamento de tarefas recorrentes
+                if (tarCompleta.recorrencia && tarCompleta.recorrencia !== 'Nenhuma') {
+                    const d = new Date(`${tarCompleta.dataAgendada}T12:00:00`);
+                    if (tarCompleta.recorrencia === 'Diária') d.setDate(d.getDate() + 1);
+                    else if (tarCompleta.recorrencia === 'Semanal') d.setDate(d.getDate() + 7);
+                    else if (tarCompleta.recorrencia === 'Quinzenal') d.setDate(d.getDate() + 14);
+                    else if (tarCompleta.recorrencia === 'Mensal') d.setMonth(d.getMonth() + 1);
+                    else if (tarCompleta.recorrencia === 'Anual') d.setFullYear(d.getFullYear() + 1);
+                    else if (tarCompleta.recorrencia === 'Personalizado') {
+                        const v = tarCompleta.recorrenciaCustomValor || 1;
+                        const u = tarCompleta.recorrenciaCustomUnidade || 'dia';
                         if (u === 'dia') d.setDate(d.getDate() + v);
                         else if (u === 'semana') d.setDate(d.getDate() + (v * 7));
                         else if (u === 'mes') d.setMonth(d.getMonth() + v);
@@ -311,101 +390,58 @@ client.on('message', async (msg) => {
                     const nextDateStr = d.toISOString().split('T')[0];
                     
                     let recreate = true;
-                    if (tarefaParaBaixar.terminarRepeticao === 'em_data' && tarefaParaBaixar.dataFimRepeticao) {
-                        if (nextDateStr > tarefaParaBaixar.dataFimRepeticao) recreate = false;
+                    if (tarCompleta.terminarRepeticao === 'em_data' && tarCompleta.dataFimRepeticao) {
+                        if (nextDateStr > tarCompleta.dataFimRepeticao) recreate = false;
                     }
 
                     if (recreate) {
-                        const novaTarefa = { ...tarefaParaBaixar, status: 'pendente', dataAgendada: nextDateStr, notificadoWhatsApp: false, timestamp: Date.now() };
+                        const novaTarefa = { ...tarCompleta, status: 'pendente', dataAgendada: nextDateStr, notificadoWhatsApp: false, timestamp: Date.now() };
                         delete novaTarefa.dataConclusao;
                         novaTarefa.codigo = Math.floor(1000 + Math.random() * 9000).toString();
+                        if (nextContaVinculadaId) novaTarefa.contaVinculadaId = nextContaVinculadaId;
                         await db.ref('tarefas').push(novaTarefa);
                     }
                 }
-            } else if (codigoInformado) {
-                await msg.reply(`⚠️ ${funcionarioNome.split(' ')[0]}, não encontrei nenhuma tarefa pendente sua com o código *#${codigoInformado}*. Verifique o código e tente novamente.`);
             } else {
-                await msg.reply(`Tudo limpo, ${funcionarioNome.split(' ')[0]}! Você não tem nenhuma tarefa pendente no momento. 🍔`);
+                await msg.reply(`Tudo limpo, ${funcionarioNome.split(' ')[0]}! Você não tem nenhuma tarefa pendente no momento para dar baixa. 🍔`);
             }
-        } catch (error) {
-            console.error('❌ Erro ao processar baixa via WhatsApp:', error);
-            await msg.reply('Ocorreu um erro interno no sistema ao tentar baixar a tarefa.');
-        }
-    } 
-    // Lógica para Assistente IA (Lê todas as outras mensagens de funcionários vinculados)
-    else {
-        try {
-            // Remove a palavra assistente caso o funcionário ainda a use por hábito
-            const pergunta = msg.body.replace(/^assistente\s+/i, '').trim();
-            await msg.reply('🧠 *Assistente IA:* Estou pensando, só um instante...');
-
-            const response = await fetch('https://api.x.ai/v1/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${GROK_KEY}` },
-                body: JSON.stringify({
-                    model: 'grok-3-mini',
-                    messages: [
-                        { role: 'system', content: `Você é o Assistente Virtual Oficial da hamburgueria ArttBurger, atendendo via WhatsApp. Você está conversando com ${funcionarioNome}, cujo cargo é ${funcionarioCargo}. Seja prestativo, educado, curto e direto nas respostas. Se o funcionário relatar que vai faltar, que está doente ou passando mal, adicione EXATAMENTE a tag [REGISTRAR_FALTA] no final da sua resposta e explique de forma empática que você já registrou a ausência no sistema e avisou a gerência. Para conversas triviais ou outros assuntos, responda amigavelmente sem a tag.` },
-                        { role: 'user', content: pergunta }
-                    ]
-                })
+        } 
+        else if (isFalta) {
+            const dataSP = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
+            const hojeStr = dataSP.getFullYear() + '-' + String(dataSP.getMonth() + 1).padStart(2, '0') + '-' + String(dataSP.getDate()).padStart(2, '0');
+            
+            await db.ref(`gestao_equipe/${funcionarioId}/faltas`).push({
+                data: hojeStr,
+                motivo: msg.body,
+                timestamp: Date.now()
             });
+            console.log(`✅ Falta automática registrada para ${funcionarioNome}.`);
 
-            const data = await response.json();
-            let respostaIA = data.choices?.[0]?.message?.content || 'Desculpe, tive um problema de conexão com meus servidores cerebrais.';
-
-            // Se a IA julgou que é realmente uma falta, interceptamos a tag e salvamos no banco de dados!
-            if (respostaIA.includes('[REGISTRAR_FALTA]')) {
-                respostaIA = respostaIA.replace('[REGISTRAR_FALTA]', '').trim();
+            let mensagemAlerta = `🚨 *ALERTA DE FALTA (Bot)*\n\nO funcionário *${funcionarioNome}* (${funcionarioCargo}) acabou de avisar pelo WhatsApp que vai faltar.\n\n*Mensagem original:* "${msg.body}"`;
+            
+            for (const [idAlvo, funcAlvo] of Object.entries(funcionarios)) {
+                if (idAlvo === funcionarioId) continue;
+                const cargosAlvo = Array.isArray(funcAlvo.cargo) ? funcAlvo.cargo : [funcAlvo.cargo || ''];
+                const isGestor = cargosAlvo.some(c => c.toLowerCase() === 'dono' || c.toLowerCase() === 'gerente' || c.toLowerCase() === 'administrador' || c.toLowerCase() === 'ti');
                 
-                const dataSP = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Sao_Paulo"}));
-                const hojeStr = dataSP.getFullYear() + '-' + String(dataSP.getMonth() + 1).padStart(2, '0') + '-' + String(dataSP.getDate()).padStart(2, '0');
-                
-                await db.ref(`gestao_equipe/${funcionarioId}/faltas`).push({
-                    data: hojeStr,
-                    motivo: pergunta, // Salva o que a pessoa escreveu ("To passando mal, não vou hoje")
-                    timestamp: Date.now()
-                });
-                console.log(`✅ Falta automática registrada para ${funcionarioNome}.`);
-
-                // 🔔 NOTIFICAR DONOS E GERENTES
-                let mensagemAlerta = `🚨 *ALERTA DE FALTA (Bot)*\n\nO funcionário *${funcionarioNome}* (${funcionarioCargo}) acabou de avisar pelo WhatsApp que vai faltar.\n\n*Mensagem original:* "${pergunta}"`;
-                
-                for (const [idAlvo, funcAlvo] of Object.entries(funcionarios)) {
-                    // Evita notificar o próprio funcionário que está faltando (caso ele seja gerente/dono)
-                    if (idAlvo === funcionarioId) continue;
-
-                    const cargosAlvo = Array.isArray(funcAlvo.cargo) ? funcAlvo.cargo : [funcAlvo.cargo || ''];
-                    const isGestor = cargosAlvo.some(c => c.toLowerCase() === 'dono' || c.toLowerCase() === 'gerente' || c.toLowerCase() === 'administrador' || c.toLowerCase() === 'ti');
-                    
-                    if (isGestor) {
-                        if (funcAlvo.whatsappId) {
-                            try {
-                                await client.sendMessage(funcAlvo.whatsappId, mensagemAlerta);
-                                console.log(`📲 Aviso de falta enviado diretamente para o gestor ${funcAlvo.nome}`);
-                            } catch (err) {
-                                console.error(`❌ Erro ao avisar gestor ${funcAlvo.nome}:`, err);
-                            }
-                        } else if (funcAlvo.telefone) {
-                            let telLimpo = funcAlvo.telefone.replace(/\D/g, '');
-                            if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
-                            await db.ref('fila_mensagens').push({
-                                telefone: telLimpo,
-                                mensagem: mensagemAlerta,
-                                status: 'pendente',
-                                timestamp: Date.now()
-                            });
-                            console.log(`📩 Aviso de falta enfileirado para o gestor ${funcAlvo.nome}`);
-                        }
+                if (isGestor) {
+                    if (funcAlvo.whatsappId) {
+                        try { await client.sendMessage(funcAlvo.whatsappId, mensagemAlerta); } catch (err) {}
+                    } else if (funcAlvo.telefone) {
+                        let telLimpo = funcAlvo.telefone.replace(/\D/g, '');
+                        if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+                        await db.ref('fila_mensagens').push({ telefone: telLimpo, mensagem: mensagemAlerta, status: 'pendente', timestamp: Date.now() });
                     }
                 }
             }
-
             await msg.reply(`🤖 *Assistente ArttBurger:*\n\n${respostaIA}`);
-        } catch (error) {
-            console.error('❌ Erro na IA:', error);
-            await msg.reply('Desculpe, meu sistema de inteligência artificial está temporariamente indisponível.');
+        } else {
+            await msg.reply(`🤖 *Assistente ArttBurger:*\n\n${respostaIA}`);
         }
+
+    } catch (error) {
+        console.error('❌ Erro na IA:', error);
+        await msg.reply('Desculpe, meu sistema de inteligência artificial está temporariamente indisponível.');
     }
 });
 
@@ -531,6 +567,49 @@ function iniciarChecagemTarefas() {
                         
                         // Marca a tarefa como notificada apenas UMA vez após disparar para TODOS os responsáveis
                         await db.ref(`tarefas/${id}`).update({ notificadoWhatsApp: true });
+                    }
+                }
+
+                // Lógica de Follow-up 24h depois do vencimento
+                if (isPendente && !tarefa.notificadoAtraso24h) {
+                    const dataTarefa = tarefa.dataAgendada;
+                    const horaTarefa = tarefa.horaAgendada;
+
+                    if (dataTarefa && horaTarefa) {
+                        // Cria a data da tarefa no fuso horário local do servidor, que é o mesmo que o 'dataSP' usa para 'agora'
+                        const dataTarefaCompleta = new Date(`${dataTarefa}T${horaTarefa}`);
+                        const diffHoras = (dataSP.getTime() - dataTarefaCompleta.getTime()) / (1000 * 60 * 60);
+
+                        // Se a diferença for de 24 horas ou mais
+                        if (diffHoras >= 24) {
+                            console.log(`⏰ Tarefa "${tarefa.titulo}" está atrasada há 24h. Enviando lembrete de follow-up.`);
+
+                            let responsaveis = [];
+                            if (Array.isArray(tarefa.responsaveisIds)) responsaveis = tarefa.responsaveisIds;
+                            else if (tarefa.responsaveisIds && typeof tarefa.responsaveisIds === 'object') responsaveis = Object.values(tarefa.responsaveisIds);
+                            else if (tarefa.responsavelId) responsaveis = [tarefa.responsavelId];
+
+                            for (const funcId of responsaveis) {
+                                const funcionario = funcionarios[funcId];
+                                if (funcionario && funcionario.telefone) {
+                                    let telefoneLimpo = funcionario.telefone.replace(/\D/g, '');
+                                    if (!telefoneLimpo.startsWith('55')) telefoneLimpo = '55' + telefoneLimpo;
+
+                                    const codigoExibicao = tarefa.codigo ? ` #${tarefa.codigo}` : '';
+                                    const mensagem = `🤔 *Lembrete de Tarefa Atrasada*\n\nOlá *${funcionario.nome.split(' ')[0]}*, notei que a tarefa *"${tarefa.titulo}"* que venceu ontem ainda está pendente no sistema.\n\nEla já foi concluída? Se sim, por favor responda com *concluído${codigoExibicao}* para darmos baixa.`;
+
+                                    // Enfileira a mensagem para o robô enviar
+                                    await db.ref('fila_mensagens').push({
+                                        telefone: telefoneLimpo,
+                                        mensagem: mensagem,
+                                        status: 'pendente',
+                                        timestamp: Date.now()
+                                    });
+                                }
+                            }
+                            // Marca que o follow-up de 24h foi enviado para não enviar de novo
+                            await db.ref(`tarefas/${id}`).update({ notificadoAtraso24h: true });
+                        }
                     }
                 }
             }

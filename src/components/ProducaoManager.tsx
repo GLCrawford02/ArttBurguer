@@ -201,13 +201,18 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
         if (item.opcoes && item.opcoes.adicionais) {
           const adicionaisArray = Object.values(item.opcoes.adicionais) as any[];
           for (const add of adicionaisArray) {
-            const insumoAdicional = insumos.find(i => i.nome.toLowerCase().trim() === (add.nome || '').toLowerCase().trim());
-            if (insumoAdicional) {
-              const insumoRef = ref(db, `insumos/${insumoAdicional.id}`);
+            let insumoAdicionalId = add.insumoId;
+            if (!insumoAdicionalId) {
+              const insumoEncontrado = insumos.find(i => i.nome.toLowerCase().trim() === (add.nome || '').toLowerCase().trim());
+              insumoAdicionalId = insumoEncontrado?.id;
+            }
+            if (insumoAdicionalId) {
+              const insumoRef = ref(db, `insumos/${insumoAdicionalId}`);
               await runTransaction(insumoRef, (currentData) => {
                 if (currentData) {
                   const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
-                  const qtdNecessaria = Number(add.qtd) * multiplicador;
+                  const baseQtd = add.quantidadeInsumo ? Number(add.quantidadeInsumo) : 1;
+                  const qtdNecessaria = Number(add.qtd) * baseQtd * multiplicador;
                   currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
                 }
                 return currentData;

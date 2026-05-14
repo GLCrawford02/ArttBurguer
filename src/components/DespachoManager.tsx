@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
 import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame } from 'lucide-react';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+// @ts-ignore
+import 'leaflet/dist/leaflet.css';
 
 interface ParadaRota {
   clienteId: string;
@@ -14,6 +18,7 @@ interface ParadaRota {
   isAberta?: boolean;
   numeroDiario?: number;
   googleMapsLink?: string;
+  status?: string;
 }
 
 interface Despacho {
@@ -34,11 +39,13 @@ export default function DespachoManager() {
   const [entregasAbertas, setEntregasAbertas] = useState<any[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
   
-  const [activeDespachoTab, setActiveDespachoTab] = useState<'ativos' | 'concluidos'>('ativos');
+  const [activeDespachoTab, setActiveDespachoTab] = useState<'ativos' | 'mapa' | 'concluidos'>('ativos');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedMotoboy, setSelectedMotoboy] = useState('');
   const [rotaAtual, setRotaAtual] = useState<ParadaRota[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [geocodedStops, setGeocodedStops] = useState<Record<string, {lat: number, lng: number} | null>>({});
+  const geocodingQueue = useRef<Set<string>>(new Set());
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -93,6 +100,44 @@ export default function DespachoManager() {
     return () => { unsubClientes(); unsubFunc(); unsubDespachos(); unsubVendas(); unsubEntregas(); unsubPedidosCoz(); };
   }, []);
 
+  useEffect(() => {
+    let isMounted = true;
+    const processGeocoding = async () => {
+      const ativos = despachos.filter(d => d.status === 'Em Rota');
+      const addressesToGeocode: string[] = [];
+      
+      for (const d of ativos) {
+        for (const p of d.paradas) {
+          if (p.status !== 'Concluída' && !geocodingQueue.current.has(p.endereco)) {
+            addressesToGeocode.push(p.endereco);
+            geocodingQueue.current.add(p.endereco);
+          }
+        }
+      }
+
+      for (const endereco of addressesToGeocode) {
+        if (!isMounted) break;
+        try {
+          // Consulta a API gratuita de mapas para transformar o nome da rua em GPS
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}&limit=1`);
+          const data = await res.json();
+          if (isMounted) {
+            setGeocodedStops(prev => ({
+              ...prev,
+              [endereco]: data && data.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null
+            }));
+          }
+        } catch (e) {
+          if (isMounted) setGeocodedStops(prev => ({ ...prev, [endereco]: null }));
+        }
+        // Pausa de 1.5s entre cada busca para não sobrecarregar e bloquear a API gratuita
+        await new Promise(r => setTimeout(r, 1500));
+      }
+    };
+    if (activeDespachoTab === 'mapa') processGeocoding();
+    return () => { isMounted = false; };
+  }, [despachos, activeDespachoTab]);
+
   const formatarEndereco = (c: Cliente) => {
     const partes = [];
     if (c.logradouro) partes.push(c.logradouro);
@@ -116,7 +161,16 @@ export default function DespachoManager() {
       showToast('Este cliente não possui endereço cadastrado.', 'error');
       return;
     }
-    setRotaAtual([...rotaAtual, { clienteId: c.id, clienteNome: c.nome, endereco, observacaoEntregador: c.observacaoEntregador, pedidoId: pedido.id, isAberta: pedido.isAberta, numeroDiario: pedido.numeroDiario, googleMapsLink: c.googleMapsLink }]);
+    setRotaAtual([...rotaAtual, { 
+      clienteId: c.id, 
+      clienteNome: c.nome, 
+      endereco: endereco, 
+      observacaoEntregador: c.observacaoEntregador || '', 
+      pedidoId: pedido.id, 
+      isAberta: pedido.isAberta || false, 
+      numeroDiario: pedido.numeroDiario || 0, 
+      googleMapsLink: c.googleMapsLink || '' 
+    }]);
     setSearchTerm('');
   };
 
@@ -184,8 +238,9 @@ export default function DespachoManager() {
       showToast('Despacho registrado! Rota iniciada e clientes notificados.', 'success');
       setRotaAtual([]);
       setSelectedMotoboy('');
-    } catch (error) {
-      showToast('Erro ao registrar despacho.', 'error');
+    } catch (error: any) {
+      console.error(error);
+      showToast('Erro ao registrar despacho: ' + error.message, 'error');
     }
   };
 
@@ -285,6 +340,7 @@ export default function DespachoManager() {
     <div className="animate-in fade-in duration-300 flex flex-col h-full">
       <div className="flex bg-gray-200 p-1 rounded-xl w-fit mb-6 shrink-0">
         <button onClick={() => setActiveDespachoTab('ativos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeDespachoTab === 'ativos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despachos Ativos</button>
+        <button onClick={() => setActiveDespachoTab('mapa')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors flex items-center ${activeDespachoTab === 'mapa' ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><MapPin size={16} className="mr-1"/> Mapa (GPS)</button>
         <button onClick={() => setActiveDespachoTab('concluidos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeDespachoTab === 'concluidos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Resumo (Concluídos)</button>
       </div>
       
@@ -411,6 +467,89 @@ export default function DespachoManager() {
                 {despachosAtivos.length === 0 && <div className="h-full flex flex-col items-center justify-center text-indigo-300/50 py-6"><Truck size={32} className="mb-2"/><p className="text-xs">Nenhum entregador na rua.</p></div>}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {activeDespachoTab === 'mapa' && (
+        <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex-1 min-h-[500px] flex flex-col relative z-0">
+          <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center"><Map className="mr-2 text-indigo-600"/> Rastreamento em Tempo Real</h3>
+          <div className="flex-1 rounded-xl overflow-hidden border border-gray-200 relative z-0" style={{ minHeight: '500px' }}>
+            <MapContainer center={[-18.7580961, -44.4333648]} zoom={13} style={{ height: '100%', minHeight: '500px', width: '100%', zIndex: 1 }}>
+              <TileLayer
+                attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+              />
+              {despachosAtivos.map(d => {
+                const func = funcionarios.find(f => f.id === d.motoboyId);
+                const loc = (func as any)?.localizacao;
+                if (!loc || !loc.lat || !loc.lng) return null;
+                
+                const diffMinutos = Math.floor((Date.now() - loc.timestamp) / 60000);
+                const isOffline = diffMinutos > 5;
+                const speedKmh = Math.round((loc.velocidade || 0) * 3.6);
+
+                const motoIcon = new L.Icon({
+                  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3209/3209935.png',
+                  iconSize: [40, 40],
+                  iconAnchor: [20, 40],
+                  popupAnchor: [0, -40],
+                  className: isOffline ? 'grayscale opacity-50' : ''
+                });
+
+                return (
+                  <Marker key={d.id} position={[loc.lat, loc.lng]} icon={motoIcon}>
+                    <Popup>
+                      <div className="text-sm font-bold text-gray-800 mb-1">{d.motoboyNome}</div>
+                      <div className="text-xs text-gray-600 mb-1">
+                        {isOffline ? <span className="text-red-500">Sem sinal há {diffMinutos}m</span> : <span className="text-green-500">Online 🟢</span>}
+                      </div>
+                      <div className="text-xs text-gray-500 font-bold mb-2">Velocidade: <span className="text-indigo-600">{speedKmh} km/h</span></div>
+                      
+                      <div className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Destinos da Rota:</div>
+                      <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                        {d.paradas.map((p, i) => (
+                          <div key={i} className="text-xs flex items-center justify-between bg-gray-50 p-1 rounded">
+                            <span className="truncate pr-2 w-32" title={p.clienteNome}>#{p.numeroDiario || '?'} - {p.clienteNome}</span>
+                            <span className="shrink-0">{p.status === 'Concluída' ? '✅' : '⏳'}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </Popup>
+                  </Marker>
+                );
+              })}
+          {despachosAtivos.flatMap(d => d.paradas).map((p, idx) => {
+            if (p.status === 'Concluída') return null;
+            const coords = geocodedStops[p.endereco];
+            if (!coords) return null;
+
+            const destIcon = new L.Icon({
+              iconUrl: 'https://cdn-icons-png.flaticon.com/512/609/609803.png', // Ícone de Casinha
+              iconSize: [32, 32],
+              iconAnchor: [16, 32],
+              popupAnchor: [0, -32],
+            });
+
+            return (
+              <Marker key={`dest-${p.pedidoId}-${idx}`} position={[coords.lat, coords.lng]} icon={destIcon}>
+                <Popup>
+                  <div className="text-sm font-bold text-gray-800 mb-1">#{p.numeroDiario || '?'} - Destino: {p.clienteNome}</div>
+                  <div className="text-xs text-gray-600 mb-1">{p.endereco}</div>
+                  <div className="text-xs font-bold text-orange-500 mt-1">Aguardando Entrega ⏳</div>
+                </Popup>
+              </Marker>
+            );
+          })}
+            </MapContainer>
+            {despachosAtivos.filter(d => {
+                const func = funcionarios.find(f => f.id === d.motoboyId);
+                return (func as any)?.localizacao?.lat;
+            }).length === 0 && (
+              <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-[1000] bg-white px-4 py-2 rounded-full shadow-lg border border-gray-200 text-sm font-bold text-gray-500 flex items-center">
+                <AlertTriangle size={16} className="text-orange-500 mr-2"/> Nenhum GPS ativo detectado.
+              </div>
+            )}
           </div>
         </div>
       )}

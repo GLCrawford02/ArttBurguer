@@ -31,6 +31,9 @@ export default function ModalContas({
   const [horaLembrete, setHoraLembrete] = useState('08:00');
   const [searchTerm, setSearchTerm] = useState('');
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
+  const [showFornecedorModal, setShowFornecedorModal] = useState(false);
+  const [fornForm, setFornForm] = useState({ nome: '', nomeFantasia: '', documento: '', telefone: '', email: '', chavePix: '' });
+  const [loadingCnpj, setLoadingCnpj] = useState(false);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -38,6 +41,69 @@ export default function ModalContas({
       direction = 'desc';
     }
     setSortConfig({ key, direction });
+  };
+
+  const handleCnpjChange = async (e: any) => {
+    let v = e.target.value.replace(/\D/g, '');
+    if (v.length <= 11) {
+      v = v.replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+    } else {
+      v = v.substring(0, 14).replace(/^(\d{2})(\d)/, '$1.$2').replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3').replace(/\.(\d{3})(\d)/, '.$1/$2').replace(/(\d{4})(\d)/, '$1-$2');
+    }
+    setFornForm(prev => ({ ...prev, documento: v }));
+    
+    const limpo = v.replace(/\D/g, '');
+    if (limpo.length === 14) {
+      setLoadingCnpj(true);
+      try {
+        const res = await fetch(`https://brasilapi.com.br/api/cnpj/v1/${limpo}`);
+        if (res.ok) {
+          const data = await res.json();
+          let telFormatado = fornForm.telefone;
+          if (data.ddd_telefone_1) {
+              let p = data.ddd_telefone_1.replace(/\D/g, '').substring(0, 11);
+              if (p.length > 2) p = `(${p.substring(0, 2)}) ${p.substring(2)}`;
+              if (p.length > 9) p = `${p.substring(0, 9)}-${p.substring(9)}`;
+              telFormatado = p;
+          }
+          setFornForm(prev => ({
+            ...prev,
+            nome: data.razao_social || prev.nome,
+            nomeFantasia: data.nome_fantasia || prev.nomeFantasia,
+            telefone: data.ddd_telefone_1 ? telFormatado : prev.telefone,
+            email: data.email || prev.email
+          }));
+          showToast('Dados do CNPJ preenchidos automaticamente!', 'success');
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoadingCnpj(false);
+      }
+    }
+  };
+
+  const salvarNovoFornecedor = async () => {
+    if (!fornForm.nome.trim()) return showToast('Preencha a Razão Social/Nome do fornecedor', 'error');
+    
+    const newRef = push(ref(db, 'fornecedores'));
+    await set(newRef, {
+      nome: fornForm.nome.trim(),
+      nomeFantasia: fornForm.nomeFantasia.trim(),
+      documento: fornForm.documento.replace(/\D/g, ''),
+      telefone: fornForm.telefone.trim(),
+      email: fornForm.email.trim(),
+      chavePix: fornForm.chavePix.trim()
+    });
+    
+    if (newRef.key) {
+      setFornecedorId(newRef.key);
+      setSearchFornecedor(fornForm.nomeFantasia.trim() || fornForm.nome.trim());
+    }
+    
+    showToast('Fornecedor cadastrado com sucesso!', 'success');
+    setShowFornecedorModal(false);
+    setFornForm({ nome: '', nomeFantasia: '', documento: '', telefone: '', email: '', chavePix: '' });
   };
 
   const formatarMoeda = (v: number) => `R$ ${v.toFixed(2).replace('.', ',')}`;
@@ -126,13 +192,15 @@ export default function ModalContas({
          
          const recData: any = { descricao: `${descricao} (${i}/${parcelas})`, valor: valFinal, vencimento: dataStr, status: statusFinal, recorrencia: 'Nenhuma', fimRecorrencia: '', observacoes };
          if (tipoConta === 'pagar') { recData.tipo = tipoPagar; recData.fornecedorId = fornecedorId; }
-         await set(push(ref(db, dbPath)), recData);
+         const newContaRef = push(ref(db, dbPath));
+         await set(newContaRef, recData);
 
          if (gerarLembrete) {
             await set(push(ref(db, 'tarefas')), {
               titulo: `${tipoConta === 'pagar' ? 'Pagar' : 'Receber'} Conta: ${descricao} (${i}/${parcelas})`,
               descricao: `Vencimento programado. Valor: R$ ${valFinal.toFixed(2).replace('.', ',')}`,
-              responsaveisIds: [responsavelLembrete], dataAgendada: dataStr, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: 'Nenhuma', status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null
+              responsaveisIds: [responsavelLembrete], dataAgendada: dataStr, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: 'Nenhuma', status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null,
+              contaVinculadaId: newContaRef.key, contaVinculadaTipo: tipoConta
             });
          }
       }
@@ -146,12 +214,14 @@ export default function ModalContas({
         await update(ref(db, `${dbPath}/${itemEdit.id}`), data);
         showToast('Conta atualizada!');
       } else {
-        await set(push(ref(db, dbPath)), data);
+        const newContaRef = push(ref(db, dbPath));
+        await set(newContaRef, data);
         if (gerarLembrete) {
           await set(push(ref(db, 'tarefas')), {
             titulo: `${tipoConta === 'pagar' ? 'Pagar' : 'Receber'} Conta: ${descricao}`,
             descricao: `Vencimento programado. Valor: R$ ${total.toFixed(2).replace('.', ',')}`,
-            responsaveisIds: [responsavelLembrete], dataAgendada: vencimento, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: rec, status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null
+            responsaveisIds: [responsavelLembrete], dataAgendada: vencimento, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: rec, status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null,
+            contaVinculadaId: newContaRef.key, contaVinculadaTipo: tipoConta
           });
         }
         showToast('Conta registrada!');
@@ -368,7 +438,10 @@ export default function ModalContas({
                     </div>
                   </div>
                   <div className="space-y-1">
-                    <label className="text-[10px] font-bold text-gray-500 uppercase">Fornecedor</label>
+                <div className="flex justify-between items-end mb-1">
+                  <label className="text-[10px] font-bold text-gray-500 uppercase">Fornecedor</label>
+                  <button type="button" onClick={() => setShowFornecedorModal(true)} className="text-[10px] font-bold text-red-500 hover:text-red-700 uppercase leading-none pb-0.5">+ Novo</button>
+                </div>
                     <div className="relative w-full">
                       <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-red-500">
                         <Search size={14} className="ml-2 text-gray-400 shrink-0" />
@@ -449,6 +522,52 @@ export default function ModalContas({
           </div>
         </div>
       </div>
+      {showFornecedorModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[60] p-4" onClick={() => setShowFornecedorModal(false)}>
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-[95vw] lg:max-w-4xl w-full space-y-4 animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+            <h3 className="text-xl font-bold text-gray-800 mb-2">Novo Fornecedor</h3>
+            <p className="text-sm text-gray-500 border-b border-gray-100 pb-3">Cadastre os dados completos do fornecedor para vincular à conta.</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto pr-2">
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Razão Social / Nome *</label>
+                <input type="text" value={fornForm.nome} onChange={e => setFornForm({...fornForm, nome: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="Ex: Distribuidora Silva" autoFocus />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nome Fantasia</label>
+                <input type="text" value={fornForm.nomeFantasia} onChange={e => setFornForm({...fornForm, nomeFantasia: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="Ex: Silva Bebidas" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">CNPJ / CPF</label>
+                <div className="relative">
+                  <input type="text" value={fornForm.documento} onChange={handleCnpjChange} className="w-full p-2 pr-8 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="00.000.000/0000-00" />
+                  {loadingCnpj && <div className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 border-2 border-red-500 border-t-transparent rounded-full animate-spin"></div>}
+                </div>
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp</label>
+                <input type="text" value={fornForm.telefone} onChange={e => {
+                  let v = e.target.value.replace(/\D/g, '').substring(0, 11);
+                  if (v.length > 2) v = `(${v.substring(0, 2)}) ${v.substring(2)}`;
+                  if (v.length > 9) v = `${v.substring(0, 9)}-${v.substring(9)}`;
+                  setFornForm({...fornForm, telefone: v});
+                }} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="(00) 00000-0000" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">E-mail</label>
+                <input type="email" value={fornForm.email} onChange={e => setFornForm({...fornForm, email: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="contato@empresa.com" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Chave PIX</label>
+                <input type="text" value={fornForm.chavePix} onChange={e => setFornForm({...fornForm, chavePix: e.target.value})} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-red-500" placeholder="Chave para pagamentos" />
+              </div>
+            </div>
+            <div className="flex space-x-3 pt-4 border-t border-gray-100">
+              <button onClick={() => setShowFornecedorModal(false)} className="flex-1 p-3 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={salvarNovoFornecedor} className="flex-1 p-3 bg-red-600 text-white rounded-lg font-bold hover:bg-red-700 transition-colors">Salvar Fornecedor</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
