@@ -12,6 +12,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
   const [quantidades, setQuantidades] = useState<Record<string, number>>({});
   const [selecionados, setSelecionados] = useState<Set<string>>(new Set());
   const [ultimasTransferencias, setUltimasTransferencias] = useState<any[]>([]);
+  const [direcao, setDirecao] = useState<'ida' | 'volta'>('ida');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   
   const [showPinModal, setShowPinModal] = useState(false);
@@ -122,49 +123,71 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
         const isVariavel = (insumo as any).isVariavel;
         const insumoRef = ref(db, `insumos/${id}`);
 
+        let podeProcessarVolta = true;
+        if (direcao === 'volta' && linkedId) {
+            const linked = insumos.find(i => i.id === linkedId);
+            const estRotativoLinked = Number(linked?.estoqueRotativo ?? 0);
+            if (estRotativoLinked < unitsToTransfer) podeProcessarVolta = false;
+        }
+        
+        if (!podeProcessarVolta) return;
+
         const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
             const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
             const rawEstRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
             const estEstacionario = Number(rawEstEstacionario.toFixed(4));
             const estRotativo = Number(rawEstRotativo.toFixed(4));
-            if (estEstacionario >= unitsToTransfer) {
-              currentData.estoqueEstacionario = Number((estEstacionario - unitsToTransfer).toFixed(4));
-              if (!linkedId) {
-                if (isVariavel) {
-                  currentData.estoqueRotativo = unitsToTransfer;
-                } else {
-                  currentData.estoqueRotativo = Number((estRotativo + unitsToTransfer).toFixed(4));
-                }
-              }
 
-
-              if (currentData.lotes) {
-                let qtdRestante = unitsToTransfer;
-                const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
-                
-                lotesArray.sort((a, b) => {
-                  if (!a.validade) return 1;
-                  if (!b.validade) return -1;
-                  return new Date(a.validade).getTime() - new Date(b.validade).getTime();
-                });
-
-                for (const l of lotesArray) {
-                  if (qtdRestante <= 0) break;
-                  const lQtd = Number(Number(l.quantidade || 0).toFixed(4));
-                  if (lQtd <= qtdRestante) {
-                    qtdRestante = Number((qtdRestante - lQtd).toFixed(4));
-                    delete currentData.lotes[l.id];
-                  } else {
-                    currentData.lotes[l.id].quantidade = Number((lQtd - qtdRestante).toFixed(4));
-                    qtdRestante = 0;
+            if (direcao === 'ida') {
+                if (estEstacionario >= unitsToTransfer) {
+                  currentData.estoqueEstacionario = Number((estEstacionario - unitsToTransfer).toFixed(4));
+                  if (!linkedId) {
+                    if (isVariavel) {
+                      currentData.estoqueRotativo = unitsToTransfer;
+                    } else {
+                      currentData.estoqueRotativo = Number((estRotativo + unitsToTransfer).toFixed(4));
+                    }
                   }
-                }
-              }
 
-              return currentData;
+                  if (currentData.lotes) {
+                    let qtdRestante = unitsToTransfer;
+                    const lotesArray = Object.entries(currentData.lotes).map(([id, l]) => ({ id, ...(l as LoteDados) }));
+                    
+                    lotesArray.sort((a, b) => {
+                      if (!a.validade) return 1;
+                      if (!b.validade) return -1;
+                      return new Date(a.validade).getTime() - new Date(b.validade).getTime();
+                    });
+
+                    for (const l of lotesArray) {
+                      if (qtdRestante <= 0) break;
+                      const lQtd = Number(Number(l.quantidade || 0).toFixed(4));
+                      if (lQtd <= qtdRestante) {
+                        qtdRestante = Number((qtdRestante - lQtd).toFixed(4));
+                        delete currentData.lotes[l.id];
+                      } else {
+                        currentData.lotes[l.id].quantidade = Number((lQtd - qtdRestante).toFixed(4));
+                        qtdRestante = 0;
+                      }
+                    }
+                  }
+                  return currentData;
+                } else {
+                  return undefined; // Aborta a transação por falta de estoque
+                }
             } else {
-              return undefined; // Aborta a transação por falta de estoque
+                // Volta: Rotativo -> Estacionado
+                if (linkedId) {
+                    currentData.estoqueEstacionario = Number((estEstacionario + unitsToTransfer).toFixed(4));
+                    return currentData;
+                } else {
+                    if (estRotativo >= unitsToTransfer) {
+                        currentData.estoqueRotativo = Number((estRotativo - unitsToTransfer).toFixed(4));
+                        currentData.estoqueEstacionario = Number((estEstacionario + unitsToTransfer).toFixed(4));
+                        return currentData;
+                    } else return undefined;
+                }
             }
           }
           return currentData;
@@ -176,10 +199,14 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
             await runTransaction(linkedRef, (linkedData) => {
               if (linkedData) {
                 const rawEstRotativo = Number(linkedData.estoqueRotativo ?? linkedData.estoqueAtual ?? 0);
-                if (isVariavel) {
-                  linkedData.estoqueRotativo = unitsToTransfer;
+                if (direcao === 'ida') {
+                    if (isVariavel) {
+                      linkedData.estoqueRotativo = unitsToTransfer;
+                    } else {
+                      linkedData.estoqueRotativo = Number((rawEstRotativo + unitsToTransfer).toFixed(4));
+                    }
                 } else {
-                  linkedData.estoqueRotativo = Number((rawEstRotativo + unitsToTransfer).toFixed(4));
+                    linkedData.estoqueRotativo = Number(Math.max(0, rawEstRotativo - unitsToTransfer).toFixed(4));
                 }
               }
               return linkedData;
@@ -191,6 +218,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
             insumoId: id,
             nomeInsumo: insumo.nome,
             quantidade: unitsToTransfer,
+            direcao: direcao === 'ida' ? 'Estacionado -> Rotativo' : 'Rotativo -> Estacionado',
             funcionarioId: func.id,
             funcionarioNome: func.nome,
             timestamp: Date.now()
@@ -203,9 +231,9 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
 
       if (sucessoCount > 0) {
         if (linkedCount > 0) {
-          showToast(`${sucessoCount} insumos transferidos! (${linkedCount} unidades base abastecidas)`, 'success');
+          showToast(`${sucessoCount} insumos transferidos! (${linkedCount} unidades base processadas)`, 'success');
         } else {
-          showToast(`${sucessoCount} insumos transferidos para o Rotativo!`, 'success');
+          showToast(`${sucessoCount} insumos transferidos com sucesso!`, 'success');
         }
         const novasQtds = { ...quantidades };
         selecionados.forEach(id => novasQtds[id] = 0);
@@ -242,15 +270,19 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
 
   return (
     <div className="space-y-6">
-      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
         <div>
           <h3 className="text-lg font-bold text-gray-800 flex items-center">
             <ArrowRightLeft className="mr-2 text-indigo-600" size={20} />
             Transferência de Estoque
           </h3>
-        <p className="text-sm text-gray-500 mt-1">Mova insumos do Estoque Estacionado para o Rotativo. Informe a quantidade exata a transferir.</p>
+          <p className="text-sm text-gray-500 mt-1">Mova insumos entre o Estoque Estacionado e o Rotativo. Informe a quantidade exata a transferir.</p>
         </div>
-        <div className="flex flex-col sm:flex-row items-center gap-3 w-full sm:w-auto">
+        <div className="flex bg-gray-100 p-1 rounded-lg w-full sm:w-auto overflow-x-auto shrink-0">
+          <button onClick={() => { setDirecao('ida'); setQuantidades({}); setSelecionados(new Set()); }} className={`flex-1 sm:flex-none whitespace-nowrap px-4 py-2 rounded-md font-bold text-sm transition-colors ${direcao === 'ida' ? 'bg-white text-indigo-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Ida ➔ (Para Cozinha)</button>
+          <button onClick={() => { setDirecao('volta'); setQuantidades({}); setSelecionados(new Set()); }} className={`flex-1 sm:flex-none whitespace-nowrap px-4 py-2 rounded-md font-bold text-sm transition-colors ${direcao === 'volta' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Volta ⬅ (Para Estoque)</button>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
           <select 
             value={filtroTipoUso} 
             onChange={(e) => setFiltroTipoUso(e.target.value)}
@@ -269,9 +301,15 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
         {filteredInsumos.map(insumo => {
           const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
-          const estRotativo = Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
+          let estRotativo = Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
+          if ((insumo as any).insumoVinculado) {
+              const linked = insumos.find(i => i.id === (insumo as any).insumoVinculado);
+              if (linked) estRotativo = Number(linked.estoqueRotativo ?? (linked as any).estoqueAtual ?? 0);
+          }
           const qtdPacote = Number(insumo.qtdPacote || 1);
-          const maxVal = qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario;
+          const maxVal = direcao === 'ida' 
+            ? (qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario)
+            : (qtdPacote > 1 ? Number((estRotativo / qtdPacote).toFixed(4)) : estRotativo);
           const inputPlaceholder = qtdPacote > 1 ? `Qtd (Volumes)` : `Qtd (${insumo.unidade})`;
           
           return (
@@ -310,10 +348,10 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
            <div className="flex-1">
              <p className="text-sm font-bold text-indigo-600 uppercase tracking-wider">Itens Selecionados</p>
              <p className="text-3xl font-black text-gray-900">{selecionados.size} insumo(s)</p>
-             <p className="text-xs text-gray-500 mt-1 font-medium">Prontos para transferência ao estoque rotativo</p>
+             <p className="text-xs text-gray-500 mt-1 font-medium">Prontos para transferência {direcao === 'ida' ? 'ao estoque rotativo' : 'de volta ao estacionado'}</p>
            </div>
            <button onClick={handleTransferirSelecionados} className="w-full sm:w-auto bg-indigo-600 text-white px-8 py-4 rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center shadow-lg hover:shadow-xl">
-              <CheckSquare size={24} className="mr-2"/> Transferir Todos
+              <CheckSquare size={24} className="mr-2"/> {direcao === 'ida' ? 'Transferir Todos' : 'Devolver ao Estoque'}
            </button>
         </div>
       )}
@@ -325,7 +363,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
             {ultimasTransferencias.map(t => (
               <div key={t.id} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border border-gray-200">
                 <div>
-                  <p className="font-bold text-gray-800 text-sm">{t.quantidade}x {t.nomeInsumo}</p>
+                  <p className="font-bold text-gray-800 text-sm">{t.quantidade}x {t.nomeInsumo} <span className="ml-2 text-[10px] bg-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{t.direcao || 'Estacionado -> Rotativo'}</span></p>
                   <p className="text-xs text-gray-500 flex items-center mt-1"><User size={12} className="mr-1"/> {t.funcionarioNome}</p>
                 </div>
                 <span className="text-xs font-bold text-gray-500 bg-white px-2 py-1 rounded-md shadow-sm border border-gray-100 flex items-center"><Clock size={12} className="mr-1"/> {new Date(t.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
