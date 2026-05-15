@@ -1,6 +1,32 @@
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ref, onValue, update } from 'firebase/database';
+import { db } from '../firebase';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle } from 'lucide-react';
+import { APP_VERSION } from '../App';
 
-export default function AtualizacoesSistema() {
+export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: any }) {
+  const [appUpdate, setAppUpdate] = useState({ versao: APP_VERSION, linkDownload: '', forcar: false, mensagem: '' });
+  const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const canEdit = temPermissao ? temPermissao('atualizacoes_sistema', 'aba_configuracoes', 'editar') : true;
+
+  useEffect(() => {
+    const updateRef = ref(db, 'configuracoes/app_update');
+    return onValue(updateRef, snap => {
+      if (snap.val()) setAppUpdate(snap.val());
+    });
+  }, []);
+
+  const handleSaveUpdate = async () => {
+    try {
+      await update(ref(db, 'configuracoes/app_update'), appUpdate);
+      setToast({ message: 'Alerta de atualização configurado com sucesso!', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setToast({ message: 'Erro ao salvar configurações.', type: 'error' });
+    }
+  };
+
   const updates = [
     {
       versao: '1.2.1',
@@ -158,6 +184,43 @@ export default function AtualizacoesSistema() {
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
+      {canEdit && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-indigo-100 space-y-4">
+          <div className="flex items-center mb-2">
+            <Smartphone className="text-indigo-600 mr-2" size={24}/>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">Forçar Atualização do App / Sistema</h3>
+              <p className="text-sm text-gray-500">Se a versão informada abaixo for maior que a do celular do funcionário, ele verá um aviso de atualização.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">Versão Atual</label>
+              <input type="text" value={appUpdate.versao} onChange={e => setAppUpdate({...appUpdate, versao: e.target.value})} placeholder={`Ex: ${APP_VERSION}`} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold" />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="text-xs font-bold text-gray-500 uppercase">Link p/ Baixar (Drive, Firebase, etc)</label>
+              <input type="text" value={appUpdate.linkDownload} onChange={e => setAppUpdate({...appUpdate, linkDownload: e.target.value})} placeholder="https://meu-link-do-apk..." className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+            </div>
+            <div className="flex items-center pt-5">
+              <label className="flex items-center space-x-2 cursor-pointer bg-red-50 p-2.5 rounded-lg border border-red-100 w-full">
+                <input type="checkbox" checked={appUpdate.forcar} onChange={e => setAppUpdate({...appUpdate, forcar: e.target.checked})} className="rounded text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer" />
+                <span className="text-sm font-bold text-red-700">Obrigatório (Trava Tela)</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase">Mensagem sobre a atualização (Opcional)</label>
+            <input type="text" value={appUpdate.mensagem} onChange={e => setAppUpdate({...appUpdate, mensagem: e.target.value})} placeholder="Ex: Correção no GPS dos motoboys adicionada!" className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+          </div>
+          <div className="flex justify-end pt-3 border-t border-gray-100 mt-4">
+            <button onClick={handleSaveUpdate} className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm flex items-center">
+              <Save size={18} className="mr-2"/> Ativar Alerta de Versão
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex items-center">
         <div className="bg-blue-100 p-3 rounded-xl mr-4 text-blue-600">
           <Rocket size={24} />
@@ -182,6 +245,13 @@ export default function AtualizacoesSistema() {
           </div>
         ))}
       </div>
+
+      {toast && (
+        <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
+          {toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}
+          <span>{toast.message}</span>
+        </div>
+      )}
     </div>
   );
 }

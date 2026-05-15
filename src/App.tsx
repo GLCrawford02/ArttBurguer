@@ -7,7 +7,7 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download } from 'lucide-react';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
@@ -30,6 +30,8 @@ import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
+
+export const APP_VERSION = '1.2.1';
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";
@@ -84,6 +86,7 @@ export default function App() {
   const [loginError, setLoginError] = useState('');
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
   const [missingCpfInput, setMissingCpfInput] = useState('');
+  const [appUpdateConfig, setAppUpdateConfig] = useState<any>(null);
 
   // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
   useEffect(() => {
@@ -173,6 +176,11 @@ export default function App() {
       if (snap.val()) setPermissoes(snap.val());
       else setPermissoes({});
     });
+  }, []);
+
+  useEffect(() => {
+    const updateRef = ref(db, 'configuracoes/app_update');
+    return onValue(updateRef, snap => setAppUpdateConfig(snap.val()));
   }, []);
 
   const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing') => {
@@ -761,7 +769,7 @@ export default function App() {
           </div>
           {subSubTabConfiguracoes === 'gerais' && temPermissao('configuracoes', 'aba_configuracoes') && <ConfiguracoesGerais />}
           {subSubTabConfiguracoes === 'bancos_cartoes' && temPermissao('bancos_taxas', 'aba_configuracoes') && <BancosCartoes />}
-          {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <AtualizacoesSistema />}
+          {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <AtualizacoesSistema temPermissao={temPermissao} />}
         </div>
       )}
         </div>
@@ -792,6 +800,36 @@ export default function App() {
             >
               Salvar Meu CPF
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Tela de Atualização do App */}
+      {appUpdateConfig && appUpdateConfig.versao && appUpdateConfig.versao !== APP_VERSION && (
+        <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[200] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
+            <div className="mx-auto bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+              <Download size={32} />
+            </div>
+            <h3 className="text-2xl font-black text-gray-800 mb-2">Nova Atualização!</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              A versão <strong>{appUpdateConfig.versao}</strong> está disponível. Você está usando a versão {APP_VERSION}.
+            </p>
+            {appUpdateConfig.mensagem && (
+              <p className="text-sm font-bold text-gray-700 bg-gray-50 p-3 rounded-lg mb-6 border border-gray-100">
+                {appUpdateConfig.mensagem}
+              </p>
+            )}
+            
+            <div className="flex flex-col gap-3">
+              <button 
+                onClick={() => { if (appUpdateConfig.linkDownload) { window.open(appUpdateConfig.linkDownload, '_blank'); } else { window.location.reload(); } }}
+                className="w-full bg-blue-600 text-white p-4 rounded-xl font-bold hover:bg-blue-700 transition-colors text-lg flex items-center justify-center shadow-md"
+              ><Download size={20} className="mr-2" /> Atualizar Agora</button>
+              {!appUpdateConfig.forcar && (
+                <button onClick={() => setAppUpdateConfig(null)} className="w-full bg-gray-100 text-gray-600 p-3 rounded-xl font-bold hover:bg-gray-200 transition-colors">Lembrar mais tarde</button>
+              )}
+            </div>
           </div>
         </div>
       )}
