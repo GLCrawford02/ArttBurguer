@@ -118,11 +118,16 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
 
         const qtdPacote = Number(insumo.qtdPacote || 1);
         const rawUnitsToTransfer = qtdPacote > 1 ? numVolumesTransferir * qtdPacote : numVolumesTransferir;
-        const unitsToTransfer = Number(rawUnitsToTransfer.toFixed(4));
+        let unitsToTransfer = Number(rawUnitsToTransfer.toFixed(4));
         const linkedId = (insumo as any).insumoVinculado;
         const isVariavel = (insumo as any).isVariavel;
         const insumoRef = ref(db, `insumos/${id}`);
 
+        // Resolve problema de dízima/arredondamento ao converter pacotes (ex: limite máximo dá 10.02 pra um estoque de 10)
+        const estEstacionarioLocal = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
+        if (unitsToTransfer > estEstacionarioLocal && unitsToTransfer - estEstacionarioLocal <= 0.2) {
+            unitsToTransfer = estEstacionarioLocal;
+        }
 
         const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
@@ -131,7 +136,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
             const estEstacionario = Number(rawEstEstacionario.toFixed(4));
             const estRotativo = Number(rawEstRotativo.toFixed(4));
 
-            if (estEstacionario >= unitsToTransfer - 0.001) {
+            if (estEstacionario >= unitsToTransfer - 0.01) {
               currentData.estoqueEstacionario = Number(Math.max(0, estEstacionario - unitsToTransfer).toFixed(4));
               if (!linkedId) {
                 if (isVariavel) {
