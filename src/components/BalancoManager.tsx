@@ -74,7 +74,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
             currentData.estoqueRotativo = Number(Number(novosEstoques[rotKey]).toFixed(4));
             novosHistoricos.push({
               id: Math.random().toString(36), insumoId, nome: insumo.nome, unidade: insumo.unidade,
-              tipo: 'Rotativo', qtdAntiga: Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0),
+              tipo: 'Rotativo', qtdAntiga: Number(insumo.estoqueRotativo ?? 0),
               qtdNova: currentData.estoqueRotativo, timestamp: Date.now()
             });
           }
@@ -85,7 +85,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
           let estUpdate = false;
           
           if (novoValorLegado !== undefined && novoValorLegado !== '') {
-            const oldQtd = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
+            const oldQtd = Number(insumo.estoqueEstacionario ?? 0);
             currentData.estoqueEstacionario = Number(Number(novoValorLegado).toFixed(4));
             if (currentData.estoqueEstacionario === 0) { currentData.validade = null; currentData.lote = null; }
             estUpdate = true;
@@ -97,7 +97,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
           }
           
           if (novoCustoLegado !== undefined && novoCustoLegado !== '') {
-            const estacionario = novoValorLegado !== undefined && novoValorLegado !== '' ? Number(novoValorLegado) : Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+            const estacionario = novoValorLegado !== undefined && novoValorLegado !== '' ? Number(novoValorLegado) : Number(currentData.estoqueEstacionario ?? 0);
             const qtdPacote = Number(currentData.qtdPacote || 1);
             const totalVols = estacionario / qtdPacote;
             currentData.precoPacote = totalVols > 0 ? Number((Number(novoCustoLegado) / totalVols).toFixed(4)) : 0;
@@ -111,7 +111,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
           }
 
           if (currentData.lotes) {
-            let novoEstacionarioCalculado = Number(Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0).toFixed(4));
+            let novoEstacionarioCalculado = Number(Number(currentData.estoqueEstacionario ?? 0).toFixed(4));
             let atualizouLotes = false;
 
             for (const loteId in currentData.lotes) {
@@ -220,8 +220,8 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
          valA = Number(a.estoqueEstacionario ?? 0);
          valB = Number(b.estoqueEstacionario ?? 0);
        } else {
-         valA = Number(a.estoqueRotativo ?? (a as any).estoqueAtual ?? 0);
-         valB = Number(b.estoqueRotativo ?? (b as any).estoqueAtual ?? 0);
+         valA = Number(a.estoqueRotativo ?? 0);
+         valB = Number(b.estoqueRotativo ?? 0);
        }
     }
     
@@ -234,14 +234,12 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
     const headers = ['Insumo', 'Estoque Rotativo', 'Estoque Estacionado', 'Unidade', 'Preco Unitario (R$)', 'Detalhes dos Lotes (Estacionado)'];
     const rows = insumosExibidos.map(i => [
       i.nome,
-      Number(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0),
+      Number(i.estoqueRotativo ?? 0),
       Number(i.estoqueEstacionario ?? 0),
       i.unidade,
       (Number(i.precoPacote || 0) / Number(i.qtdPacote || 1)).toFixed(3).replace('.', ','),
       i.lotes
         ? Object.values(i.lotes).map((l: any) => `${Number(l.quantidade || 0)}${i.unidade} (Val: ${l.validade ? new Date(`${l.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${l.lote || 'N/A'})`).join(' ; ')
-        : i.validade || i.lote
-        ? `${Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0)}${i.unidade} (Val: ${i.validade ? new Date(`${i.validade}T00:00:00`).toLocaleDateString('pt-BR') : '-'} | Lote: ${i.lote || 'N/A'})`
         : 'Sem lote registrado'
     ]);
     const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
@@ -335,7 +333,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
           </thead>
           <tbody className="divide-y divide-gray-100">
             {sortedInsumosExibidos.map(i => {
-              const rotativo = Number(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
+              const rotativo = Number(i.estoqueRotativo ?? 0);
               const estacionario = Number(i.estoqueEstacionario ?? 0);
               return (
               <tr key={i.id} className="hover:bg-gray-50 transition-colors text-sm">

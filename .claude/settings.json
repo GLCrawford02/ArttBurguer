@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find \"c:\\\\\\\\Users\\\\\\\\Adm. Artt Burger\\\\\\\\Documents\\\\\\\\ArttBurguer\" -type f \\\\\\( -name \"*stock*\" -o -name \"*inventory*\" -o -name \"*estoque*\" -o -name \"*rotativo*\" -o -name \"*estacionado*\" \\\\\\))",
+      "Bash(npm run *)"
+    ]
+  }
+}

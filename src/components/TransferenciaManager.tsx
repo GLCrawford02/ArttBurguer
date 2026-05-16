@@ -124,15 +124,15 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
         const insumoRef = ref(db, `insumos/${id}`);
 
         // Resolve problema de dízima/arredondamento ao converter pacotes (ex: limite máximo dá 10.02 pra um estoque de 10)
-        const estEstacionarioLocal = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
+        const estEstacionarioLocal = Number(insumo.estoqueEstacionario ?? 0);
         if (unitsToTransfer > estEstacionarioLocal && unitsToTransfer - estEstacionarioLocal <= 0.2) {
             unitsToTransfer = estEstacionarioLocal;
         }
 
         const result = await runTransaction(insumoRef, (currentData) => {
           if (currentData) {
-            const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
-            const rawEstRotativo = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
+            const rawEstEstacionario = Number(currentData.estoqueEstacionario ?? 0);
+            const rawEstRotativo = Number(currentData.estoqueRotativo ?? 0);
             const estEstacionario = Number(rawEstEstacionario.toFixed(4));
             const estRotativo = Number(rawEstRotativo.toFixed(4));
 
@@ -181,7 +181,7 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
             const linkedRef = ref(db, `insumos/${linkedId}`);
             await runTransaction(linkedRef, (linkedData) => {
               if (linkedData) {
-                const rawEstRotativo = Number(linkedData.estoqueRotativo ?? linkedData.estoqueAtual ?? 0);
+                const rawEstRotativo = Number(linkedData.estoqueRotativo ?? 0);
                 if (isVariavel) {
                   linkedData.estoqueRotativo = unitsToTransfer;
                 } else {
@@ -283,11 +283,11 @@ export default function TransferenciaManager({ currentUser }: { currentUser?: an
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 max-h-[500px] overflow-y-auto pr-2">
         {filteredInsumos.map(insumo => {
-          const estEstacionario = Number(insumo.estoqueEstacionario ?? (insumo as any).estoqueAtual ?? 0);
-          let estRotativo = Number(insumo.estoqueRotativo ?? (insumo as any).estoqueAtual ?? 0);
-          if ((insumo as any).insumoVinculado) {
-              const linked = insumos.find(i => i.id === (insumo as any).insumoVinculado);
-              if (linked) estRotativo = Number(linked.estoqueRotativo ?? (linked as any).estoqueAtual ?? 0);
+          const estEstacionario = Number(insumo.estoqueEstacionario ?? 0);
+          let estRotativo = Number(insumo.estoqueRotativo ?? 0);
+          if (insumo.insumoVinculado) {
+            const linked = insumos.find(i => i.id === insumo.insumoVinculado);
+            if (linked) estRotativo = Number(linked.estoqueRotativo ?? 0);
           }
           const qtdPacote = Number(insumo.qtdPacote || 1);
           const maxVal = qtdPacote > 1 ? Number((estEstacionario / qtdPacote).toFixed(4)) : estEstacionario;

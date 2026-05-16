@@ -171,30 +171,48 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const handleFinalizarPedido = async (pedido: any) => {
     try {
+      const consumosParaRegistrar: Array<{
+        insumoId: string;
+        nomeInsumo: string;
+        quantidade: number;
+        unidade: string;
+        tipo: 'ingrediente' | 'adicional';
+      }> = [];
 
       for (const item of pedido.itens) {
         const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
         if (!prod) continue;
-        
+
         const multiplicador = item.qtd;
         for (const ing of (prod.ingredientes || [])) {
           const insumo = insumos.find(i => i.id === ing.insumoId);
-          if (insumo && item.opcoes && item.opcoes.restricoes) {
+          if (!insumo) continue;
+
+          if (item.opcoes && item.opcoes.restricoes) {
             const restricoesArray = Object.values(item.opcoes.restricoes) as string[];
-            if (restricoesArray.includes(insumo.nome)) {
-              continue; // Não abate do estoque pois o cliente pediu sem este ingrediente
-            }
+            if (restricoesArray.includes(insumo.nome)) continue;
           }
 
+          const qtdNecessaria = Number((Number(ing.quantidade) * multiplicador).toFixed(4));
+
           const insumoRef = ref(db, `insumos/${ing.insumoId}`);
-          await runTransaction(insumoRef, (currentData) => {
+          const result = await runTransaction(insumoRef, (currentData) => {
             if (currentData) {
-              const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
-              const qtdNecessaria = Number(ing.quantidade) * multiplicador;
-              currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
+              const estoqueAtual = Number(currentData.estoqueRotativo ?? 0);
+              currentData.estoqueRotativo = Number(Math.max(0, estoqueAtual - qtdNecessaria).toFixed(4));
             }
             return currentData;
           });
+
+          if (result.committed) {
+            consumosParaRegistrar.push({
+              insumoId: ing.insumoId,
+              nomeInsumo: insumo.nome,
+              quantidade: qtdNecessaria,
+              unidade: insumo.unidade,
+              tipo: 'ingrediente',
+            });
+          }
         }
 
         // Abater adicionais
@@ -202,25 +220,66 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
           const adicionaisArray = Object.values(item.opcoes.adicionais) as any[];
           for (const add of adicionaisArray) {
             let insumoAdicionalId = add.insumoId;
+            let nomeAdicional = add.nome || '';
+            let unidadeAdicional = '';
+
             if (!insumoAdicionalId) {
-              const insumoEncontrado = insumos.find(i => i.nome.toLowerCase().trim() === (add.nome || '').toLowerCase().trim());
+              const insumoEncontrado = insumos.find(i => i.nome.toLowerCase().trim() === nomeAdicional.toLowerCase().trim());
               insumoAdicionalId = insumoEncontrado?.id;
+              if (insumoEncontrado) unidadeAdicional = insumoEncontrado.unidade;
+            } else {
+              const insumoEncontrado = insumos.find(i => i.id === insumoAdicionalId);
+              if (insumoEncontrado) {
+                nomeAdicional = insumoEncontrado.nome;
+                unidadeAdicional = insumoEncontrado.unidade;
+              }
             }
+
             if (insumoAdicionalId) {
+              const baseQtd = add.quantidadeInsumo ? Number(add.quantidadeInsumo) : 1;
+              const qtdNecessaria = Number((Number(add.qtd) * baseQtd * multiplicador).toFixed(4));
+
               const insumoRef = ref(db, `insumos/${insumoAdicionalId}`);
-              await runTransaction(insumoRef, (currentData) => {
+              const result = await runTransaction(insumoRef, (currentData) => {
                 if (currentData) {
-                  const rawEstoque = Number(currentData.estoqueRotativo ?? currentData.estoqueAtual ?? 0);
-                  const baseQtd = add.quantidadeInsumo ? Number(add.quantidadeInsumo) : 1;
-                  const qtdNecessaria = Number(add.qtd) * baseQtd * multiplicador;
-                  currentData.estoqueRotativo = Number((rawEstoque - qtdNecessaria).toFixed(4));
+                  const estoqueAtual = Number(currentData.estoqueRotativo ?? 0);
+                  currentData.estoqueRotativo = Number(Math.max(0, estoqueAtual - qtdNecessaria).toFixed(4));
                 }
                 return currentData;
               });
+
+              if (result.committed) {
+                consumosParaRegistrar.push({
+                  insumoId: insumoAdicionalId,
+                  nomeInsumo: nomeAdicional,
+                  quantidade: qtdNecessaria,
+                  unidade: unidadeAdicional,
+                  tipo: 'adicional',
+                });
+              }
             }
           }
         }
       }
+
+      // Registrar log de consumo integral
+      const consumoRef = ref(db, 'historico_consumo');
+      const agora = Date.now();
+      await Promise.all(consumosParaRegistrar.map(c =>
+        set(push(consumoRef), {
+          pedidoId: pedido.id,
+          identificadorPedido: pedido.identificador || pedido.id,
+          insumoId: c.insumoId,
+          nomeInsumo: c.nomeInsumo,
+          quantidade: c.quantidade,
+          unidade: c.unidade,
+          tipo: c.tipo,
+          funcionarioId: currentUser?.id || 'unknown',
+          funcionarioNome: currentUser?.nome || 'Sistema',
+          timestamp: agora,
+        })
+      ));
+
       await update(ref(db, `pedidos_cozinha/${pedido.id}`), { status: 'Concluído', finalizadoEm: Date.now() });
       
       if (pedido.referenciaId) {

@@ -112,8 +112,8 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   );
 
   const insumosPermitidos = insumos.filter(i => isGestor || !(i as any).restrito);
-  const baixos = insumosPermitidos.filter(i => (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0));
-  const excedentes = insumosPermitidos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo);
+  const baixos = insumosPermitidos.filter(i => (i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0));
+  const excedentes = insumosPermitidos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? 0) > i.estoqueMaximo);
 
   const isVencido = (item: any) => {
     const hoje = new Date();
@@ -169,11 +169,11 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       await runTransaction(itemRef, (currentData) => {
         if (currentData) {
           if (currentData.lotes && currentData.lotes[loteId]) {
-            currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) - quantidade);
+            currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? 0) - quantidade);
             delete currentData.lotes[loteId];
             descartou = true;
           } else if (!currentData.lotes && loteId === 'legado') {
-            currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0) - quantidade);
+            currentData.estoqueEstacionario = Math.max(0, (currentData.estoqueEstacionario ?? 0) - quantidade);
             currentData.validade = null;
             currentData.lote = null;
             descartou = true;
@@ -227,8 +227,8 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
        valA = ((a as any).tipoUso || '').toLowerCase();
        valB = ((b as any).tipoUso || '').toLowerCase();
     } else if (key === 'rotativo') {
-       valA = Number(a.estoqueRotativo ?? (a as any).estoqueAtual ?? 0);
-       valB = Number(b.estoqueRotativo ?? (b as any).estoqueAtual ?? 0);
+       valA = Number(a.estoqueRotativo ?? 0);
+       valB = Number(b.estoqueRotativo ?? 0);
     } else if (key === 'estacionado') {
        valA = Number(a.estoqueEstacionario ?? 0);
        valB = Number(b.estoqueEstacionario ?? 0);
@@ -274,7 +274,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       const diffTime = dataValidade.getTime() - hoje.getTime();
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
       if (diffDays <= diasAviso) {
-        const q = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+        const q = i.estoqueEstacionario ?? 0;
         validadeProxima.push({ ...i, loteSpec: { lote: (i as any).lote, validade: (i as any).validade, quantidade: q } });
       }
     }
@@ -360,7 +360,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     } else {
       headers = ['Nome do Insumo', 'SKU', 'Estoque Total', 'Alerta/Limite'];
       rows = filtered.map(item => {
-         const est = item.estoqueEstacionario ?? item.estoqueAtual ?? 0;
+         const est = item.estoqueEstacionario ?? 0;
          let minMax = '-';
          if (activeModal === 'baixos') minMax = `Mínimo: ${item.alertaMinimo}`;
          else if (activeModal === 'excedentes') minMax = `Máximo: ${item.estoqueMaximo}`;
@@ -545,7 +545,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   <div className="mt-2 text-sm text-red-700 max-h-[150px] overflow-y-auto pr-2">
                     <ul className="list-disc pl-5 space-y-1">
                       {baixos.map(i => {
-                        const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+                        const estEstacionario = i.estoqueEstacionario ?? 0;
                         return (
                           <li key={i.id}>
                             <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} no Estacionado (Mínimo: {i.alertaMinimo})
@@ -570,7 +570,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   <div className="mt-2 text-sm text-blue-700 max-h-[150px] overflow-y-auto pr-2">
                     <ul className="list-disc pl-5 space-y-1">
                       {excedentes.map(i => {
-                        const estEstacionario = i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0;
+                        const estEstacionario = i.estoqueEstacionario ?? 0;
                         return (
                           <li key={i.id}>
                             <span className="font-bold">{i.nome}:</span> {formatarQtdJSX(estEstacionario, i.qtdPacote || 1, i.unidade)} (Máximo: {i.estoqueMaximo})
@@ -704,7 +704,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   <td className="px-6 py-4">
                     {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-0.5 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400 text-xs">-</span>}
                   </td>
-                  <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0)} {i.unidade}</td>
+                  <td className="px-6 py-4 text-orange-600 font-bold">{(i.estoqueRotativo ?? 0)} {i.unidade}</td>
                   <td className="px-6 py-4 text-indigo-600 font-bold">
                     {formatarQtdJSX((i.estoqueEstacionario ?? 0), i.qtdPacote || 1, i.unidade)}
                   </td>
@@ -739,7 +739,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                         </span>
                         {isLotExpired((i as any).validade) && (
                           <button
-                            onClick={() => descartarLote(i.id, 'legado', (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), (i as any).lote)}
+                            onClick={() => descartarLote(i.id, 'legado', (i.estoqueEstacionario ?? 0), (i as any).lote)}
                             className="ml-2 text-red-500 hover:text-red-700 bg-red-50 p-1 rounded" 
                             title="Descartar Lote Vencido"
                           >
@@ -751,9 +751,9 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-2">
-                      {(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) <= (i.alertaMinimo || 0) ? (
+                      {(i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0) ? (
                         <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
-                      ) : i.estoqueMaximo && (i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) > i.estoqueMaximo ? (
+                      ) : i.estoqueMaximo && (i.estoqueEstacionario ?? 0) > i.estoqueMaximo ? (
                         <span className="px-2 py-1 text-xs font-bold bg-blue-100 text-blue-600 rounded-full">EXCEDENTE</span>
                       ) : (
                         <span className="px-2 py-1 text-xs font-bold bg-green-100 text-green-600 rounded-full">OK</span>
@@ -894,7 +894,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                             </>
                           ) : (
                             <td className="px-4 py-3 text-gray-600">
-                              {formatarQtdJSX(item.estoqueEstacionario ?? item.estoqueAtual ?? 0, item.qtdPacote || 1, item.unidade)}
+                              {formatarQtdJSX(item.estoqueEstacionario ?? 0, item.qtdPacote || 1, item.unidade)}
                               {activeModal === 'baixos' && <span className="ml-2 text-xs text-red-500 font-bold">(Mín: {item.alertaMinimo})</span>}
                               {activeModal === 'excedentes' && <span className="ml-2 text-xs text-blue-500 font-bold">(Máx: {item.estoqueMaximo})</span>}
                             </td>

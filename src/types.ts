@@ -2,23 +2,32 @@ export interface LoteDados {
   lote: string;
   validade: string;
   quantidade: number;
+  custoPorVolume?: number;
+  valorTotalLote?: number;
 }
 
 export interface Insumo {
   id: string;
   nome: string;
   precoPacote: number;
-  qtdPacote: number; // Quantidade total no pacote (ex: 1000g, 12 unidades)
+  qtdPacote: number;
   estoqueRotativo: number;
   estoqueEstacionario: number;
   alertaMinimo: number;
   estoqueMaximo?: number;
   diasAvisoValidade?: number;
-  unidade: string; // g, kg, un, ml
+  unidade: string;
   fornecedor?: string;
   lotes?: Record<string, LoteDados>;
-  lote?: string; // legado
-  validade?: string; // legado
+  lote?: string;
+  validade?: string;
+  tipoUso?: string;
+  sku?: string;
+  insumoVinculado?: string;
+  isVariavel?: boolean;
+  ultimoPrecoCompra?: number;
+  validadeIndefinida?: boolean;
+  restrito?: boolean;
 }
 
 export interface IngredienteReceita {
@@ -29,6 +38,7 @@ export interface IngredienteReceita {
 export interface Produto {
   id: string;
   nome: string;
+  categoria?: string;
   ingredientes: IngredienteReceita[];
   custoTotal: number;
 }
@@ -55,7 +65,21 @@ export interface Funcionario {
   id: string;
   nome: string;
   pin: string;
-  cargo?: string;
+  cargo?: string | string[];
+}
+
+export interface ConsumoLog {
+  id: string;
+  pedidoId: string;
+  identificadorPedido: string;
+  insumoId: string;
+  nomeInsumo: string;
+  quantidade: number;
+  unidade: string;
+  tipo: 'ingrediente' | 'adicional';
+  timestamp: number;
+  funcionarioId?: string;
+  funcionarioNome?: string;
 }
 
 export interface TransferenciaLog {
@@ -63,6 +87,7 @@ export interface TransferenciaLog {
   insumoId: string;
   nomeInsumo: string;
   quantidade: number;
+  direcao: string;
   funcionarioId: string;
   funcionarioNome: string;
   timestamp: number;
@@ -73,8 +98,14 @@ export interface DescarteLog {
   insumoId: string;
   nomeInsumo: string;
   quantidade: number;
-  lote: string;
+  unidade: string;
+  lote?: string;
+  motivo: string;
+  tipoEstoque: 'rotativo' | 'estacionario';
+  valorTotal: number;
   funcionarioId: string;
   funcionarioNome: string;
+  autorizadoPorId: string;
+  autorizadoPorNome: string;
   timestamp: number;
 }

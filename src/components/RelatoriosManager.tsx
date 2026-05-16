@@ -182,7 +182,7 @@ export default function RelatoriosManager() {
 
 
   const valorEstoque = insumos.reduce((acc, i) => {
-    const totalQtd = (i.estoqueEstacionario ?? 0) + (i.estoqueRotativo ?? (i as any).estoqueAtual ?? 0);
+    const totalQtd = (i.estoqueEstacionario ?? 0) + (i.estoqueRotativo ?? 0);
     const custoUnitario = i.precoPacote / (i.qtdPacote || 1);
     return acc + (totalQtd * custoUnitario);
   }, 0);

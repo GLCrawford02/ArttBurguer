@@ -107,7 +107,7 @@ export default function DescarteManager({ currentUser }: { currentUser?: any }) 
             const atual = Number(currentData.estoqueRotativo ?? 0);
             currentData.estoqueRotativo = Math.max(0, Number((atual - qtdDescarteReal).toFixed(4)));
           } else {
-            const atual = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+            const atual = Number(currentData.estoqueEstacionario ?? 0);
             currentData.estoqueEstacionario = Math.max(0, Number((atual - qtdDescarteReal).toFixed(4)));
           }
         }
@@ -186,7 +186,7 @@ export default function DescarteManager({ currentUser }: { currentUser?: any }) 
                  <div key={i.id} onClick={() => adicionarALista(i)} className="p-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
                     <div>
                        <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
-                       <p className="text-xs text-gray-500 mt-0.5">Rot: {formatarQtdJSX(Number(i.estoqueRotativo ?? 0), Number(i.qtdPacote || 1), i.unidade)} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
+                       <p className="text-xs text-gray-500 mt-0.5">Rot: {formatarQtdJSX(Number(i.estoqueRotativo ?? 0), Number(i.qtdPacote || 1), i.unidade)} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
                     </div>
                     <Plus size={18} className="text-red-600 bg-red-100 p-1 rounded-full"/>
                  </div>
@@ -222,7 +222,7 @@ export default function DescarteManager({ currentUser }: { currentUser?: any }) 
                 <tr key={item.id} className="hover:bg-gray-50/50 transition-colors">
                   <td className="p-3">
                     <p className="font-bold text-gray-800 text-xs sm:text-sm leading-tight">{item.insumo.nome}</p>
-                    <p className="text-[10px] text-gray-500 mt-0.5">Disp (Rot): {Number(item.insumo.estoqueRotativo ?? 0)} {item.insumo.unidade} | (Est): {Number(item.insumo.estoqueEstacionario ?? (item.insumo as any).estoqueAtual ?? 0)} {item.insumo.unidade}</p>
+                    <p className="text-[10px] text-gray-500 mt-0.5">Disp (Rot): {Number(item.insumo.estoqueRotativo ?? 0)} {item.insumo.unidade} | (Est): {Number(item.insumo.estoqueEstacionario ?? 0)} {item.insumo.unidade}</p>
                   </td>
                   <td className="p-3">
                     <select value={item.tipoEstoque} onChange={(e) => atualizarItem(item.id, 'tipoEstoque', e.target.value)} className="w-full p-1.5 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-red-500 text-xs bg-white">

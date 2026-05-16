@@ -136,7 +136,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
         const targetInsumo = item.insumo;
         const rawQtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
         const qtdAdicionar = Number(rawQtdAdicionar.toFixed(4));
-        const estEstacionario = Number(Number(targetInsumo.estoqueEstacionario ?? (targetInsumo as any).estoqueAtual ?? 0).toFixed(4));
+        const estEstacionario = Number(Number(targetInsumo.estoqueEstacionario ?? 0).toFixed(4));
         const estRotativo = Number(Number(targetInsumo.estoqueRotativo ?? 0).toFixed(4));
         const novoEstoque = Number((estEstacionario + estRotativo + qtdAdicionar).toFixed(4));
         return targetInsumo.estoqueMaximo && novoEstoque > Number(targetInsumo.estoqueMaximo);
@@ -162,7 +162,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
       const insumoRef = ref(db, `insumos/${targetId}`);
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
-          const rawAtualEstoque = Number(currentData.estoqueEstacionario ?? currentData.estoqueAtual ?? 0);
+          const rawAtualEstoque = Number(currentData.estoqueEstacionario ?? 0);
           const atualEstoque = Number(rawAtualEstoque.toFixed(4));
           const targetQtdPacote = Number(currentData.qtdPacote || 1);
           const atualEstoqueVols = atualEstoque / targetQtdPacote;
@@ -263,7 +263,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
   };
 
   const enviarWhatsApp = async () => {
-    const precisandoReposicao = insumos.filter(i => (Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + Number(i.estoqueRotativo ?? 0)) <= Number(i.alertaMinimo || 0));
+    const precisandoReposicao = insumos.filter(i => (Number(i.estoqueEstacionario ?? 0) + Number(i.estoqueRotativo ?? 0)) <= Number(i.alertaMinimo || 0));
     
     if (precisandoReposicao.length === 0) {
       showToast('Nenhum insumo está abaixo do estoque mínimo!', 'success');
@@ -276,7 +276,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
     let estimativaTotal = 0;
 
     precisandoReposicao.forEach(i => {
-      const atual = Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0) + Number(i.estoqueRotativo ?? 0);
+      const atual = Number(i.estoqueEstacionario ?? 0) + Number(i.estoqueRotativo ?? 0);
       const max = Number(i.estoqueMaximo || 0);
       const pacote = Number(i.qtdPacote || 1);
       const tipoEmb = pacote > 1 ? 'Volume(s)' : 'Unidade(s)';
@@ -373,7 +373,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
                    <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
                       <div>
                          <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
-                         <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? (i as any).estoqueAtual ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
+                         <p className="text-xs text-gray-500 mt-0.5">{i.qtdPacote > 1 ? `Embalagem c/ ${i.qtdPacote} ${i.unidade}` : `Unidade (${i.unidade})`} • Est: {formatarQtdJSX(Number(i.estoqueEstacionario ?? 0), Number(i.qtdPacote || 1), i.unidade)}</p>
                       </div>
                       <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
                    </div>
