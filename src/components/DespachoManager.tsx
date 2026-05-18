@@ -18,6 +18,9 @@ interface ParadaRota {
   isAberta?: boolean;
   numeroDiario?: number;
   googleMapsLink?: string;
+  lat?: number;
+  lng?: number;
+  coordAproximada?: boolean;
   status?: string;
   timestampEntrega?: number;
 }
@@ -110,12 +113,17 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     const processGeocoding = async () => {
       const ativos = despachos.filter(d => d.status === 'Em Rota');
       const addressesToGeocode: string[] = [];
-      
+
       for (const d of ativos) {
         for (const p of d.paradas) {
           if (p.status !== 'Concluída' && !geocodingQueue.current.has(p.endereco)) {
-            addressesToGeocode.push(p.endereco);
             geocodingQueue.current.add(p.endereco);
+            if (p.lat && p.lng) {
+              // Usa coordenadas já salvas no cadastro do cliente
+              setGeocodedStops(prev => ({ ...prev, [p.endereco]: { lat: p.lat!, lng: p.lng! } }));
+            } else {
+              addressesToGeocode.push(p.endereco);
+            }
           }
         }
       }
@@ -123,7 +131,6 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       for (const endereco of addressesToGeocode) {
         if (!isMounted) break;
         try {
-          // Consulta a API gratuita de mapas para transformar o nome da rua em GPS
           const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}&limit=1`);
           const data = await res.json();
           if (isMounted) {
@@ -135,7 +142,6 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
         } catch (e) {
           if (isMounted) setGeocodedStops(prev => ({ ...prev, [endereco]: null }));
         }
-        // Pausa de 1.5s entre cada busca para não sobrecarregar e bloquear a API gratuita
         await new Promise(r => setTimeout(r, 1500));
       }
     };
@@ -166,15 +172,16 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       showToast('Este cliente não possui endereço cadastrado.', 'error');
       return;
     }
-    setRotaAtual([...rotaAtual, { 
-      clienteId: c.id, 
-      clienteNome: c.nome, 
-      endereco: endereco, 
-      observacaoEntregador: c.observacaoEntregador || '', 
-      pedidoId: pedido.id, 
-      isAberta: pedido.isAberta || false, 
-      numeroDiario: pedido.numeroDiario || 0, 
-      googleMapsLink: c.googleMapsLink || '' 
+    setRotaAtual([...rotaAtual, {
+      clienteId: c.id,
+      clienteNome: c.nome,
+      endereco: endereco,
+      observacaoEntregador: c.observacaoEntregador || '',
+      pedidoId: pedido.id,
+      isAberta: pedido.isAberta || false,
+      numeroDiario: pedido.numeroDiario || 0,
+      googleMapsLink: c.googleMapsLink || '',
+      ...(c.lat && c.lng ? { lat: c.lat, lng: c.lng, coordAproximada: c.coordAproximada ?? false } : {}),
     }]);
     setSearchTerm('');
   };
@@ -195,7 +202,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     if (paradas.length === 0) return;
     const originAddress = encodeURIComponent('Avenida Antonio Olinto, 8, Centro, Curvelo, 35790-001');
     const mapBaseUrl = `https://www.google.com/maps/dir/${originAddress}/`;
-    const stops = paradas.map(p => encodeURIComponent(p.endereco)).join('/');
+    const stops = paradas.map(p => p.lat && p.lng ? `${p.lat},${p.lng}` : encodeURIComponent(p.endereco)).join('/');
     const finalUrl = `${mapBaseUrl}${stops}/${originAddress}`;
     window.open(finalUrl, '_blank');
   };
@@ -285,10 +292,13 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       return;
     }
     let mensagem = `*Nova Rota de Entrega!*\n\n`;
-    d.paradas.forEach((p, idx) => { 
+    d.paradas.forEach((p, idx) => {
       const c = clientes.find(client => client.id === p.clienteId);
       const telefone = c?.telefone || 'Não informado';
-      mensagem += `*Parada ${idx + 1} - Pedido #${p.numeroDiario || '?'}*\n👤 ${p.clienteNome}\n📞 ${telefone}\n📍 ${p.endereco}${p.observacaoEntregador ? `\n⚠️ Obs: ${p.observacaoEntregador}` : ''}\n\n`; 
+      const mapsLink = p.lat && p.lng
+        ? `https://maps.google.com/maps?q=${p.lat},${p.lng}`
+        : `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(p.endereco)}`;
+      mensagem += `*Parada ${idx + 1} - Pedido #${p.numeroDiario || '?'}*\n👤 ${p.clienteNome}\n📞 ${telefone}\n📍 ${p.endereco}\n🗺️ ${mapsLink}${p.observacaoEntregador ? `\n⚠️ Obs: ${p.observacaoEntregador}` : ''}\n\n`;
     });
     
     try {
@@ -532,6 +542,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                 <Popup>
                   <div className="text-sm font-bold text-gray-800 mb-1">#{p.numeroDiario || '?'} - Destino: {p.clienteNome}</div>
                   <div className="text-xs text-gray-600 mb-1">{p.endereco}</div>
+                  {p.coordAproximada && <div className="text-xs font-bold text-yellow-600 mb-1">⚠️ Localização aproximada</div>}
                   <div className="text-xs font-bold text-orange-500 mt-1">Aguardando Entrega ⏳</div>
                 </Popup>
               </Marker>

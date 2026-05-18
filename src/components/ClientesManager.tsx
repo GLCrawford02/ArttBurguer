@@ -15,6 +15,9 @@ export interface Cliente {
   complemento: string;
   cidade: string;
   uf: string;
+  lat?: number;
+  lng?: number;
+  coordAproximada?: boolean;
   observacaoCliente?: string;
   observacaoEntregador?: string;
   ultimosPedidos?: any[];
@@ -87,7 +90,14 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   const [googleMapsLink, setGoogleMapsLink] = useState('');
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState<string[]>([]);
 
+  const [latInput, setLatInput] = useState('');
+  const [lngInput, setLngInput] = useState('');
+
   const [isFetchingCep, setIsFetchingCep] = useState(false);
+  const [isGeocoding, setIsGeocoding] = useState(false);
+  const [geocodingError, setGeocodingError] = useState('');
+  const [geocodingFeito, setGeocodingFeito] = useState(false);
+  const [pendingCoordsData, setPendingCoordsData] = useState<{ lat?: number; lng?: number; coordAproximada?: boolean }>({});
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const canEdit = temPermissao ? temPermissao('clientes', 'aba_logistica', 'editar') : true;
@@ -97,6 +107,55 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const geocodiarEndereco = async (
+    rua: string, num: string, bairroParam: string, cid: string, estado: string, cepParam: string
+  ): Promise<{lat: number, lng: number, aproximado: boolean} | null> => {
+    const h = { 'Accept-Language': 'pt-BR' };
+    const buscar = async (url: string) => {
+      try {
+        const r = await fetch(url, { headers: h });
+        const d = await r.json();
+        if (d && d.length > 0) return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) };
+      } catch {}
+      return null;
+    };
+
+    // 1. Rua + número + cidade + estado (exato)
+    let r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(`${rua} ${num}`.trim())}&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return { ...r, aproximado: false };
+
+    // 2. Rua + número sem estado
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${rua}, ${num}, ${cid}, Brasil`)}&limit=1&countrycodes=br`);
+    if (r) return { ...r, aproximado: false };
+
+    // 3. Rua sem número + cidade + estado (localiza a rua)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(rua)}&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return { ...r, aproximado: true };
+
+    // 4. CEP — muito preciso no Brasil (identifica rua ou quarteirão)
+    const cepLimpo = cepParam.replace(/\D/g, '');
+    if (cepLimpo.length === 8) {
+      r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&postalcode=${cepLimpo}&country=Brasil&limit=1&countrycodes=br`);
+      if (r) return { ...r, aproximado: true };
+    }
+
+    // 5. Rua + cidade (sem estado, busca mais ampla)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${rua}, ${cid}, Brasil`)}&limit=1&countrycodes=br`);
+    if (r) return { ...r, aproximado: true };
+
+    // 6. Bairro + cidade (localiza o bairro)
+    if (bairroParam) {
+      r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${bairroParam}, ${cid}, ${estado}, Brasil`)}&limit=1&countrycodes=br`);
+      if (r) return { ...r, aproximado: true };
+    }
+
+    // 7. Cidade + estado (último recurso — ao menos mostra a região)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return { ...r, aproximado: true };
+
+    return null;
   };
 
   useEffect(() => {
@@ -162,6 +221,8 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     setCidade(''); setUf(''); setObservacaoCliente(''); setObservacaoEntregador('');
     setGoogleMapsLink('');
     setCategoriasSelecionadas([]);
+    setLatInput(''); setLngInput('');
+    setGeocodingError(''); setGeocodingFeito(false); setPendingCoordsData({});
   };
 
   const handleSalvar = async () => {
@@ -174,6 +235,49 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     if (cpfLimpo && !validarCPF(cpfLimpo)) {
       showToast('O CPF digitado é inválido.', 'error');
       return;
+    }
+
+    // Determinar coordenadas a usar
+    let coordsData: { lat?: number; lng?: number; coordAproximada?: boolean } = {};
+
+    const latNum = latInput.trim() ? parseFloat(latInput.replace(',', '.')) : NaN;
+    const lngNum = lngInput.trim() ? parseFloat(lngInput.replace(',', '.')) : NaN;
+    const temCoordsManual = !isNaN(latNum) && !isNaN(lngNum);
+
+    if (temCoordsManual) {
+      // Usuário inseriu coordenadas manualmente — usar diretamente, sem geocoding
+      coordsData = { lat: latNum, lng: lngNum, coordAproximada: false };
+      setGeocodingError('');
+    } else if (geocodingFeito) {
+      // Usuário já viu o aviso e está confirmando — usar coords pendentes
+      coordsData = pendingCoordsData;
+    } else if (logradouro && cidade) {
+      // Primeira tentativa — rodar geocoding
+      setIsGeocoding(true);
+      setGeocodingError('');
+      const coords = await geocodiarEndereco(logradouro, numero, bairro, cidade, uf, cep);
+      setIsGeocoding(false);
+
+      if (!coords) {
+        // Nenhum resultado — avisar e aguardar confirmação do usuário
+        setPendingCoordsData({});
+        setGeocodingFeito(true);
+        setGeocodingError('__sem_resultado__');
+        return;
+      } else if (coords.aproximado) {
+        // Resultado aproximado — mostrar aviso e aguardar confirmação
+        setPendingCoordsData({ lat: coords.lat, lng: coords.lng, coordAproximada: true });
+        setLatInput(coords.lat.toFixed(6));
+        setLngInput(coords.lng.toFixed(6));
+        setGeocodingFeito(true);
+        setGeocodingError('__aviso__');
+        return;
+      } else {
+        // Exato — salvar de imediato sem interrupção
+        coordsData = { lat: coords.lat, lng: coords.lng, coordAproximada: false };
+        setLatInput(coords.lat.toFixed(6));
+        setLngInput(coords.lng.toFixed(6));
+      }
     }
 
     const clienteData = {
@@ -191,6 +295,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       observacaoEntregador: observacaoEntregador || '',
       googleMapsLink: googleMapsLink || '',
       categorias: categoriasSelecionadas,
+      ...coordsData,
     };
 
     try {
@@ -205,7 +310,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
         });
         showToast('Cliente cadastrado com sucesso!', 'success');
       }
-      
+
       resetForm();
       setShowForm(false);
     } catch (error: any) {
@@ -230,6 +335,9 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     setObservacaoEntregador(cliente.observacaoEntregador || '');
     setGoogleMapsLink(cliente.googleMapsLink || '');
     setCategoriasSelecionadas(cliente.categorias || []);
+    setLatInput(cliente.lat != null ? String(cliente.lat) : '');
+    setLngInput(cliente.lng != null ? String(cliente.lng) : '');
+    setGeocodingError(''); setGeocodingFeito(false); setPendingCoordsData({});
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
@@ -382,6 +490,67 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                 <input type="text" value={uf} onChange={e => setUf(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white uppercase" maxLength={2} />
               </div>
             </div>
+            {/* Coordenadas manuais */}
+            <div className="border-t border-gray-200 pt-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-gray-500 uppercase flex items-center">
+                  <MapPin size={12} className="mr-1"/>
+                  Coordenadas GPS
+                  {latInput && lngInput && <span className="ml-2 text-[9px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold">Definidas</span>}
+                </label>
+                {(latInput || lngInput) && (
+                  <button type="button" onClick={() => { setLatInput(''); setLngInput(''); setGeocodingFeito(false); setGeocodingError(''); }} className="text-[10px] text-red-500 hover:text-red-700 font-bold">Limpar</button>
+                )}
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-bold uppercase">Latitude</label>
+                  <input
+                    type="text" value={latInput}
+                    onChange={e => { setLatInput(e.target.value); setGeocodingFeito(false); setGeocodingError(''); }}
+                    className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm font-mono"
+                    placeholder="-18.758096"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[10px] text-gray-400 font-bold uppercase">Longitude</label>
+                  <input
+                    type="text" value={lngInput}
+                    onChange={e => { setLngInput(e.target.value); setGeocodingFeito(false); setGeocodingError(''); }}
+                    className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm font-mono"
+                    placeholder="-44.433364"
+                  />
+                </div>
+              </div>
+              <p className="text-[10px] text-gray-400">Deixe em branco para buscar automaticamente pelo endereço. Para pegar as coordenadas: abra o Google Maps, clique com o botão direito no local exato e copie os números.</p>
+            </div>
+
+            {/* Avisos de geocoding */}
+            {geocodingError === '__aviso__' && (
+              <div className="flex items-start bg-yellow-50 border border-yellow-200 rounded-lg p-2.5">
+                <AlertTriangle size={15} className="text-yellow-600 mr-2 shrink-0 mt-0.5"/>
+                <div>
+                  <p className="text-xs text-yellow-800 font-bold">Endereço exato não encontrado — localização aproximada.</p>
+                  <p className="text-xs text-yellow-700 mt-0.5">As coordenadas foram preenchidas automaticamente com o local mais próximo encontrado. Você pode corrigi-las manualmente acima ou clicar em <strong>Confirmar e Salvar</strong> para aceitar.</p>
+                </div>
+              </div>
+            )}
+            {geocodingError === '__sem_resultado__' && (
+              <div className="flex items-start bg-red-50 border border-red-200 rounded-lg p-2.5">
+                <AlertTriangle size={15} className="text-red-500 mr-2 shrink-0 mt-0.5"/>
+                <div>
+                  <p className="text-xs text-red-700 font-bold">Nenhuma localização encontrada para este endereço.</p>
+                  <p className="text-xs text-red-600 mt-0.5">Insira as coordenadas manualmente acima, ou clique em <strong>Salvar sem Localização</strong> para continuar.</p>
+                </div>
+              </div>
+            )}
+            {isGeocoding && (
+              <div className="flex items-center text-xs text-indigo-600 font-medium">
+                <div className="w-3 h-3 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mr-2"></div>
+                Buscando localização no mapa...
+              </div>
+            )}
+
             <div className="space-y-1">
               <label className="text-xs font-bold text-gray-500 uppercase">Link do Google Maps (Opcional)</label>
               <input type="text" value={googleMapsLink} onChange={e => setGoogleMapsLink(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-sm" placeholder="Ex: https://maps.app.goo.gl/..." />
@@ -449,8 +618,23 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
 
         <div className="flex gap-2 justify-end">
           <button onClick={() => { resetForm(); setShowForm(false); }} className="bg-gray-200 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>
-          <button onClick={handleSalvar} className="bg-indigo-600 text-white px-6 py-2 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm flex items-center">
-            <Save size={18} className="mr-2" /> {editId ? 'Atualizar Cliente' : 'Salvar Cliente'}
+          <button
+            onClick={handleSalvar}
+            disabled={isGeocoding}
+            className={`px-6 py-2 rounded-lg font-bold transition-colors shadow-sm flex items-center disabled:opacity-70 text-white ${
+              geocodingError === '__aviso__' ? 'bg-yellow-500 hover:bg-yellow-600' :
+              geocodingError === '__sem_resultado__' ? 'bg-orange-500 hover:bg-orange-600' :
+              'bg-indigo-600 hover:bg-indigo-700'
+            }`}
+          >
+            {isGeocoding
+              ? <><div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div> Buscando mapa...</>
+              : geocodingError === '__aviso__'
+              ? <><CheckCircle size={18} className="mr-2"/> Confirmar e Salvar</>
+              : geocodingError === '__sem_resultado__'
+              ? <><Save size={18} className="mr-2"/> Salvar sem Localização</>
+              : <><Save size={18} className="mr-2"/> {editId ? 'Atualizar Cliente' : 'Salvar Cliente'}</>
+            }
           </button>
         </div>
       </div>
@@ -537,7 +721,13 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                 <div className="flex-1 min-w-0 pr-2">
                   <h4 className="font-bold text-gray-900 truncate">{c.nome}</h4>
                   <p className="text-sm text-gray-500 font-medium flex items-center mt-1"><Phone size={14} className="mr-1 text-indigo-400"/> {c.telefone}</p>
-                  {c.logradouro && <p className="text-xs text-gray-400 mt-1 truncate"><MapPin size={12} className="inline mr-1 text-gray-400"/>{c.logradouro}, {c.numero} - {c.bairro}</p>}
+                  {c.logradouro && (
+                    <p className="text-xs text-gray-400 mt-1 truncate flex items-center">
+                      <MapPin size={12} className={`mr-1 shrink-0 ${c.lat ? (c.coordAproximada ? 'text-yellow-400' : 'text-green-400') : 'text-gray-300'}`}/>
+                      {c.logradouro}, {c.numero} - {c.bairro}
+                      {c.coordAproximada && <span className="ml-1 text-[9px] bg-yellow-100 text-yellow-700 px-1 rounded font-bold shrink-0">~Aprox.</span>}
+                    </p>
+                  )}
                   {c.categorias && c.categorias.length > 0 && (
                     <div className="flex flex-wrap gap-1 mt-2">
                       {c.categorias.map(cat => (

@@ -14,6 +14,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
   const [sku, setSku] = useState('');
   const [unidade, setUnidade] = useState('g');
   const [isVariavel, setIsVariavel] = useState(false);
+  const [transferivel, setTransferivel] = useState(false);
   const [precoPacote, setPrecoPacote] = useState('0');
   const [qtdPacote, setQtdPacote] = useState('1');
   const [diasAvisoValidade, setDiasAvisoValidade] = useState('7');
@@ -225,6 +226,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
         tipoUso: tipoUso,
         insumoVinculado: insumoVinculado || null,
         isVariavel,
+        transferivel,
       };
 
       await update(ref(db, `insumos/${editId}`), updateData);
@@ -245,6 +247,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
         insumoVinculado: insumoVinculado || null,
         estoqueRotativo: 0,
         isVariavel,
+        transferivel,
         estoqueEstacionario: estoqueAtual ? Number(estoqueAtual) : 0,
       });
       showToast('Insumo salvo com sucesso!', 'success');
@@ -253,7 +256,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
 
     setNome('');
     setSku('');
-    setUnidade('g');
+    setUnidade('un');
     setPrecoPacote('0');
     setQtdPacote('1');
     setDiasAvisoValidade('7');
@@ -262,6 +265,10 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
     setEstoqueAtual('');
     setTipoUso('');
     setSearchTipoUso('');
+    setInsumoVinculado('');
+    setSearchInsumoVinculado('');
+    setIsVariavel(false);
+    setTransferivel(false);
     setShowForm(false);
   };
 
@@ -368,6 +375,7 @@ Formato esperado para cada objeto:
             tipoUso: item.tipoUso || '',
             insumoVinculado: null,
             isVariavel: !!item.isVariavel,
+            transferivel: false,
             estoqueRotativo: 0,
             estoqueEstacionario: item.estoqueAtual ? Number(item.estoqueAtual) : 0,
           });
@@ -401,6 +409,7 @@ Formato esperado para cada objeto:
     setSearchTipoUso((insumo as any).tipoUso || '');
     setInsumoVinculado((insumo as any).insumoVinculado || '');
     setIsVariavel((insumo as any).isVariavel || false);
+    setTransferivel((insumo as any).transferivel || false);
     
     const linkedId = (insumo as any).insumoVinculado || '';
     if (linkedId) {
@@ -424,9 +433,9 @@ Formato esperado para cada objeto:
     setEstoqueMaximo('');
     setEstoqueAtual('');
     setIsVariavel(false);
+    setTransferivel(false);
     setTipoUso('');
     setSearchTipoUso('');
-    setIsVariavel(false);
     setInsumoVinculado('');
     setSearchInsumoVinculado('');
     setSearchInsumoVinculado('');
@@ -564,14 +573,9 @@ Formato esperado para cada objeto:
                 <div className="space-y-1">
                   <label className="text-xs font-bold text-gray-500 uppercase">Unidade de Medida</label>
                   <select value={unidade} onChange={e => setUnidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white">
-                    <option value="g">Grama (g)</option>
-                    <option value="kg">Quilograma (kg)</option>
-                    <option value="ml">Mililitro (ml)</option>
-                    <option value="L">Litro (L)</option>
                     <option value="un">Unidade (un)</option>
+                    <option value="fd">Pacote (fd)</option>
                     <option value="cx">Caixa (cx)</option>
-                    <option value="fd">Fardo (fd)</option>
-                    <option value="pc">Pacote (pc)</option>
                   </select>
                 </div>
                 <div className="space-y-1">
@@ -589,43 +593,57 @@ Formato esperado para cada objeto:
                   </div>
                 </div>
                 <div className="space-y-1">
-                  <label className="text-xs font-bold text-gray-500 uppercase">Qtd. na Embalagem</label>
-                  <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" placeholder="1 = Unidade" />
+                  <label className="text-xs font-bold text-gray-500 uppercase">
+                    {insumoVinculado ? `Qtd. de ${searchInsumoVinculado || 'unidades'} por ${unidade || 'embalagem'}` : 'Qtd. na Embalagem'}
+                  </label>
+                  <input type="number" value={qtdPacote} onChange={e => setQtdPacote(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white" placeholder={insumoVinculado ? 'Ex: 50' : '1 = Unidade base'} />
                 </div>
-                {['pc', 'fd', 'kg', 'L', 'cx'].includes(unidade) && (
-                  <div className="space-y-1">
-                    <label className="text-xs font-bold text-gray-500 uppercase">Vincular Insumo (Quebra)</label>
-                    <div className="relative w-full">
-                      <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-green-500">
-                        <Search size={14} className="ml-2 text-gray-400 shrink-0" />
-                        <input 
-                          type="text" 
-                          value={searchInsumoVinculado} 
-                          onChange={e => {
-                            setSearchInsumoVinculado(e.target.value);
-                            setInsumoVinculado('');
-                            setShowInsumoVinculadoDropdown(true);
-                          }}
-                          onFocus={() => setShowInsumoVinculadoDropdown(true)}
-                          onBlur={() => setTimeout(() => setShowInsumoVinculadoDropdown(false), 200)}
-                          className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
-                          placeholder="Buscar insumo (Opcional)..."
-                        />
-                      </div>
-                      {showInsumoVinculadoDropdown && (
-                        <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                          {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).map(i => (
-                            <div key={i.id} onClick={() => { setInsumoVinculado(i.id); setSearchInsumoVinculado(i.nome); setShowInsumoVinculadoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
-                              <span className="font-medium text-gray-800">{i.nome}</span>
-                              <span className="text-gray-400 text-xs ml-2">{i.unidade}</span>
-                            </div>
-                          ))}
-                          {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum insumo encontrado</div>}
-                        </div>
+                <div className="space-y-1 sm:col-span-3">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Quebra em → (Insumo Vinculado)</label>
+                  <div className="relative w-full">
+                    <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-green-500">
+                      <Search size={14} className="ml-2 text-gray-400 shrink-0" />
+                      <input
+                        type="text"
+                        value={searchInsumoVinculado}
+                        onChange={e => {
+                          setSearchInsumoVinculado(e.target.value);
+                          setInsumoVinculado('');
+                          setShowInsumoVinculadoDropdown(true);
+                        }}
+                        onFocus={() => setShowInsumoVinculadoDropdown(true)}
+                        onBlur={() => setTimeout(() => setShowInsumoVinculadoDropdown(false), 200)}
+                        className="w-full p-2 outline-none rounded-lg text-sm bg-transparent"
+                        placeholder="Opcional — deixe vazio se for unidade base"
+                      />
+                      {insumoVinculado && (
+                        <button type="button" onClick={() => { setInsumoVinculado(''); setSearchInsumoVinculado(''); }} className="mr-2 text-gray-400 hover:text-red-500">
+                          <X size={14} />
+                        </button>
                       )}
                     </div>
+                    {showInsumoVinculadoDropdown && (
+                      <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {insumos
+                          .filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase()))
+                          .map(i => (
+                            <div key={i.id} onClick={() => { setInsumoVinculado(i.id); setSearchInsumoVinculado(i.nome); setShowInsumoVinculadoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
+                              <span className="font-medium text-gray-800">{i.nome}</span>
+                              <span className="text-gray-400 text-xs ml-2">{i.unidade}{(i as any).insumoVinculado ? ' · container' : ' · base'}</span>
+                            </div>
+                          ))}
+                        {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).length === 0 && (
+                          <div className="p-3 text-sm text-gray-500 text-center">Nenhum insumo encontrado</div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                )}
+                  {insumoVinculado && (
+                    <p className="text-xs text-green-600 font-medium">
+                      ✓ 1 {unidade || 'un'} deste produto quebra em {qtdPacote || '?'}× {searchInsumoVinculado}
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
 
@@ -658,7 +676,7 @@ Formato esperado para cada objeto:
               <div className="pt-2">
                 <label className="flex items-center space-x-2 cursor-pointer w-fit">
                   <input type="checkbox" checked={isVariavel} onChange={e => setIsVariavel(e.target.checked)} className="rounded text-green-600 focus:ring-green-500 w-4 h-4 cursor-pointer" />
-                  <span className="text-sm font-bold text-gray-700">Insumo Variável (Zera e substitui o estoque rotativo na transferência)</span>
+                  <span className="text-sm font-bold text-gray-700">Insumo Variável <span className="text-gray-400 font-normal">(consumo não mensurável — ketchup, copos, toucas...)</span></span>
                 </label>
               </div>
             </div>
@@ -741,6 +759,7 @@ Formato esperado para cada objeto:
                 <th className="px-6 py-4 cursor-pointer hover:bg-gray-200 transition-colors" onClick={() => handleSort('custo')}>
                   <div className="flex items-center">Custo Unitário {sortConfig?.key === 'custo' ? (sortConfig.direction === 'asc' ? <ChevronUp size={14} className="ml-1"/> : <ChevronDown size={14} className="ml-1"/>) : ''}</div>
                 </th>
+                <th className="px-6 py-4 text-center">Transferências</th>
                 <th className="px-6 py-4 text-right">Ações</th>
               </tr>
             </thead>
@@ -748,26 +767,58 @@ Formato esperado para cada objeto:
               <tbody>{[...Array(5)].map((_, i) => (<tr key={i} className="animate-pulse"><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-3/4"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td><td className="px-6 py-4"><div className="h-4 bg-gray-200 rounded w-1/2"></div></td></tr>))}</tbody>
             ) : (
             <tbody className="divide-y divide-gray-100 text-sm">
-              {sortedInsumos.map(i => (
+              {sortedInsumos.map(i => {
+                const vinculado = (i as any).insumoVinculado
+                  ? insumos.find(x => x.id === (i as any).insumoVinculado)
+                  : null;
+                const isPai = insumos.some(x => (x as any).insumoVinculado === i.id);
+                const nivel = (i as any).insumoVinculado
+                  ? (vinculado && (vinculado as any).insumoVinculado ? 'CAIXA' : 'PACOTE')
+                  : (isPai ? 'BASE ←' : 'BASE');
+                const nivelColor = nivel === 'CAIXA'
+                  ? 'bg-blue-100 text-blue-700'
+                  : nivel.startsWith('PACOTE')
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-gray-100 text-gray-500';
+                return (
                 <tr key={i.id} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-6 py-4 font-bold text-gray-900">{i.nome}</td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full uppercase shrink-0 ${nivelColor}`}>{nivel}</span>
+                      <span className="font-bold text-gray-900">{i.nome}</span>
+                    </div>
+                    {vinculado && (
+                      <p className="text-xs text-gray-400 mt-0.5 ml-8">
+                        quebra em {i.qtdPacote}× {vinculado.nome}
+                      </p>
+                    )}
+                  </td>
                   <td className="px-6 py-4 text-gray-500 font-mono text-xs">{(i as any).sku || 'N/A'}</td>
                   <td className="px-6 py-4">
                     {(i as any).tipoUso ? <span className="text-[10px] font-bold px-2 py-1 bg-blue-100 text-blue-600 rounded-full uppercase">{(i as any).tipoUso}</span> : <span className="text-gray-400">-</span>}
                   </td>
                   <td className="px-6 py-4">
                     <div className="font-medium text-gray-800">
-                      Custo: <span className="text-blue-600">R$ {Number(i.precoPacote).toFixed(i.qtdPacote > 1 ? 2 : 3)}</span> por {i.unidade}
+                      <span className="text-blue-600">R$ {Number(i.precoPacote).toFixed(2)}</span> por {i.unidade}
                     </div>
-                    {i.qtdPacote > 1 && <div className="text-xs text-gray-400 mt-1">(R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un)</div>}
+                    {i.qtdPacote > 1 && <div className="text-xs text-gray-400 mt-1">R$ {(i.precoPacote / i.qtdPacote).toFixed(3)} / un</div>}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <button
+                      onClick={() => update(ref(db, `insumos/${i.id}`), { transferivel: !(i as any).transferivel })}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-bold transition-colors ${(i as any).transferivel ? 'bg-orange-100 text-orange-700 hover:bg-orange-200' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'}`}
+                    >
+                      {(i as any).transferivel ? '✓ Sim' : 'Não'}
+                    </button>
                   </td>
                   <td className="px-6 py-4 flex justify-end space-x-2">
                     {canEdit && <button onClick={() => handleEdit(i)} className="p-2 text-blue-500 hover:bg-blue-100 rounded-lg transition-colors"><Pencil size={18} /></button>}
                     {canDelete && <button onClick={() => handleExcluir(i.id)} className="p-2 text-red-500 hover:bg-red-100 rounded-lg transition-colors"><Trash2 size={18} /></button>}
                   </td>
                 </tr>
-              ))}
-              {sortedInsumos.length === 0 && <tr><td colSpan={5} className="text-center py-12 text-gray-400">Nenhum insumo encontrado.</td></tr>}
+                );
+              })}
+              {sortedInsumos.length === 0 && <tr><td colSpan={6} className="text-center py-12 text-gray-400">Nenhum insumo encontrado.</td></tr>}
             </tbody>
             )}
           </table>

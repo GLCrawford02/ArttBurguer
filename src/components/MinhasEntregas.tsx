@@ -1,15 +1,36 @@
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, update, set, push } from 'firebase/database';
 import { db } from '../firebase';
-import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X } from 'lucide-react';
-import { Capacitor } from '@capacitor/core';
+import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X, ChevronDown, ChevronUp } from 'lucide-react';
+import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { KeepAwake } from '@capacitor-community/keep-awake';
+import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
+import L from 'leaflet';
+// @ts-ignore
+import 'leaflet/dist/leaflet.css';
+
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
+
+function FitBounds({ positions }: { positions: [number, number][] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (positions.length === 1) {
+      map.setView(positions[0], 16);
+    } else if (positions.length > 1) {
+      map.fitBounds(positions, { padding: [50, 50], maxZoom: 16 });
+    }
+  }, [JSON.stringify(positions)]);
+  return null;
+}
 
 export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [despachos, setDespachos] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [isTracking, setIsTracking] = useState(false);
+  const [myLocation, setMyLocation] = useState<{lat: number, lng: number} | null>(null);
+  const [mapaAberto, setMapaAberto] = useState(true);
   const wakeLockRef = useRef<any>(null);
   const watchIdRef = useRef<number | null>(null);
   const capWatchIdRef = useRef<string | null>(null);
@@ -38,6 +59,16 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     return () => { unsubDespachos(); unsubClientes(); };
   }, []);
 
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const locRef = ref(db, `funcionarios/${currentUser.id}/localizacao`);
+    const unsub = onValue(locRef, snap => {
+      const val = snap.val();
+      if (val?.lat && val?.lng) setMyLocation({ lat: val.lat, lng: val.lng });
+    });
+    return () => unsub();
+  }, [currentUser?.id]);
+
   const activeRoute = despachos.find(d => d.motoboyId === currentUser?.id && d.status === 'Em Rota');
 
   // Iniciar Rastreamento e Impedir a tela de apagar
@@ -48,36 +79,43 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
       pararRastreamento();
     }
 
-    return () => pararRastreamento();
+    return () => { pararRastreamento(); };
   }, [activeRoute, isTracking]);
 
   const iniciarRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
-      // Rodando dentro do Aplicativo (APK)
-      await KeepAwake.keepAwake(); // Trava a tela para não apagar no bolso/painel
-      const perm = await Geolocation.requestPermissions();
-      if (perm.location === 'granted') {
-        capWatchIdRef.current = await Geolocation.watchPosition(
-          { enableHighAccuracy: true, maximumAge: 10000, timeout: 5000 },
-          (pos, err) => {
-            if (pos && currentUser?.id) {
+      // Usa BackgroundGeolocation para manter GPS ativo mesmo com app minimizado
+      await KeepAwake.keepAwake();
+      try {
+        const watcherId = await BackgroundGeolocation.addWatcher(
+          {
+            backgroundMessage: 'GPS ativo — rota em andamento. Toque para abrir o app.',
+            backgroundTitle: 'ArttBurger Entregas',
+            requestPermissions: true,
+            stale: false,
+            distanceFilter: 10,
+          },
+          (location, error) => {
+            if (error) return;
+            if (location && currentUser?.id) {
               update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-                lat: pos.coords.latitude,
-                lng: pos.coords.longitude,
-                velocidade: pos.coords.speed || 0,
-                timestamp: Date.now()
+                lat: location.latitude,
+                lng: location.longitude,
+                velocidade: location.speed || 0,
+                timestamp: Date.now(),
               });
             }
           }
         );
+        capWatchIdRef.current = watcherId;
         setIsTracking(true);
-      } else {
-        showToast('Você precisa autorizar o GPS do celular!', 'error');
+      } catch (err) {
+        showToast('Erro ao iniciar GPS em segundo plano. Verifique as permissões.', 'error');
       }
     } else {
       // Rodando no Navegador (Computador/Safari)
       if ('wakeLock' in navigator) {
-        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); } 
+        try { wakeLockRef.current = await (navigator as any).wakeLock.request('screen'); }
         catch (err) { console.error('Erro Wake Lock', err); }
       }
 
@@ -99,11 +137,11 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     }
   };
 
-  const pararRastreamento = () => {
+  const pararRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
       KeepAwake.allowSleep();
       if (capWatchIdRef.current !== null) {
-        Geolocation.clearWatch({ id: capWatchIdRef.current });
+        await BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current });
         capWatchIdRef.current = null;
       }
     } else {
@@ -113,15 +151,16 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     setIsTracking(false);
   };
 
-  const openGoogleMaps = (endereco: string, link?: string) => {
-     if (link && link.trim() !== '') {
-       let finalLink = link.trim();
-       if (!finalLink.startsWith('http')) finalLink = 'https://' + finalLink;
-       window.open(finalLink, '_blank');
-     } else {
-       const url = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`;
-       window.open(url, '_blank');
-     }
+  const openGoogleMaps = (endereco: string, link?: string, lat?: number, lng?: number) => {
+    if (link && link.trim() !== '') {
+      let finalLink = link.trim();
+      if (!finalLink.startsWith('http')) finalLink = 'https://' + finalLink;
+      window.open(finalLink, '_blank');
+    } else if (lat && lng) {
+      window.open(`https://maps.google.com/maps?q=${lat},${lng}`, '_blank');
+    } else {
+      window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(endereco)}`, '_blank');
+    }
   };
 
   const handleEntregue = async (paradaIndex: number) => {
@@ -253,6 +292,109 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         </div>
       </div>
 
+      {/* Mapa do entregador */}
+      {(() => {
+        const motoIcon = new L.Icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/3209/3209935.png',
+          iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -40],
+        });
+        const casaPendenteIcon = new L.Icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/609/609803.png',
+          iconSize: [34, 34], iconAnchor: [17, 34], popupAnchor: [0, -34],
+        });
+        const casaAproximadaIcon = new L.DivIcon({
+          html: `<div style="background:#f59e0b;border:2px solid #b45309;border-radius:50% 50% 50% 0;width:28px;height:28px;transform:rotate(-45deg);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 4px rgba(0,0,0,0.3)"><span style="transform:rotate(45deg);font-size:14px">~</span></div>`,
+          iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -34],
+          className: '',
+        });
+        const casaConcluidaIcon = new L.Icon({
+          iconUrl: 'https://cdn-icons-png.flaticon.com/512/609/609803.png',
+          iconSize: [28, 28], iconAnchor: [14, 28], popupAnchor: [0, -28],
+          className: 'grayscale opacity-50',
+        });
+
+        const paradasComCoords = activeRoute.paradas.filter((p: any) => p.lat && p.lng);
+        const paradasSemCoords = activeRoute.paradas.filter((p: any) => !p.lat || !p.lng);
+
+        const allPositions: [number, number][] = [
+          ...(myLocation ? [[myLocation.lat, myLocation.lng] as [number, number]] : []),
+          ...paradasComCoords.map((p: any) => [p.lat, p.lng] as [number, number]),
+        ];
+
+        return (
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+            <button
+              onClick={() => setMapaAberto(v => !v)}
+              className="w-full flex justify-between items-center px-4 py-3 bg-indigo-50 hover:bg-indigo-100 transition-colors"
+            >
+              <span className="font-bold text-indigo-800 text-sm flex items-center">
+                <Map size={16} className="mr-2"/> Mapa da Rota
+                {myLocation && <span className="ml-2 text-[10px] bg-green-500 text-white px-2 py-0.5 rounded-full font-bold">GPS Ativo</span>}
+              </span>
+              {mapaAberto ? <ChevronUp size={18} className="text-indigo-500"/> : <ChevronDown size={18} className="text-indigo-500"/>}
+            </button>
+
+            {mapaAberto && (
+              <div className="relative" style={{ height: '300px' }}>
+                {allPositions.length > 0 ? (
+                  <MapContainer
+                    center={allPositions[0]}
+                    zoom={14}
+                    style={{ height: '100%', width: '100%', zIndex: 1 }}
+                    zoomControl={true}
+                  >
+                    <TileLayer
+                      attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+                      url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                    />
+                    <FitBounds positions={allPositions} />
+
+                    {myLocation && (
+                      <Marker position={[myLocation.lat, myLocation.lng]} icon={motoIcon}>
+                        <Popup>
+                          <div className="text-sm font-bold text-gray-800">Você está aqui</div>
+                          <div className="text-xs text-green-600 font-bold">GPS Ativo</div>
+                        </Popup>
+                      </Marker>
+                    )}
+
+                    {paradasComCoords.map((p: any, idx: number) => {
+                      const isConcluida = p.status === 'Concluída';
+                      const icone = isConcluida ? casaConcluidaIcon : (p.coordAproximada ? casaAproximadaIcon : casaPendenteIcon);
+                      return (
+                        <Marker key={idx} position={[p.lat, p.lng]} icon={icone}>
+                          <Popup>
+                            <div className="text-sm font-bold text-gray-800">#{p.numeroDiario || '?'} — {p.clienteNome}</div>
+                            <div className="text-xs text-gray-500 mt-1">{p.endereco}</div>
+                            {p.coordAproximada && !isConcluida && <div className="text-xs text-yellow-600 font-bold mt-1">⚠️ Localização aproximada</div>}
+                            {isConcluida
+                              ? <div className="text-xs text-green-600 font-bold mt-1">✅ Entregue</div>
+                              : <div className="text-xs text-orange-500 font-bold mt-1">⏳ Pendente</div>
+                            }
+                          </Popup>
+                        </Marker>
+                      );
+                    })}
+                  </MapContainer>
+                ) : (
+                  <div className="h-full flex flex-col items-center justify-center text-gray-400 bg-gray-50">
+                    <Navigation size={32} className="mb-2 opacity-40"/>
+                    <p className="text-sm font-medium">Aguardando sinal de GPS...</p>
+                  </div>
+                )}
+
+                {paradasSemCoords.length > 0 && (
+                  <div className="absolute bottom-2 left-2 right-2 z-[1000] bg-yellow-50 border border-yellow-200 rounded-lg px-3 py-2 text-[10px] text-yellow-800 font-bold flex items-center">
+                    <AlertTriangle size={12} className="mr-1.5 shrink-0 text-yellow-600"/>
+                    {paradasSemCoords.length} parada(s) sem coordenadas cadastradas não aparecem no mapa.
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       <div className="grid grid-cols-1 gap-4">
          {activeRoute.paradas.map((parada: any, index: number) => {
            const isConcluida = parada.status === 'Concluída';
@@ -271,7 +413,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
                  </div>
                  <div className="flex gap-2 w-full sm:w-auto shrink-0">
                    <button onClick={() => setReportModal(index)} disabled={isConcluida} className="px-3 py-3 bg-red-50 text-red-600 hover:bg-red-100 rounded-lg font-bold text-sm flex items-center justify-center disabled:opacity-50 transition-colors" title="Reportar Problema"><AlertTriangle size={18}/></button>
-                   <button onClick={() => openGoogleMaps(parada.endereco, linkMaps)} disabled={isConcluida} className="flex-1 sm:flex-none px-4 py-3 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-bold text-sm flex items-center justify-center disabled:opacity-50 transition-colors"><ExternalLink size={18} className="mr-2 sm:mr-0 lg:mr-2"/> <span className="sm:hidden lg:inline">Navegar</span></button>
+                   <button onClick={() => openGoogleMaps(parada.endereco, linkMaps, parada.lat, parada.lng)} disabled={isConcluida} className="flex-1 sm:flex-none px-4 py-3 bg-gray-100 text-gray-700 hover:bg-gray-200 rounded-lg font-bold text-sm flex items-center justify-center disabled:opacity-50 transition-colors"><ExternalLink size={18} className="mr-2 sm:mr-0 lg:mr-2"/> <span className="sm:hidden lg:inline">Navegar</span></button>
                    <button onClick={() => handleEntregue(index)} disabled={isConcluida} className="flex-1 sm:flex-none px-6 py-3 bg-green-500 text-white hover:bg-green-600 rounded-lg font-bold text-sm flex items-center justify-center disabled:opacity-50 transition-colors shadow-sm"><CheckCircle size={18} className="mr-2"/> Feito</button>
                  </div>
                </div>
@@ -286,7 +428,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
             <CheckCircle size={32} />
           </div>
           <h3 className="text-xl font-black text-emerald-800 mb-2">Todas as entregas concluídas!</h3>
-          <p className="text-sm text-emerald-700 font-medium leading-relaxed">Você já pode voltar para a loja em segurança. O seu GPS continuará ligado para o Gerente te acompanhar no mapa!</p>
+          <p className="text-sm text-emerald-700 font-medium leading-relaxed">Você já pode voltar para a loja em segurança.</p>
         </div>
       )}
 

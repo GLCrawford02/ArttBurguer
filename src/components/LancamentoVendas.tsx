@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, remove, update } from 'firebase/database';
+import { ref, onValue, push, set, remove, update, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
 import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer } from 'lucide-react';
 
@@ -248,10 +248,58 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
     if (itensParaEnviar.length > 0) {
       await set(push(ref(db, 'pedidos_cozinha')), {
-        identificador, tipo, 
+        identificador, tipo,
         referenciaId: referenciaId || null,
         itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now()
       });
+
+      // Abate do estoque rotativo no momento em que o pedido cai no KDS
+      for (const item of itensParaEnviar) {
+        const prod = [...produtos, ...promocoes].find(p => p.id === item.produtoId);
+        if (!prod) continue;
+
+        const multiplicador = item.qtd;
+        const restricoes: string[] = item.opcoes?.restricoes
+          ? Object.values(item.opcoes.restricoes) as string[]
+          : [];
+
+        for (const ing of (prod.ingredientes || [])) {
+          const insumo = insumos.find((i: any) => i.id === ing.insumoId);
+          if (!insumo || insumo.isVariavel) continue;
+          if (restricoes.includes(insumo.nome)) continue;
+
+          const qtdAbater = Number((Number(ing.quantidade) * multiplicador).toFixed(4));
+          await runTransaction(ref(db, `insumos/${ing.insumoId}`), (data) => {
+            if (data) {
+              data.estoqueRotativo = Number(Math.max(0, (data.estoqueRotativo ?? 0) - qtdAbater).toFixed(4));
+            }
+            return data;
+          });
+        }
+
+        if (item.opcoes?.adicionais) {
+          for (const add of Object.values(item.opcoes.adicionais) as any[]) {
+            let insumoId = add.insumoId;
+            if (!insumoId) {
+              const found = insumos.find((i: any) => i.nome.toLowerCase().trim() === (add.nome || '').toLowerCase().trim());
+              insumoId = found?.id;
+            }
+            if (!insumoId) continue;
+
+            const insumo = insumos.find((i: any) => i.id === insumoId);
+            if (!insumo || insumo.isVariavel) continue;
+
+            const baseQtd = add.quantidadeInsumo ? Number(add.quantidadeInsumo) : 1;
+            const qtdAbater = Number((Number(add.qtd) * baseQtd * multiplicador).toFixed(4));
+            await runTransaction(ref(db, `insumos/${insumoId}`), (data) => {
+              if (data) {
+                data.estoqueRotativo = Number(Math.max(0, (data.estoqueRotativo ?? 0) - qtdAbater).toFixed(4));
+              }
+              return data;
+            });
+          }
+        }
+      }
     }
 
     return novoCarrinho;
@@ -277,8 +325,17 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     setPdvView('caixa');
   };
 
+  const cancelarKdsMesa = async (numeroMesa: number) => {
+    const ref_id = `mesa_${numeroMesa}`;
+    const pendentes = pedidosCozinha.filter(
+      p => p.referenciaId === ref_id && p.status !== 'Concluído' && p.status !== 'Cancelado'
+    );
+    await Promise.all(pendentes.map(p => update(ref(db, `pedidos_cozinha/${p.id}`), { status: 'Cancelado' })));
+  };
+
   const handleSalvarMesa = async () => {
     if (Object.keys(pdvCarrinho).length === 0) {
+      if (mesaSelecionada) await cancelarKdsMesa(mesaSelecionada);
       await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
@@ -588,6 +645,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       }
   
       if (pdvTipoPedido === 'Mesa' && mesaSelecionada) {
+        await cancelarKdsMesa(mesaSelecionada);
         await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
         await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       }

@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(java -version 2>&1)",
+      "PowerShell($env:JAVA_HOME)",
+      "PowerShell($env:ANDROID_HOME)",
+      "PowerShell($env:ANDROID_SDK_ROOT)",
+      "Read(//c/Program Files/Android/**)"
+    ]
+  }
+}

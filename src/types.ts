@@ -25,6 +25,7 @@ export interface Insumo {
   sku?: string;
   insumoVinculado?: string;
   isVariavel?: boolean;
+  transferivel?: boolean;
   ultimoPrecoCompra?: number;
   validadeIndefinida?: boolean;
   restrito?: boolean;

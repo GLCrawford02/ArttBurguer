@@ -93,6 +93,21 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
     }
   };
 
+  // Resolve o multiplicador total de unidades base por 1 deste produto
+  const resolverMultiplicador = (insumo: Insumo): number => {
+    let mult = 1;
+    let current: Insumo | undefined = insumo;
+    for (let depth = 0; depth < 5; depth++) {
+      const nextId = (current as any).insumoVinculado;
+      if (!nextId) break;
+      mult *= Number(current.qtdPacote || 1);
+      current = insumos.find(i => i.id === nextId);
+      if (!current) break;
+    }
+    if (!(insumo as any).insumoVinculado) mult = Number(insumo.qtdPacote || 1);
+    return mult;
+  };
+
   const adicionarAoCarrinho = (insumo: Insumo) => {
     if (carrinho.find(item => item.id === insumo.id)) {
       showToast('Este insumo já está na lista da nota.', 'error');
@@ -132,10 +147,9 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
 
     if (!isConfirmedAdmin) {
       const excedentes = carrinho.filter(item => {
-        const targetId = item.id;
         const targetInsumo = item.insumo;
-        const rawQtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
-        const qtdAdicionar = Number(rawQtdAdicionar.toFixed(4));
+        const hasLinkedCheck = !!targetInsumo.insumoVinculado;
+        const qtdAdicionar = hasLinkedCheck ? item.qtd : item.qtd * Number(targetInsumo.qtdPacote || 1);
         const estEstacionario = Number(Number(targetInsumo.estoqueEstacionario ?? 0).toFixed(4));
         const estRotativo = Number(Number(targetInsumo.estoqueRotativo ?? 0).toFixed(4));
         const novoEstoque = Number((estEstacionario + estRotativo + qtdAdicionar).toFixed(4));
@@ -154,28 +168,32 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
     let sucessos = 0;
 
     for (const item of carrinho) {
-      const rawQtdAdicionar = item.qtd * Number(item.insumo.qtdPacote || 1);
+      const targetQtdPacote = Number(item.insumo.qtdPacote || 1);
+      const hasLinked = !!item.insumo.insumoVinculado;
+      // Produtos COM vínculo guardam estacionado em VOLUMES (fardos/caixas/pacotes).
+      // Produtos SEM vínculo guardam em UNIDADES BASE.
+      const rawQtdAdicionar = hasLinked ? item.qtd : item.qtd * targetQtdPacote;
       const qtdAdicionar = Number(rawQtdAdicionar.toFixed(4));
       const valorCompraTotal = Number(item.valorTotalStr) || 0;
-      
+
       const targetId = item.id;
       const insumoRef = ref(db, `insumos/${targetId}`);
       const result = await runTransaction(insumoRef, (currentData) => {
         if (currentData) {
           const rawAtualEstoque = Number(currentData.estoqueEstacionario ?? 0);
           const atualEstoque = Number(rawAtualEstoque.toFixed(4));
-          const targetQtdPacote = Number(currentData.qtdPacote || 1);
-          const atualEstoqueVols = atualEstoque / targetQtdPacote;
+          const currentQtdPacote = Number(currentData.qtdPacote || 1);
+          // Volumes atuais: para vinculados o estoque já está em volumes; para não-vinculados divide
+          const atualEstoqueVols = hasLinked ? atualEstoque : atualEstoque / currentQtdPacote;
           const atualPrecoMedio = Number(currentData.precoPacote || 0);
-          
-          const qtdAdicionarLinkedVols = qtdAdicionar / targetQtdPacote;
-          const totalVols = atualEstoqueVols + qtdAdicionarLinkedVols;
+
+          const totalVols = atualEstoqueVols + item.qtd;
           const custoAntigo = atualEstoqueVols * atualPrecoMedio;
           const novoPreco = totalVols > 0 ? (custoAntigo + valorCompraTotal) / totalVols : 0;
 
           currentData.estoqueEstacionario = Number((atualEstoque + qtdAdicionar).toFixed(4));
           currentData.precoPacote = Number(novoPreco.toFixed(4));
-          currentData.ultimoPrecoCompra = Number((valorCompraTotal / qtdAdicionarLinkedVols).toFixed(4));
+          currentData.ultimoPrecoCompra = Number((item.qtd > 0 ? valorCompraTotal / item.qtd : 0).toFixed(4));
           
           if (item.lote || item.validade) {
             if (!currentData.lotes) currentData.lotes = {};
@@ -185,7 +203,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
               validade: item.validade || '',
               quantidade: qtdAdicionar,
               valorTotalLote: valorCompraTotal,
-              custoPorVolume: valorCompraTotal / qtdAdicionarLinkedVols
+              custoPorVolume: item.qtd > 0 ? valorCompraTotal / item.qtd : 0
             };
           }
         }
@@ -427,6 +445,26 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
                       <span className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-500 text-[10px] sm:text-xs font-medium">R$</span>
                       <input type="text" value={item.valorTotalStr === '' ? '' : Number(item.valorTotalStr).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onChange={(e) => { const digits = e.target.value.replace(/\D/g, ''); const val = digits ? (parseInt(digits, 10) / 100).toString() : ''; atualizarItem(item.id, 'valorTotalStr', val); }} className="w-full pl-5 sm:pl-6 pr-1 py-1.5 border border-gray-200 rounded-md outline-none focus:ring-2 focus:ring-blue-500 text-[10px] sm:text-xs bg-white font-bold" placeholder="0,00" />
                     </div>
+                    {item.valorTotalStr && item.qtd > 0 && (() => {
+                      const mult = resolverMultiplicador(item.insumo);
+                      const totalUnidades = item.qtd * mult;
+                      const custoUn = Number(item.valorTotalStr) / totalUnidades;
+                      const baseUnit = (() => {
+                        let cur: Insumo | undefined = item.insumo;
+                        for (let d = 0; d < 5; d++) {
+                          const nId = (cur as any).insumoVinculado;
+                          if (!nId) break;
+                          cur = insumos.find(i => i.id === nId);
+                          if (!cur) break;
+                        }
+                        return cur;
+                      })();
+                      return (
+                        <p className="text-[9px] text-blue-600 font-semibold mt-1 text-center">
+                          {totalUnidades} {baseUnit?.unidade ?? item.insumo.unidade} = R$ {custoUn.toFixed(4)}/un
+                        </p>
+                      );
+                    })()}
                   </td>
                   <td className="p-2 text-center">
                     {canEdit && (

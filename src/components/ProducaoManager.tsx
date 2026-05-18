@@ -1,11 +1,10 @@
 import { useState, useEffect, useRef } from 'react';
-import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
+import { ref, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Insumo, Produto, Promocao } from '../types';
+import { Produto, Promocao } from '../types';
 import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2 } from 'lucide-react';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
-  const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
@@ -90,14 +89,8 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   }, [kdsFiltroCategorias, activeKds, currentUser?.id]);
 
   useEffect(() => {
-    const insumosRef = ref(db, 'insumos');
     const produtosRef = ref(db, 'produtos');
     const pedidosRef = ref(db, 'pedidos_cozinha');
-
-    const unsubInsumos = onValue(insumosRef, (snapshot) => {
-      const data = snapshot.val();
-      if (data) setInsumos(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
-    });
 
     const unsubProdutos = onValue(produtosRef, (snapshot) => {
       const data = snapshot.val();
@@ -128,7 +121,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
     });
 
     return () => {
-      unsubInsumos();
       unsubProdutos();
       unsubPromocoes();
       unsubPedidos();
@@ -171,114 +163,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const handleFinalizarPedido = async (pedido: any) => {
     try {
-      const consumosParaRegistrar: Array<{
-        insumoId: string;
-        nomeInsumo: string;
-        quantidade: number;
-        unidade: string;
-        tipo: 'ingrediente' | 'adicional';
-      }> = [];
-
-      for (const item of pedido.itens) {
-        const prod = produtos.find(p => p.id === item.produtoId) || promocoes.find(p => p.id === item.produtoId);
-        if (!prod) continue;
-
-        const multiplicador = item.qtd;
-        for (const ing of (prod.ingredientes || [])) {
-          const insumo = insumos.find(i => i.id === ing.insumoId);
-          if (!insumo) continue;
-
-          if (item.opcoes && item.opcoes.restricoes) {
-            const restricoesArray = Object.values(item.opcoes.restricoes) as string[];
-            if (restricoesArray.includes(insumo.nome)) continue;
-          }
-
-          const qtdNecessaria = Number((Number(ing.quantidade) * multiplicador).toFixed(4));
-
-          const insumoRef = ref(db, `insumos/${ing.insumoId}`);
-          const result = await runTransaction(insumoRef, (currentData) => {
-            if (currentData) {
-              const estoqueAtual = Number(currentData.estoqueRotativo ?? 0);
-              currentData.estoqueRotativo = Number(Math.max(0, estoqueAtual - qtdNecessaria).toFixed(4));
-            }
-            return currentData;
-          });
-
-          if (result.committed) {
-            consumosParaRegistrar.push({
-              insumoId: ing.insumoId,
-              nomeInsumo: insumo.nome,
-              quantidade: qtdNecessaria,
-              unidade: insumo.unidade,
-              tipo: 'ingrediente',
-            });
-          }
-        }
-
-        // Abater adicionais
-        if (item.opcoes && item.opcoes.adicionais) {
-          const adicionaisArray = Object.values(item.opcoes.adicionais) as any[];
-          for (const add of adicionaisArray) {
-            let insumoAdicionalId = add.insumoId;
-            let nomeAdicional = add.nome || '';
-            let unidadeAdicional = '';
-
-            if (!insumoAdicionalId) {
-              const insumoEncontrado = insumos.find(i => i.nome.toLowerCase().trim() === nomeAdicional.toLowerCase().trim());
-              insumoAdicionalId = insumoEncontrado?.id;
-              if (insumoEncontrado) unidadeAdicional = insumoEncontrado.unidade;
-            } else {
-              const insumoEncontrado = insumos.find(i => i.id === insumoAdicionalId);
-              if (insumoEncontrado) {
-                nomeAdicional = insumoEncontrado.nome;
-                unidadeAdicional = insumoEncontrado.unidade;
-              }
-            }
-
-            if (insumoAdicionalId) {
-              const baseQtd = add.quantidadeInsumo ? Number(add.quantidadeInsumo) : 1;
-              const qtdNecessaria = Number((Number(add.qtd) * baseQtd * multiplicador).toFixed(4));
-
-              const insumoRef = ref(db, `insumos/${insumoAdicionalId}`);
-              const result = await runTransaction(insumoRef, (currentData) => {
-                if (currentData) {
-                  const estoqueAtual = Number(currentData.estoqueRotativo ?? 0);
-                  currentData.estoqueRotativo = Number(Math.max(0, estoqueAtual - qtdNecessaria).toFixed(4));
-                }
-                return currentData;
-              });
-
-              if (result.committed) {
-                consumosParaRegistrar.push({
-                  insumoId: insumoAdicionalId,
-                  nomeInsumo: nomeAdicional,
-                  quantidade: qtdNecessaria,
-                  unidade: unidadeAdicional,
-                  tipo: 'adicional',
-                });
-              }
-            }
-          }
-        }
-      }
-
-      // Registrar log de consumo integral
-      const consumoRef = ref(db, 'historico_consumo');
-      const agora = Date.now();
-      await Promise.all(consumosParaRegistrar.map(c =>
-        set(push(consumoRef), {
-          pedidoId: pedido.id,
-          identificadorPedido: pedido.identificador || pedido.id,
-          insumoId: c.insumoId,
-          nomeInsumo: c.nomeInsumo,
-          quantidade: c.quantidade,
-          unidade: c.unidade,
-          tipo: c.tipo,
-          funcionarioId: currentUser?.id || 'unknown',
-          funcionarioNome: currentUser?.nome || 'Sistema',
-          timestamp: agora,
-        })
-      ));
 
       await update(ref(db, `pedidos_cozinha/${pedido.id}`), { status: 'Concluído', finalizadoEm: Date.now() });
       
@@ -303,7 +187,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
       showToast('Pedido finalizado e enviado para a mesa/balcão!', 'success');
     } catch (error) {
-      showToast('Erro ao finalizar pedido e abater estoque.', 'error');
+      showToast('Erro ao finalizar pedido.', 'error');
     }
   };
 
