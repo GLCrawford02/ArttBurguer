@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation } from 'lucide-react';
 import { APP_VERSION } from '../App';
 
 export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: any }) {
@@ -28,6 +28,22 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
   };
 
   const updates = [
+    {
+      versao: '1.2.2',
+      titulo: 'GPS de Precisão, Ponto Eletrônico e Banco de Horas',
+      descricao: 'Entregadores rastreados em segundo plano, localização exata dos clientes no mapa, registro de ponto com verificação GPS e banco de horas completo para a equipe.',
+      features: [
+        'Coordenadas de Clientes: Ao cadastrar um cliente, o sistema busca automaticamente as coordenadas (latitude/longitude) pelo endereço usando uma cascata de 7 tentativas — incluindo CEP, rua sem número e bairro. O pin no mapa do entregador aponta para o local exato da casa.',
+        'Mapa no App do Entregador: A tela "Minhas Entregas" agora tem um mapa em tempo real mostrando a posição do entregador (ícone de moto) e as casas dos clientes (pins coloridos). Localização aproximada exibe pin amarelo com aviso.',
+        'GPS em Segundo Plano (Android): O rastreamento do entregador continua ativo mesmo com o app minimizado ou tela apagada, via serviço foreground com notificação persistente.',
+        'Links de Rota por Coordenadas: O botão "Abrir Rota no GPS" e a mensagem WhatsApp enviada ao motoboy usam coordenadas exatas (lat/lng) em vez de texto de endereço, eliminando erros de localização.',
+        'KDS Limpa ao Fechar Mesa: Ao retirar ou pagar um pedido de mesa, todos os itens pendentes na fila do KDS são cancelados automaticamente e somem dos monitores da cozinha imediatamente.',
+        'Registro de Ponto com GPS: Nova tela "Registro de Ponto" acessível a todos os funcionários após o login. O botão "Bater Ponto" só fica verde quando o funcionário está a menos de 20 metros do estabelecimento. Registra 4 etapas: Chegada, Saída Almoço, Volta Almoço e Saída.',
+        'Banco de Horas: Na aba Atribuições de cada funcionário, o gerente vê o banco de horas com horas trabalhadas, esperadas e saldo (+extras / -devendo) por período (semana, mês, mês anterior). Cada batida exibe um link "ver local" que abre o Google Maps no ponto exato onde o funcionário estava.',
+        'Plataforma iOS: Projeto Capacitor configurado para iOS com permissões de localização em segundo plano. (Build requer Mac com Xcode.)',
+      ],
+      icon: <Navigation className="text-blue-500" size={20} />
+    },
     {
       versao: '1.2.1',
       titulo: 'Gestão de Tags Avançada e Otimizações de Permissões',

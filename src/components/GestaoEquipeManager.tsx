@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, set, push, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario } from '../types';
-import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save, Plane, Clock, Power, ShieldOff, ShieldCheck, Fingerprint } from 'lucide-react';
+import { Bot, Loader2, Sparkles, Plus, Trash2, Calendar, MessageSquare, Briefcase, CheckCircle, AlertTriangle, UserCircle, Save, Plane, Clock, Power, ShieldOff, ShieldCheck, Fingerprint, MapPin } from 'lucide-react';
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";
@@ -52,6 +52,7 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
   const [novoPontoData, setNovoPontoData] = useState('');
   const [novoPontoEntrada, setNovoPontoEntrada] = useState('');
   const [novoPontoSaida, setNovoPontoSaida] = useState('');
+  const [periodoFiltro, setPeriodoFiltro] = useState<'semana' | 'mes' | 'mes_anterior' | 'tudo'>('mes');
 
   const [aiPrompt, setAiPrompt] = useState('');
   const [aiResponse, setAiResponse] = useState('');
@@ -290,11 +291,49 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
 
   const selectedFunc = funcionarios.find(f => f.id === selectedFuncId);
   const selectedFuncData = gestaoData[selectedFuncId || ''] || {};
-  
+
   const faltas = selectedFuncData.faltas ? Object.entries(selectedFuncData.faltas).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
   const feedbacks = selectedFuncData.feedbacks ? Object.entries(selectedFuncData.feedbacks).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
   const folgas = selectedFuncData.folgas ? Object.entries(selectedFuncData.folgas).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
   const pontos = selectedFuncData.ponto ? Object.entries(selectedFuncData.ponto).map(([id, val]: any) => ({ id, ...val })).sort((a, b) => b.timestamp - a.timestamp) : [];
+
+  // Helpers para banco de horas
+  const horaParaMin = (h: string) => { const [hh, mm] = h.split(':').map(Number); return hh * 60 + (mm || 0); };
+  const minParaStr = (m: number) => { const abs = Math.abs(m); return `${String(Math.floor(abs / 60)).padStart(2, '0')}:${String(abs % 60).padStart(2, '0')}`; };
+  const getDataPonto = (p: any): Date => {
+    if (p.id && /^\d{4}-\d{2}-\d{2}$/.test(p.id)) return new Date(p.id + 'T12:00:00');
+    if (p.data?.includes('/')) { const [d, m, y] = p.data.split('/'); return new Date(`${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}T12:00:00`); }
+    if (p.data?.includes('-')) return new Date(p.data + 'T12:00:00');
+    return new Date(p.timestamp);
+  };
+  const calcMinTrabalhados = (p: any) => {
+    const chegada = p.chegada?.hora || p.entrada;
+    const saida = p.saida_final?.hora || p.saida;
+    if (!chegada || !saida) return 0;
+    let total = horaParaMin(saida) - horaParaMin(chegada);
+    if (p.saida_almoco?.hora && p.volta_almoco?.hora) total -= horaParaMin(p.volta_almoco.hora) - horaParaMin(p.saida_almoco.hora);
+    return Math.max(0, total);
+  };
+  const calcMinEsperados = (date: Date) => {
+    const dias = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+    const h = horarios[dias[date.getDay()]];
+    if (!h?.entrada || !h?.saida) return 0;
+    return Math.max(0, horaParaMin(h.saida) - horaParaMin(h.entrada));
+  };
+  const pontosFiltrados = (() => {
+    const hoje = new Date(); hoje.setHours(23, 59, 59, 999);
+    return pontos.filter(p => {
+      const d = getDataPonto(p);
+      if (periodoFiltro === 'tudo') return true;
+      if (periodoFiltro === 'semana') { const s = new Date(hoje); s.setDate(hoje.getDate() - hoje.getDay()); s.setHours(0,0,0,0); return d >= s && d <= hoje; }
+      if (periodoFiltro === 'mes') return d.getMonth() === hoje.getMonth() && d.getFullYear() === hoje.getFullYear();
+      if (periodoFiltro === 'mes_anterior') { const a = new Date(hoje.getFullYear(), hoje.getMonth() - 1); return d.getMonth() === a.getMonth() && d.getFullYear() === a.getFullYear(); }
+      return true;
+    }).sort((a, b) => getDataPonto(b).getTime() - getDataPonto(a).getTime());
+  })();
+  const totalMinTrab = pontosFiltrados.reduce((acc, p) => acc + calcMinTrabalhados(p), 0);
+  const totalMinEsp = pontosFiltrados.reduce((acc, p) => acc + calcMinEsperados(getDataPonto(p)), 0);
+  const saldoMin = totalMinTrab - totalMinEsp;
 
   const funcionariosGerenciaveis = funcionarios.filter(f => {
     const cargos = Array.isArray(f.cargo) ? f.cargo : [f.cargo || 'Atendente'];
@@ -384,47 +423,161 @@ export default function GestaoEquipeManager({ activeView = 'gestao' }: { activeV
             )}
 
             {subView === 'horarios' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 animate-in fade-in">
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
-                  <h4 className="font-bold text-gray-700 flex items-center mb-4"><Clock className="mr-2 text-indigo-500" size={18}/> Quadro de Horários</h4>
-                  <div className="space-y-3">
-                    {['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].map(dia => (
-                      <div key={dia} className="flex items-center justify-between bg-white p-2 rounded-lg border border-gray-100">
-                         <span className="text-sm font-bold text-gray-600 capitalize w-20">{dia}</span>
-                         <div className="flex items-center gap-2 flex-1 ml-4">
-                           <input type="time" value={horarios[dia]?.entrada || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], entrada: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
-                           <span className="text-gray-400 text-xs">às</span>
-                           <input type="time" value={horarios[dia]?.saida || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], saida: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
-                         </div>
-                      </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 flex justify-end">
-                    <button onClick={salvarHorarios} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center"><Save size={16} className="mr-2"/> Salvar Horários</button>
-                  </div>
-                </div>
-              
-                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
-                  <h4 className="font-bold text-gray-700 flex items-center mb-4"><CheckCircle className="mr-2 text-emerald-500" size={18}/> Registro de Ponto</h4>
-                  <div className="flex flex-col gap-2 mb-4">
-                    <input type="date" value={novoPontoData} onChange={e => setNovoPontoData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
-                    <div className="flex gap-2">
-                      <input type="time" value={novoPontoEntrada} onChange={e => setNovoPontoEntrada(e.target.value)} title="Entrada" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
-                      <input type="time" value={novoPontoSaida} onChange={e => setNovoPontoSaida(e.target.value)} title="Saída" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
-                      <button onClick={addPonto} className="bg-emerald-100 text-emerald-600 px-3 py-2 rounded-lg font-bold hover:bg-emerald-200 transition-colors flex items-center justify-center"><Plus size={16}/></button>
+              <div className="space-y-6 animate-in fade-in">
+
+                {/* Linha 1: Quadro de Horários + Adicionar Ponto Manual */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                    <h4 className="font-bold text-gray-700 flex items-center mb-4"><Clock className="mr-2 text-indigo-500" size={18}/> Quadro de Horários</h4>
+                    <div className="space-y-3">
+                      {['segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado', 'domingo'].map(dia => (
+                        <div key={dia} className="flex items-center justify-between bg-white p-2 rounded-lg border border-gray-100">
+                          <span className="text-sm font-bold text-gray-600 capitalize w-20">{dia}</span>
+                          <div className="flex items-center gap-2 flex-1 ml-4">
+                            <input type="time" value={horarios[dia]?.entrada || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], entrada: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
+                            <span className="text-gray-400 text-xs">às</span>
+                            <input type="time" value={horarios[dia]?.saida || ''} onChange={e => setHorarios({...horarios, [dia]: {...horarios[dia], saida: e.target.value}})} className="w-full p-1.5 border border-gray-200 rounded outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-4 flex justify-end">
+                      <button onClick={salvarHorarios} className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-indigo-700 transition-colors flex items-center"><Save size={16} className="mr-2"/> Salvar Horários</button>
                     </div>
                   </div>
-                  <div className="space-y-2 flex-1 max-h-[300px] overflow-y-auto pr-1">
-                    {pontos.map(p => (
-                      <div key={p.id} className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 text-sm">
-                        <div>
-                          <span className="font-bold text-gray-800">{p.data.split('-').reverse().join('/')}</span>
-                          <div className="text-gray-500 mt-0.5 text-xs font-medium">Entrada: <span className="text-emerald-600 font-bold">{p.entrada}</span> {p.saida && <>| Saída: <span className="text-red-500 font-bold">{p.saida}</span></>}</div>
-                        </div>
-                        <button onClick={() => removePonto(p.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={14}/></button>
+
+                  <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col">
+                    <h4 className="font-bold text-gray-700 flex items-center mb-3"><Plus className="mr-2 text-emerald-500" size={18}/> Adicionar / Corrigir Ponto</h4>
+                    <p className="text-xs text-gray-500 mb-3">Use para inserir ou corrigir manualmente um registro que não foi batido pelo app.</p>
+                    <div className="flex flex-col gap-2">
+                      <input type="date" value={novoPontoData} onChange={e => setNovoPontoData(e.target.value)} className="p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" />
+                      <div className="flex gap-2">
+                        <div className="flex-1 space-y-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Entrada</label><input type="time" value={novoPontoEntrada} onChange={e => setNovoPontoEntrada(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" /></div>
+                        <div className="flex-1 space-y-1"><label className="text-[10px] font-bold text-gray-400 uppercase">Saída</label><input type="time" value={novoPontoSaida} onChange={e => setNovoPontoSaida(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-emerald-500 text-sm bg-white" /></div>
                       </div>
-                    ))}
-                    {pontos.length === 0 && <p className="text-xs text-gray-400 italic text-center py-4">Nenhum ponto registrado.</p>}
+                      <button onClick={addPonto} disabled={!novoPontoData || !novoPontoEntrada} className="bg-emerald-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center text-sm disabled:opacity-50"><Plus size={15} className="mr-1.5"/> Adicionar Registro</button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Linha 2: Banco de Horas (largura total) */}
+                <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+                  {/* Header + Período */}
+                  <div className="px-5 py-4 bg-gray-50 border-b border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <h4 className="font-bold text-gray-800 flex items-center"><Clock className="mr-2 text-blue-600" size={20}/> Banco de Horas</h4>
+                    <div className="flex gap-1 bg-white border border-gray-200 rounded-lg p-1 text-xs font-bold">
+                      {(['semana', 'mes', 'mes_anterior', 'tudo'] as const).map(p => (
+                        <button key={p} onClick={() => setPeriodoFiltro(p)} className={`px-3 py-1.5 rounded-md transition-colors ${periodoFiltro === p ? 'bg-blue-600 text-white' : 'text-gray-500 hover:bg-gray-100'}`}>
+                          {p === 'semana' ? 'Esta semana' : p === 'mes' ? 'Este mês' : p === 'mes_anterior' ? 'Mês anterior' : 'Tudo'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Cards de resumo */}
+                  <div className="grid grid-cols-3 divide-x divide-gray-100 border-b border-gray-100">
+                    <div className="p-4 text-center">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Horas Trabalhadas</p>
+                      <p className="text-2xl font-black text-blue-600">{minParaStr(totalMinTrab)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{pontosFiltrados.length} dia(s) registrado(s)</p>
+                    </div>
+                    <div className="p-4 text-center">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Horas Esperadas</p>
+                      <p className="text-2xl font-black text-gray-600">{minParaStr(totalMinEsp)}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">Conforme quadro de horários</p>
+                    </div>
+                    <div className="p-4 text-center">
+                      <p className="text-[10px] font-bold text-gray-400 uppercase mb-1">Saldo</p>
+                      <p className={`text-2xl font-black ${saldoMin >= 0 ? 'text-green-600' : 'text-red-500'}`}>
+                        {saldoMin >= 0 ? '+' : '-'}{minParaStr(saldoMin)}
+                      </p>
+                      <p className={`text-[10px] mt-0.5 font-bold ${saldoMin >= 0 ? 'text-green-500' : 'text-red-400'}`}>
+                        {saldoMin >= 0 ? 'Horas extras' : 'Horas devendo'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Tabela de registros */}
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-gray-50 border-b border-gray-100">
+                        <tr>
+                          <th className="text-left px-4 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Data</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Chegada</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">S. Almoço</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">V. Almoço</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Saída</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Trabalhado</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Esperado</th>
+                          <th className="text-center px-3 py-2.5 text-[10px] font-bold text-gray-400 uppercase">Saldo</th>
+                          <th className="px-3 py-2.5"></th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-50">
+                        {pontosFiltrados.map(p => {
+                          const date = getDataPonto(p);
+                          const minTrab = calcMinTrabalhados(p);
+                          const minEsp = calcMinEsperados(date);
+                          const saldo = minTrab - minEsp;
+                          const chegada = p.chegada?.hora || p.entrada || '—';
+                          const saidaAlm = p.saida_almoco?.hora || '—';
+                          const voltaAlm = p.volta_almoco?.hora || '—';
+                          const saida = p.saida_final?.hora || p.saida || '—';
+                          const diasSemana = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+                          const dataLabel = `${diasSemana[date.getDay()]}, ${date.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })}`;
+
+                          return (
+                            <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                              <td className="px-4 py-3">
+                                <span className="font-bold text-gray-800 text-sm">{dataLabel}</span>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className={`font-bold text-xs px-2 py-1 rounded ${chegada !== '—' ? 'bg-green-100 text-green-700' : 'text-gray-300'}`}>{chegada}</span>
+                                  {p.chegada?.lat && <a href={`https://maps.google.com/maps?q=${p.chegada.lat},${p.chegada.lng}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5 font-medium"><MapPin size={9}/> ver local</a>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className={`font-bold text-xs px-2 py-1 rounded ${saidaAlm !== '—' ? 'bg-orange-100 text-orange-700' : 'text-gray-300'}`}>{saidaAlm}</span>
+                                  {p.saida_almoco?.lat && <a href={`https://maps.google.com/maps?q=${p.saida_almoco.lat},${p.saida_almoco.lng}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5 font-medium"><MapPin size={9}/> ver local</a>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className={`font-bold text-xs px-2 py-1 rounded ${voltaAlm !== '—' ? 'bg-blue-100 text-blue-700' : 'text-gray-300'}`}>{voltaAlm}</span>
+                                  {p.volta_almoco?.lat && <a href={`https://maps.google.com/maps?q=${p.volta_almoco.lat},${p.volta_almoco.lng}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5 font-medium"><MapPin size={9}/> ver local</a>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-center">
+                                <div className="flex flex-col items-center gap-0.5">
+                                  <span className={`font-bold text-xs px-2 py-1 rounded ${saida !== '—' ? 'bg-red-100 text-red-700' : 'text-gray-300'}`}>{saida}</span>
+                                  {p.saida_final?.lat && <a href={`https://maps.google.com/maps?q=${p.saida_final.lat},${p.saida_final.lng}`} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-500 hover:text-blue-700 flex items-center gap-0.5 font-medium"><MapPin size={9}/> ver local</a>}
+                                </div>
+                              </td>
+                              <td className="px-3 py-3 text-center font-black text-blue-700">{minTrab > 0 ? minParaStr(minTrab) : '—'}</td>
+                              <td className="px-3 py-3 text-center text-gray-500 font-medium">{minEsp > 0 ? minParaStr(minEsp) : '—'}</td>
+                              <td className="px-3 py-3 text-center">
+                                {minTrab > 0 && minEsp > 0 ? (
+                                  <span className={`font-black text-xs px-2 py-1 rounded-full ${saldo >= 0 ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
+                                    {saldo >= 0 ? '+' : '-'}{minParaStr(saldo)}
+                                  </span>
+                                ) : <span className="text-gray-300">—</span>}
+                              </td>
+                              <td className="px-3 py-3 text-right">
+                                <button onClick={() => removePonto(p.id)} className="text-red-400 hover:text-red-600 hover:bg-red-50 p-1.5 rounded transition-colors"><Trash2 size={13}/></button>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                    {pontosFiltrados.length === 0 && (
+                      <div className="py-12 text-center text-gray-400">
+                        <Clock size={32} className="mx-auto mb-2 opacity-30" />
+                        <p className="text-sm">Nenhum registro de ponto no período selecionado.</p>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>
