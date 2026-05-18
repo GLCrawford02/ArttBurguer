@@ -34,6 +34,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const wakeLockRef = useRef<any>(null);
   const watchIdRef = useRef<number | null>(null);
   const capWatchIdRef = useRef<string | null>(null);
+  const usingFallbackRef = useRef(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [reportModal, setReportModal] = useState<number | null>(null);
 
@@ -64,7 +65,10 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     const locRef = ref(db, `funcionarios/${currentUser.id}/localizacao`);
     const unsub = onValue(locRef, snap => {
       const val = snap.val();
-      if (val?.lat && val?.lng) setMyLocation({ lat: val.lat, lng: val.lng });
+      // Só usa localização se foi atualizada nos últimos 10 minutos
+      if (val?.lat && val?.lng && val?.timestamp && (Date.now() - val.timestamp) < 10 * 60 * 1000) {
+        setMyLocation({ lat: val.lat, lng: val.lng });
+      }
     });
     return () => unsub();
   }, [currentUser?.id]);
@@ -84,7 +88,6 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
 
   const iniciarRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
-      // Usa BackgroundGeolocation para manter GPS ativo mesmo com app minimizado
       await KeepAwake.keepAwake();
       try {
         const watcherId = await BackgroundGeolocation.addWatcher(
@@ -96,21 +99,55 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
             distanceFilter: 10,
           },
           (location, error) => {
-            if (error) return;
-            if (location && currentUser?.id) {
+            if (error) {
+              if ((error as any).code === 'NOT_AUTHORIZED') {
+                showToast('Permissão de localização negada. Abra as Configurações do celular e habilite o GPS para este app.', 'error');
+              }
+              return;
+            }
+            // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
+            if (!location || (location.accuracy !== null && location.accuracy > 100)) return;
+            if (currentUser?.id) {
               update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
                 lat: location.latitude,
                 lng: location.longitude,
                 velocidade: location.speed || 0,
+                precisao: location.accuracy,
                 timestamp: Date.now(),
               });
             }
           }
         );
         capWatchIdRef.current = watcherId;
+        usingFallbackRef.current = false;
         setIsTracking(true);
-      } catch (err) {
-        showToast('Erro ao iniciar GPS em segundo plano. Verifique as permissões.', 'error');
+      } catch (err: any) {
+        console.error('BackgroundGeolocation error:', err);
+        // Fallback: tenta GPS normal do Capacitor se background falhar
+        try {
+          const perm = await Geolocation.requestPermissions();
+          if (perm.location === 'granted') {
+            capWatchIdRef.current = await Geolocation.watchPosition(
+              { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
+              (pos, err2) => {
+                if (err2 || !pos) return;
+                if (currentUser?.id) {
+                  update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    velocidade: pos.coords.speed || 0,
+                    timestamp: Date.now(),
+                  });
+                }
+              }
+            );
+            usingFallbackRef.current = true;
+            setIsTracking(true);
+            showToast('GPS iniciado (modo básico — mantenha o app aberto).', 'success');
+          }
+        } catch {
+          showToast('Não foi possível iniciar o GPS. Verifique as permissões de localização.', 'error');
+        }
       }
     } else {
       // Rodando no Navegador (Computador/Safari)
@@ -141,8 +178,13 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     if (Capacitor.isNativePlatform()) {
       KeepAwake.allowSleep();
       if (capWatchIdRef.current !== null) {
-        await BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current });
+        if (usingFallbackRef.current) {
+          Geolocation.clearWatch({ id: capWatchIdRef.current });
+        } else {
+          await BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current });
+        }
         capWatchIdRef.current = null;
+        usingFallbackRef.current = false;
       }
     } else {
       if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }
