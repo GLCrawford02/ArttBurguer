@@ -25,6 +25,14 @@ function FitBounds({ positions }: { positions: [number, number][] }) {
   return null;
 }
 
+function InvalidateSize() {
+  const map = useMap();
+  useEffect(() => {
+    setTimeout(() => map.invalidateSize(), 100);
+  }, []);
+  return null;
+}
+
 export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [despachos, setDespachos] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
@@ -398,6 +406,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
                       attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                       url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                     />
+                    <InvalidateSize />
                     <FitBounds positions={allPositions} />
 
                     {myLocation && (

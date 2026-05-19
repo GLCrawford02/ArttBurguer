@@ -29,6 +29,15 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.4',
+      titulo: 'Correção do Mapa na Tela do Entregador',
+      descricao: 'Correção de bug visual no mapa da tela "Minhas Entregas" que exibia apenas metade do mapa ao ser aberto.',
+      features: [
+        'Mapa Completo: O mapa da rota agora renderiza corretamente em tela cheia ao ser expandido, sem cortar metade da visualização.',
+      ],
+      icon: <Map className="text-indigo-500" size={20} />
+    },
+    {
       versao: '1.2.3',
       titulo: 'Suporte a Instalação no iOS (PWA) e Otimizações Internas',
       descricao: 'O sistema agora é um Progressive Web App (PWA), permitindo a instalação direto pelo navegador para todos os dispositivos, resolvendo definitivamente o acesso nos iPhones.',
