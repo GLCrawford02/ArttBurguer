@@ -32,7 +32,7 @@ import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
-export const APP_VERSION = '1.2.2';
+export const APP_VERSION = '1.2.3';
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";

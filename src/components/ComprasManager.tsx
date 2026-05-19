@@ -281,7 +281,8 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
   };
 
   const enviarWhatsApp = async () => {
-    const precisandoReposicao = insumos.filter(i => (Number(i.estoqueEstacionario ?? 0) + Number(i.estoqueRotativo ?? 0)) <= Number(i.alertaMinimo || 0));
+    const isAlertavel = (i: any) => !insumos.some(x => (x as any).insumoVinculado === i.id);
+    const precisandoReposicao = insumos.filter(i => isAlertavel(i) && (Number(i.estoqueEstacionario ?? 0) + Number(i.estoqueRotativo ?? 0)) <= Number(i.alertaMinimo || 0));
     
     if (precisandoReposicao.length === 0) {
       showToast('Nenhum insumo está abaixo do estoque mínimo!', 'success');

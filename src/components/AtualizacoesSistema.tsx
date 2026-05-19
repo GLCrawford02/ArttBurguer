@@ -29,6 +29,18 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.3',
+      titulo: 'Suporte a Instalação no iOS (PWA) e Otimizações Internas',
+      descricao: 'O sistema agora é um Progressive Web App (PWA), permitindo a instalação direto pelo navegador para todos os dispositivos, resolvendo definitivamente o acesso nos iPhones.',
+      features: [
+        'Instalação no iPhone: Usuários de iOS agora podem abrir o link do sistema no Safari, clicar em "Compartilhar" e escolher "Adicionar à Tela de Início". O sistema roda em tela cheia como um aplicativo nativo.',
+        'Instalação Universal: O sistema agora pode ser "baixado" no Computador, Tablets e Android diretamente pela barra de endereços do Google Chrome/Edge.',
+        'Otimização no Android (R8): Atualizamos as regras do ProGuard/R8 no Android Studio para gerar um aplicativo (.apk) mais leve e com melhor performance.',
+        'Configurações PWA: Adicionado manifesto web e recursos modernos de cache nativo via Vite PWA.'
+      ],
+      icon: <Smartphone className="text-purple-500" size={20} />
+    },
+    {
       versao: '1.2.2',
       titulo: 'GPS de Precisão, Ponto Eletrônico e Banco de Horas',
       descricao: 'Entregadores rastreados em segundo plano, localização exata dos clientes no mapa, registro de ponto com verificação GPS e banco de horas completo para a equipe.',

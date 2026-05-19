@@ -112,7 +112,10 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   );
 
   const insumosPermitidos = insumos.filter(i => isGestor || !(i as any).restrito);
-  const baixos = insumosPermitidos.filter(i => (i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0));
+  // Alerta só para o topo da cadeia de compra: itens que ninguém aponta como pai via insumoVinculado
+  // (standalone BASE e CAIXA/topo de família). BASE← e PACOTE não alertam — se reabastecem por transferência.
+  const isAlertavel = (i: any) => !insumos.some(x => (x as any).insumoVinculado === i.id);
+  const baixos = insumosPermitidos.filter(i => isAlertavel(i) && (i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0));
   const excedentes = insumosPermitidos.filter(i => i.estoqueMaximo && (i.estoqueEstacionario ?? 0) > i.estoqueMaximo);
 
   const isVencido = (item: any) => {
@@ -751,7 +754,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   </td>
                   <td className="px-6 py-4">
                     <div className="flex flex-wrap gap-2">
-                      {(i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0) ? (
+                      {isAlertavel(i) && (i.estoqueEstacionario ?? 0) <= (i.alertaMinimo || 0) ? (
                         <span className="px-2 py-1 text-xs font-bold bg-red-100 text-red-600 rounded-full">BAIXO</span>
                       ) : i.estoqueMaximo && (i.estoqueEstacionario ?? 0) > i.estoqueMaximo ? (
                         <span className="px-2 py-1 text-xs font-bold bg-blue-100 text-blue-600 rounded-full">EXCEDENTE</span>
