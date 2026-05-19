@@ -725,7 +725,17 @@ export default function App() {
               )}
               {subTabLogistica === 'clientes' && <ClientesManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabLogistica === 'despacho' && <DespachoManager currentUser={currentUser} temPermissao={temPermissao} />}
-              {subTabLogistica === 'minhas_entregas' && <MinhasEntregas currentUser={currentUser} />}
+              {/* MinhasEntregas fica sempre montado (só escondido) para o GPS não parar ao trocar de sub-aba */}
+              {(() => {
+                const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
+                const temAcesso = cargosArr.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy') || c === 'Dono' || c === 'TI') || temPermissao('minhas_entregas', 'aba_logistica');
+                if (!temAcesso) return null;
+                return (
+                  <div style={{ display: subTabLogistica === 'minhas_entregas' ? 'block' : 'none' }}>
+                    <MinhasEntregas currentUser={currentUser} />
+                  </div>
+                );
+              })()}
             </div>
           )}
 

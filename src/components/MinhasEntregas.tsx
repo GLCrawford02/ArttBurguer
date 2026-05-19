@@ -82,13 +82,39 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     } else if (!activeRoute && isTracking) {
       pararRastreamento();
     }
-
-    return () => { pararRastreamento(); };
   }, [activeRoute, isTracking]);
 
   const iniciarRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
       await KeepAwake.keepAwake();
+      const iniciarGPSFallback = async () => {
+        try {
+          const perm = await Geolocation.requestPermissions();
+          if (perm.location === 'granted' || (perm as any).coarseLocation === 'granted') {
+            capWatchIdRef.current = await Geolocation.watchPosition(
+              { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
+              (pos, err2) => {
+                if (err2 || !pos) return;
+                if (currentUser?.id) {
+                  update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+                    lat: pos.coords.latitude,
+                    lng: pos.coords.longitude,
+                    velocidade: pos.coords.speed || 0,
+                    timestamp: Date.now(),
+                  });
+                }
+              }
+            );
+            usingFallbackRef.current = true;
+            setIsTracking(true);
+          } else {
+            showToast('Permissão de localização negada. Vá em Configurações > Aplicativos > ArttBurger > Permissões > Localização.', 'error');
+          }
+        } catch {
+          showToast('Não foi possível iniciar o GPS. Verifique as permissões de localização.', 'error');
+        }
+      };
+
       try {
         const watcherId = await BackgroundGeolocation.addWatcher(
           {
@@ -101,7 +127,13 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
           (location, error) => {
             if (error) {
               if ((error as any).code === 'NOT_AUTHORIZED') {
-                showToast('Permissão de localização negada. Abra as Configurações do celular e habilite o GPS para este app.', 'error');
+                // Background negado: silenciosamente tenta fallback
+                if (capWatchIdRef.current && !usingFallbackRef.current) {
+                  BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current }).catch(() => {});
+                  capWatchIdRef.current = null;
+                  setIsTracking(false);
+                  iniciarGPSFallback();
+                }
               }
               return;
             }
@@ -123,31 +155,8 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         setIsTracking(true);
       } catch (err: any) {
         console.error('BackgroundGeolocation error:', err);
-        // Fallback: tenta GPS normal do Capacitor se background falhar
-        try {
-          const perm = await Geolocation.requestPermissions();
-          if (perm.location === 'granted') {
-            capWatchIdRef.current = await Geolocation.watchPosition(
-              { enableHighAccuracy: true, maximumAge: 10000, timeout: 10000 },
-              (pos, err2) => {
-                if (err2 || !pos) return;
-                if (currentUser?.id) {
-                  update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    velocidade: pos.coords.speed || 0,
-                    timestamp: Date.now(),
-                  });
-                }
-              }
-            );
-            usingFallbackRef.current = true;
-            setIsTracking(true);
-            showToast('GPS iniciado (modo básico — mantenha o app aberto).', 'success');
-          }
-        } catch {
-          showToast('Não foi possível iniciar o GPS. Verifique as permissões de localização.', 'error');
-        }
+        // Fallback silencioso — GPS normal funciona, não precisa alertar o entregador
+        await iniciarGPSFallback();
       }
     } else {
       // Rodando no Navegador (Computador/Safari)
