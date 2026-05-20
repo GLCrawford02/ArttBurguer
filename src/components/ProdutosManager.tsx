@@ -5,6 +5,7 @@ import { Insumo, Produto, IngredienteReceita } from '../types';
 import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2, X, Settings, ChevronUp as ChevronUpIcon, ChevronDown as ChevronDownIcon } from 'lucide-react';
 import React from 'react';
 import ModalProduto from './ModalProduto';
+import ExcelJS from 'exceljs';
 
 export default function ProdutosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -125,23 +126,88 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
   ];
   const insumosFaltantes = embalagensNecessarias.filter(nome => !insumos.some(i => (i.nome || '').trim().toLowerCase() === nome.trim().toLowerCase()));
 
-  const exportarProdutos = () => {
-    const headers = ['Nome', 'Categoria', 'Preco Venda', 'Custo Total', 'Ingredientes (Nome:Qtd|Nome:Qtd)'];
-    const rows = produtos.map(p => {
+  const exportarProdutos = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Produtos');
+
+    const LARANJA = 'FFFF6B00';
+    const CINZA_HEADER = 'FF374151';
+    const BRANCO = 'FFFFFFFF';
+    const CINZA_CLARO = 'FFF9FAFB';
+    const CINZA_LINHA = 'FFE5E7EB';
+
+    ws.mergeCells('A1:E1');
+    const titulo = ws.getCell('A1');
+    titulo.value = '🍔 ArttBurger — Relatório de Produtos';
+    titulo.font = { bold: true, size: 14, color: { argb: BRANCO } };
+    titulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LARANJA } };
+    titulo.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 32;
+
+    ws.mergeCells('A2:E2');
+    const subtitulo = ws.getCell('A2');
+    subtitulo.value = `Gerado em ${new Date().toLocaleString('pt-BR')} · ${produtos.length} produtos`;
+    subtitulo.font = { size: 10, italic: true, color: { argb: 'FF6B7280' } };
+    subtitulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7ED' } };
+    subtitulo.alignment = { horizontal: 'center' };
+    ws.getRow(2).height = 18;
+
+    ws.addRow([]);
+
+    const colunas = [
+      { header: 'Nome', key: 'nome', width: 35 },
+      { header: 'Categoria', key: 'categoria', width: 20 },
+      { header: 'Preço Venda (R$)', key: 'venda', width: 20 },
+      { header: 'Custo Total (R$)', key: 'custo', width: 20 },
+      { header: 'Ingredientes (Nome:Qtd)', key: 'ingredientes', width: 50 },
+    ];
+    ws.columns = colunas;
+
+    const headerRow = ws.getRow(4);
+    colunas.forEach((col, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = col.header;
+      cell.font = { bold: true, color: { argb: BRANCO }, size: 10 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CINZA_HEADER } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { bottom: { style: 'medium', color: { argb: LARANJA } } };
+    });
+    headerRow.height = 28;
+
+    produtos.forEach((p, idx) => {
       const ingStr = (p.ingredientes || []).map(ing => {
         const insumo = insumos.find(i => i.id === ing.insumoId);
-        return `${insumo?.nome || 'Desconhecido'}:${ing.quantidade}`;
-      }).join('|');
-      return [
+        return `${insumo?.nome || 'Desconhecido'}: ${ing.quantidade}`;
+      }).join(' | ');
+
+      const row = ws.addRow([
         p.nome,
-        (p as any).categoria || '',
+        (p as any).categoria || 'Outros',
         (p as any).precoVenda || 0,
-        (p.custoTotal || 0).toFixed(2),
+        p.custoTotal || 0,
         ingStr
-      ];
+      ]);
+
+      const bgColor = idx % 2 === 0 ? BRANCO : CINZA_CLARO;
+      for (let c = 1; c <= 5; c++) {
+        const cell = row.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+        cell.border = { bottom: { style: 'thin', color: { argb: CINZA_LINHA } } };
+        cell.alignment = { vertical: 'middle' };
+        if (c === 3 || c === 4) {
+          cell.numFmt = '"R$ "#,##0.00';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+          if (c === 3) cell.font = { bold: true, color: { argb: 'FF059669' } };
+          if (c === 4) cell.font = { bold: true, color: { argb: 'FFDC2626' } };
+        }
+      }
     });
-    const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+
+    ws.autoFilter = { from: 'A4', to: 'E4' };
+    ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

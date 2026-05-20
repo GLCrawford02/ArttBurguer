@@ -42,6 +42,10 @@
     
     "cupons": { ".write": true },
     "bloco_notas": { ".write": true },
-    "sistema": { ".write": true }
+    "sistema": { ".write": true },
+    "fidelidade_config": { ".write": true },
+    "fidelidade_pontos": { ".write": true },
+    "historico_balancos": { ".write": true },
+    "escalas": { ".write": true }
   }
 }

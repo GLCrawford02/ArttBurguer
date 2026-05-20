@@ -29,6 +29,20 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.6',
+      titulo: 'DRE, Escala de Turnos, Fidelidade, Alertas e Planilhas Avançadas',
+      descricao: 'Lançamento de novos módulos estratégicos de gestão, nova central de notificações em tempo real e reformulação visual de todas as exportações.',
+      features: [
+        'Balanço com Histórico: Após salvar o balanço, visualize um resumo completo em modal. O sistema agora salva o histórico de todos os balanços, acessíveis pelo botão "Histórico".',
+        'Exportações Excel Premium: Planilhas remodeladas e mais profissionais. Cabeçalho laranja "ArttBurger", resumo geral na linha 3, linhas alternadas em branco/cinza, fundo verde/vermelho para ganhos e perdas e cabeçalhos fixados (freeze pane).',
+        'DRE (Demonstrativo de Resultados): Nova aba mostrando Receita Bruta, CMV, Lucro Bruto, Despesas Operacionais, EBITDA e Lucro Líquido (com margem %). Possui filtros de período (mês, semestre, ano), gráfico de evolução e exportação.',
+        'Programa de Fidelidade: Configure pontos por R$ gasto, pontos mínimos para resgate e recompensas personalizadas. Ranking de clientes, histórico de movimentações, resgate e ajustes manuais diretamente pela aba.',
+        'Escala de Turnos: Tabela semanal com todos os funcionários. Clique nas células para turnos pré-definidos (Manhã, Tarde, Noite, Integral, Folga) ou horário manual. Calcula horas, permite copiar semanas e exportar CSV.',
+        'Alertas em Tempo Real: Sino 🔔 no header com badge numérico (vermelho pulsante para urgentes). Monitora estoque abaixo do mínimo, validades próximas/vencidas e contas a pagar vencendo em até 3 dias.'
+      ],
+      icon: <Star className="text-emerald-500" size={20} />
+    },
+    {
       versao: '1.2.5',
       titulo: 'Impressão por Impressoras e Software .exe',
       descricao: 'Roteamento automático de impressão por categoria de produto, geração de executável Windows (.exe) com Electron, e sistema de licença com controle remoto de acesso.',

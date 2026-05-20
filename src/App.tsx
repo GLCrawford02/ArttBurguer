@@ -31,6 +31,10 @@ import EmbalagensPadraoManager from './components/EmbalagensPadraoManager';
 import TaxasEntregaManager from './components/TaxasEntregaManager';
 import MinhasEntregas from './components/MinhasEntregas';
 import RegistroPonto from './components/RegistroPonto';
+import DREManager from './components/DREManager';
+import FidelidadeManager from './components/FidelidadeManager';
+import EscalaManager from './components/EscalaManager';
+import AlertasSino, { useAlertas } from './components/AlertasManager';
 import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -77,11 +81,12 @@ export default function App() {
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes' | 'balanco'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
-  const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
+  const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes' | 'dre'>('fechamento');
   const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes' | 'taxas_entrega' | 'licenca' | 'impressoras'>('gerais');
-  const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes'>('equipe');
-  const [subTabLogistica, setSubTabLogistica] = useState<'clientes' | 'despacho' | 'minhas_entregas'>('clientes');
+  const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes' | 'escala'>('equipe');
+  const [subTabLogistica, setSubTabLogistica] = useState<'clientes'  | 'fidelidade' | 'despacho' | 'minhas_entregas'>('clientes');
   const [subTabTarefas, setSubTabTarefas] = useState<'gerenciamento' | 'notas'>('gerenciamento');
+  const { alertas, alertasNaoLidos, alertasUrgentes, marcarLido, marcarTodosLidos } = useAlertas();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(() => {
@@ -247,7 +252,7 @@ export default function App() {
     if (hasPerm('configuracoes', 'aba_configuracoes') || hasPerm('bancos_taxas', 'aba_configuracoes') || hasPerm('atualizacoes_sistema', 'aba_configuracoes')) allowed.push('configuracoes');
     if (hasPerm('tarefas', 'aba_tarefas') || hasPerm('bloco_notas', 'aba_tarefas')) allowed.push('tarefas');
     if (hasPerm('marketing', 'aba_marketing')) allowed.push('marketing');
-    
+
     allowed.push('ponto'); // Ponto disponível para todos os funcionários
     if (allowed.length === 1) allowed.unshift('pdv'); // fallback se só tem ponto
     return allowed;
@@ -284,8 +289,9 @@ export default function App() {
           setSubTabTarefas(allowedTarefasSubTabs[0]);
       }
 
-      const allowedLogisticaSubTabs: ('clientes' | 'despacho' | 'minhas_entregas')[] = [];
+      const allowedLogisticaSubTabs: ('clientes' | 'fidelidade' | 'despacho' | 'minhas_entregas')[] = [];
       if (temPermissao('clientes', 'aba_logistica')) allowedLogisticaSubTabs.push('clientes');
+      if (temPermissao('clientes', 'aba_logistica')) allowedLogisticaSubTabs.push('fidelidade');
       if (temPermissao('despacho', 'aba_logistica')) allowedLogisticaSubTabs.push('despacho');
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
       if (cargosArr.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy') || c === 'Dono' || c === 'TI') || temPermissao('minhas_entregas', 'aba_logistica')) allowedLogisticaSubTabs.push('minhas_entregas');
@@ -612,6 +618,7 @@ export default function App() {
             <span>Gestão de Equipe</span>
           </button>
           )}
+
         {allowedTabs.includes('configuracoes') && (
         <button
           onClick={() => handleTabChange('configuracoes')}
@@ -654,7 +661,8 @@ export default function App() {
             <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema Artt</h2>
             <p className="text-gray-400 text-xs"></p>
           </div>
-          <div className="flex items-center space-x-4 self-end sm:self-auto">
+          <div className="flex items-center space-x-3 self-end sm:self-auto">
+             <AlertasSino alertas={alertas} alertasNaoLidos={alertasNaoLidos} alertasUrgentes={alertasUrgentes} marcarLido={marcarLido} marcarTodosLidos={marcarTodosLidos} />
              <div className="text-right">
                <p className="text-sm font-bold text-gray-800">{currentUser.nome}</p>
                <p className="text-xs text-gray-500">{Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : (currentUser.cargo || 'Atendente')}</p>
@@ -733,8 +741,9 @@ export default function App() {
           {activeTab === 'logistica' && (
             <div className={!isEntregadorOnly ? "space-y-6" : ""}>
               {!isEntregadorOnly && (
-                <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+                <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('clientes', 'aba_logistica') && <button onClick={() => setSubTabLogistica('clientes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'clientes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Clientes</button>}
+                {temPermissao('clientes', 'aba_logistica') && <button onClick={() => setSubTabLogistica('fidelidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'fidelidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>}
                 {temPermissao('despacho', 'aba_logistica') && <button onClick={() => setSubTabLogistica('despacho')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'despacho' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despachos e Rotas</button>}
                 {(() => {
                   const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
@@ -747,8 +756,9 @@ export default function App() {
               </div>
               )}
               {subTabLogistica === 'clientes' && <ClientesManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabLogistica === 'fidelidade' && <FidelidadeManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabLogistica === 'despacho' && <DespachoManager currentUser={currentUser} temPermissao={temPermissao} />}
-              {/* MinhasEntregas fica sempre montado (só escondido) para o GPS não parar ao trocar de sub-aba */}
+                            {/* MinhasEntregas fica sempre montado (só escondido) para o GPS não parar ao trocar de sub-aba */}
               {(() => {
                 const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
                 const temAcesso = cargosArr.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy') || c === 'Dono' || c === 'TI') || temPermissao('minhas_entregas', 'aba_logistica');
@@ -766,15 +776,17 @@ export default function App() {
 
           {activeTab === 'funcionarios' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+              <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('funcionarios', 'aba_funcionarios') && <button onClick={() => setSubTabFuncionarios('equipe')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'equipe' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Equipe</button>}
                 {temPermissao('gestao_equipe', 'aba_funcionarios') && <button onClick={() => setSubTabFuncionarios('gestao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'gestao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atribuições</button>}
                 {temPermissao('gestor_ia', 'aba_funcionarios') && <button onClick={() => setSubTabFuncionarios('ia')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'ia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gestor IA</button>}
+                {(temPermissao('gestao_equipe', 'aba_funcionarios') || temPermissao('funcionarios', 'aba_funcionarios')) && <button onClick={() => setSubTabFuncionarios('escala')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'escala' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Escala de Turnos</button>}
                 {temPermissao('permissoes_acesso', 'aba_funcionarios') && <button onClick={() => setSubTabFuncionarios('permissoes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabFuncionarios === 'permissoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Cargos e Permissões</button>}
               </div>
               {subTabFuncionarios === 'equipe' && <FuncionariosManager currentUser={currentUser} />}
               {subTabFuncionarios === 'gestao' && temPermissao('gestao_equipe', 'aba_funcionarios') && <GestaoEquipeManager activeView="gestao" />}
               {subTabFuncionarios === 'ia' && temPermissao('gestor_ia', 'aba_funcionarios') && <GestaoEquipeManager activeView="ia" />}
+              {subTabFuncionarios === 'escala' && <EscalaManager currentUser={currentUser} />}
               {subTabFuncionarios === 'permissoes' && temPermissao('permissoes_acesso', 'aba_funcionarios') && <PermissoesManager currentUser={currentUser} />}
             </div>
           )}
@@ -798,10 +810,12 @@ export default function App() {
                     {temPermissao('fechamento_caixa', 'aba_financeiro') && <button onClick={() => setSubSubTabRelatorios('fechamento')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'fechamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fechamento do Dia</button>}
                     {temPermissao('dashboard_financeiro', 'aba_financeiro') && <button onClick={() => setSubSubTabRelatorios('dashboard_fin')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dashboard_fin' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Dashboard Financeiro</button>}
                     {temPermissao('relatorios', 'aba_financeiro') && <button onClick={() => setSubSubTabRelatorios('movimentacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'movimentacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Movimentações de Estoque</button>}
+                    {(temPermissao('dashboard_financeiro', 'aba_financeiro') || temPermissao('relatorios', 'aba_financeiro') || temPermissao('fechamento_caixa', 'aba_financeiro')) && <button onClick={() => setSubSubTabRelatorios('dre')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabRelatorios === 'dre' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>DRE</button>}
                   </div>
                   {subSubTabRelatorios === 'fechamento' && temPermissao('fechamento_caixa', 'aba_financeiro') && <FechamentoManager />}
                   {subSubTabRelatorios === 'dashboard_fin' && temPermissao('dashboard_financeiro', 'aba_financeiro') && <GestaoFinanceira activeTab="dashboard_fin" currentUser={currentUser} temPermissao={temPermissao} />}
                   {subSubTabRelatorios === 'movimentacoes' && temPermissao('relatorios', 'aba_financeiro') && <RelatoriosManager />}
+                  {subSubTabRelatorios === 'dre' && <DREManager />}
                 </div>
               )}
             </div>

@@ -3,6 +3,7 @@ import { ref, onValue } from 'firebase/database';
 import { db } from '../firebase';
 import { BarChart3, TrendingDown, Calendar, ArrowRightLeft, Trash2, DollarSign, Download, FileText } from 'lucide-react';
 import { TransferenciaLog, DescarteLog, Insumo } from '../types';
+import ExcelJS from 'exceljs';
 
 interface CompraLog {
   id: string;
@@ -127,46 +128,139 @@ export default function RelatoriosManager() {
       })
     : descartes;
 
-  const exportarExcel = () => {
-    let headers: string[] = [];
-    let rows: any[] = [];
+  const exportarExcel = async () => {
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet('Relatório');
+
+    const LARANJA = 'FFFF6B00';
+    const CINZA_HEADER = 'FF374151';
+    const BRANCO = 'FFFFFFFF';
+    const CINZA_CLARO = 'FFF9FAFB';
+    const CINZA_LINHA = 'FFE5E7EB';
+
+    let tituloTexto = '';
     let filename = '';
+    let colunas: any[] = [];
 
     if (activeTab === 'despesas') {
-      headers = ['Data / Hora', 'Insumo', 'Fornecedor', 'Qtd Comprada', 'Custo Total (R$)'];
-      rows = historico.map(h => [
+      tituloTexto = '🍔 ArttBurger — Relatório de Despesas';
+      filename = 'relatorio_despesas';
+      colunas = [
+        { header: 'Data / Hora', key: 'data', width: 20 },
+        { header: 'Insumo', key: 'insumo', width: 30 },
+        { header: 'Fornecedor', key: 'fornecedor', width: 25 },
+        { header: 'Qtd Comprada', key: 'qtd', width: 20 },
+        { header: 'Custo Total (R$)', key: 'custo', width: 18 }
+      ];
+    } else if (activeTab === 'transferencias') {
+      tituloTexto = '🍔 ArttBurger — Histórico de Transferências';
+      filename = 'relatorio_transferencias';
+      colunas = [
+        { header: 'Data / Hora', key: 'data', width: 20 },
+        { header: 'Funcionário', key: 'func', width: 25 },
+        { header: 'Insumo', key: 'insumo', width: 30 },
+        { header: 'Quantidade', key: 'qtd', width: 15 }
+      ];
+    } else if (activeTab === 'descartes') {
+      tituloTexto = '🍔 ArttBurger — Histórico de Descartes';
+      filename = 'relatorio_descartes';
+      colunas = [
+        { header: 'Data / Hora', key: 'data', width: 20 },
+        { header: 'Feito por', key: 'func', width: 20 },
+        { header: 'Autorizado por', key: 'auth', width: 20 },
+        { header: 'Insumo', key: 'insumo', width: 30 },
+        { header: 'Motivo', key: 'motivo', width: 25 },
+        { header: 'Quantidade / Local', key: 'qtd', width: 25 },
+        { header: 'Valor Perda (R$)', key: 'valor', width: 18 }
+      ];
+    }
+
+    const colCount = colunas.length;
+    const endCol = String.fromCharCode(64 + colCount);
+
+    ws.mergeCells(`A1:${endCol}1`);
+    const titulo = ws.getCell('A1');
+    titulo.value = tituloTexto;
+    titulo.font = { bold: true, size: 14, color: { argb: BRANCO } };
+    titulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: LARANJA } };
+    titulo.alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getRow(1).height = 32;
+
+    ws.mergeCells(`A2:${endCol}2`);
+    const subtitulo = ws.getCell('A2');
+    subtitulo.value = `Gerado em ${new Date().toLocaleString('pt-BR')}`;
+    subtitulo.font = { size: 10, italic: true, color: { argb: 'FF6B7280' } };
+    subtitulo.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFFFF7ED' } };
+    subtitulo.alignment = { horizontal: 'center' };
+    ws.getRow(2).height = 18;
+
+    ws.addRow([]);
+    ws.columns = colunas;
+
+    const headerRow = ws.getRow(4);
+    colunas.forEach((col, i) => {
+      const cell = headerRow.getCell(i + 1);
+      cell.value = col.header;
+      cell.font = { bold: true, color: { argb: BRANCO }, size: 10 };
+      cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: CINZA_HEADER } };
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.border = { bottom: { style: 'medium', color: { argb: LARANJA } } };
+    });
+    headerRow.height = 28;
+
+    let rowsData: any[] = [];
+    if (activeTab === 'despesas') {
+      rowsData = historico.map(h => [
         new Date(h.timestamp).toLocaleString('pt-BR'),
         h.nome,
         h.fornecedorNome || '-',
         `${h.qtdEmbalagens || h.qtdPacotes || 0} ${h.tipoEmbalagem || 'Volume(s)'} (${h.qtdUnidadesAdicionadas || '?'} ${h.unidadeBase || 'un'})`,
-        h.custoTotal.toFixed(2).replace('.', ',')
+        h.custoTotal
       ]);
-      filename = 'relatorio_despesas';
     } else if (activeTab === 'transferencias') {
-      headers = ['Data / Hora', 'Funcionário', 'Insumo', 'Quantidade'];
-      rows = transferencias.map(t => [
+      rowsData = transferencias.map(t => [
         new Date(t.timestamp).toLocaleString('pt-BR'),
         t.funcionarioNome,
         t.nomeInsumo,
         t.quantidade
       ]);
-      filename = 'relatorio_transferencias';
     } else if (activeTab === 'descartes') {
-      headers = ['Data / Hora', 'Feito por', 'Autorizado por', 'Insumo', 'Motivo', 'Quantidade / Local', 'Valor Perda (R$)'];
-      rows = descartesFiltrados.map(d => [
+      rowsData = descartesFiltrados.map(d => [
         new Date(d.timestamp).toLocaleString('pt-BR'),
         d.funcionarioNome || '-',
         (d as any).autorizadoPorNome || d.funcionarioNome || '-',
         d.nomeInsumo,
         (d as any).motivo || (d.lote ? `Lote: ${d.lote}` : 'Outro'),
         `${d.quantidade} ${(d as any).unidade || ''} (${(d as any).tipoEstoque || 'estacionario'})`,
-        ((d as any).valorTotal || 0).toFixed(2).replace('.', ',')
+        ((d as any).valorTotal || 0)
       ]);
-      filename = 'relatorio_descartes';
     }
 
-    const csvContent = [headers.join(';'), ...rows.map(e => e.join(';'))].join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    rowsData.forEach((rowData, idx) => {
+      const row = ws.addRow(rowData);
+      const bgColor = idx % 2 === 0 ? BRANCO : CINZA_CLARO;
+      for (let c = 1; c <= colCount; c++) {
+        const cell = row.getCell(c);
+        cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgColor } };
+        cell.border = { bottom: { style: 'thin', color: { argb: CINZA_LINHA } } };
+        cell.alignment = { vertical: 'middle' };
+
+        if (activeTab === 'despesas' && c === 5) {
+          cell.numFmt = '"R$ "#,##0.00';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        }
+        if (activeTab === 'descartes' && c === 7) {
+          cell.numFmt = '"R$ "#,##0.00';
+          cell.alignment = { horizontal: 'right', vertical: 'middle' };
+        }
+      }
+    });
+
+    ws.autoFilter = { from: `A4`, to: `${endCol}4` };
+    ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 4 }];
+
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;

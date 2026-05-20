@@ -16,6 +16,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [insumos, setInsumos] = useState<any[]>([]);
   const [cupons, setCupons] = useState<any[]>([]);
   const [funcionarios, setFuncionarios] = useState<any[]>([]);
+  const [pontosPorCliente, setPontosPorCliente] = useState<Record<string, number>>({});
 
   const [pdvItemModal, setPdvItemModal] = useState<any>(null);
   const [pdvItemOptions, setPdvItemOptions] = useState<any>({
@@ -63,6 +64,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
+  const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; pontosPorReal: number } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
@@ -165,6 +167,22 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     const nomesRef = ref(db, 'configuracoes/impressoras_nomes');
     onValue(nomesRef, snap => {
       setNomesImpressoras(snap.val() || { cozinha: '', balcao: '' });
+    });
+
+    const fidelidadeRef = ref(db, 'fidelidade_config');
+    onValue(fidelidadeRef, snap => {
+      const data = snap.val();
+      if (data) setConfigFidelidade({ ativo: data.ativo ?? true, pontosPorReal: data.pontosPorReal ?? 1 });
+    });
+
+    const fidelidadePontosRef = ref(db, 'fidelidade_pontos');
+    onValue(fidelidadePontosRef, snap => {
+      const data = snap.val();
+      if (data) {
+        const mapa: Record<string, number> = {};
+        Object.entries(data).forEach(([cId, v]: any) => { mapa[cId] = v.pontos || 0; });
+        setPontosPorCliente(mapa);
+      } else setPontosPorCliente({});
     });
   }, []);
 
@@ -816,6 +834,29 @@ ${itensHtml}
         const novoPedido = { data: Date.now(), total: totalPdv, itens: Object.values(pdvCarrinho).map((i: any) => `${i.qtd}x ${i.nome}`) };
         const atualizados = [novoPedido, ...ultimos].slice(0, 5);
         await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
+
+        if (configFidelidade?.ativo && totalPdv > 0) {
+          const pontosGanhos = Math.floor(totalPdv * configFidelidade.pontosPorReal);
+          if (pontosGanhos > 0) {
+            const pontosRef = ref(db, `fidelidade_pontos/${pdvCliente.id}`);
+            await runTransaction(pontosRef, (dados) => {
+              const atual = dados || { clienteId: pdvCliente.id, clienteNome: pdvCliente.nome, pontos: 0, totalGasto: 0 };
+              atual.pontos = (atual.pontos || 0) + pontosGanhos;
+              atual.totalGasto = (atual.totalGasto || 0) + totalPdv;
+              atual.clienteId = pdvCliente.id;
+              atual.clienteNome = pdvCliente.nome;
+              return atual;
+            });
+            await set(push(ref(db, `fidelidade_pontos/${pdvCliente.id}/historico`)), {
+              tipo: 'ganho',
+              pontos: pontosGanhos,
+              descricao: `Compra R$ ${totalPdv.toFixed(2)} — ${Object.values(pdvCarrinho).map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}`,
+              timestamp: Date.now(),
+              operadorId: currentUser?.id || '',
+              operadorNome: currentUser?.nome || 'PDV',
+            });
+          }
+        }
       }
   
       if (pdvTipoPedido === 'Mesa' && mesaSelecionada) {
@@ -1275,8 +1316,21 @@ Formato esperado:
               <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cliente {pdvTipoPedido === 'Entrega' ? '(Obrigatório)' : '(Opcional)'}</label>
               {pdvCliente ? (
                 <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                  <span className="font-bold text-indigo-800 text-sm flex items-center"><User size={16} className="mr-2"/> {pdvCliente.nome}</span>
-                  <button onClick={() => setPdvCliente(null)} className="text-indigo-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-100"><X size={18}/></button>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <User size={16} className="text-indigo-600 shrink-0"/>
+                    <span className="font-bold text-indigo-800 text-sm truncate">{pdvCliente.nome}</span>
+                    {configFidelidade?.ativo && pontosPorCliente[pdvCliente.id] !== undefined && (
+                      <span className="ml-1 bg-yellow-100 text-yellow-700 text-xs font-black px-2 py-0.5 rounded-full shrink-0">
+                        ⭐ {pontosPorCliente[pdvCliente.id]} pts
+                      </span>
+                    )}
+                    {configFidelidade?.ativo && totalPdv > 0 && (
+                      <span className="text-xs text-green-600 font-bold shrink-0">
+                        +{Math.floor(totalPdv * configFidelidade.pontosPorReal)} pts
+                      </span>
+                    )}
+                  </div>
+                  <button onClick={() => setPdvCliente(null)} className="text-indigo-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-100 shrink-0"><X size={18}/></button>
                 </div>
               ) : (
                 <div className="relative">
@@ -1286,8 +1340,16 @@ Formato esperado:
                     <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                       {pdvFilteredClientes.map(c => (
                         <button key={c.id} onClick={() => { setPdvCliente(c); setPdvSearchCliente(''); }} className="w-full text-left p-3 hover:bg-indigo-50 border-b border-gray-50 text-sm flex justify-between items-center transition-colors">
-                          <div><p className="font-bold text-gray-800">{c.nome}</p><p className="text-xs text-gray-500">{c.telefone}</p></div>
-                          <Plus size={16} className="text-indigo-500"/>
+                          <div>
+                            <p className="font-bold text-gray-800">{c.nome}</p>
+                            <p className="text-xs text-gray-500">{c.telefone}</p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            {configFidelidade?.ativo && pontosPorCliente[c.id] > 0 && (
+                              <span className="text-xs bg-yellow-100 text-yellow-700 font-bold px-2 py-0.5 rounded-full">⭐ {pontosPorCliente[c.id]} pts</span>
+                            )}
+                            <Plus size={16} className="text-indigo-500"/>
+                          </div>
                         </button>
                       ))}
                     </div>

@@ -98,7 +98,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
     let mult = 1;
     let current: Insumo | undefined = insumo;
     for (let depth = 0; depth < 5; depth++) {
-      const nextId = (current as any).insumoVinculado;
+      const nextId: string = (current as any).insumoVinculado;
       if (!nextId) break;
       mult *= Number(current.qtdPacote || 1);
       current = insumos.find(i => i.id === nextId);
@@ -453,7 +453,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
                       const baseUnit = (() => {
                         let cur: Insumo | undefined = item.insumo;
                         for (let d = 0; d < 5; d++) {
-                          const nId = (cur as any).insumoVinculado;
+                          const nId: string = (cur as any).insumoVinculado;
                           if (!nId) break;
                           cur = insumos.find(i => i.id === nId);
                           if (!cur) break;
