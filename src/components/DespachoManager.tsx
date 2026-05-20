@@ -4,10 +4,11 @@ import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
 import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
 import 'leaflet/dist/leaflet.css';
+import motoImg from '../assets/moto.png';
 
 interface ParadaRota {
   clienteId: string;
@@ -35,6 +36,31 @@ interface Despacho {
   paradas: ParadaRota[];
 }
 
+function InvalidateSize() {
+  const map = useMap();
+  useEffect(() => {
+    const timer = setTimeout(() => map.invalidateSize(), 400);
+    
+    let observer: ResizeObserver | null = null;
+    const container = map.getContainer();
+    if (container && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      observer.observe(container);
+    }
+    
+    return () => {
+      clearTimeout(timer);
+      if (observer && container) {
+        observer.unobserve(container);
+        observer.disconnect();
+      }
+    };
+  }, [map]);
+  return null;
+}
+
 export default function DespachoManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -52,7 +78,8 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
   const [modalResumoMotoboy, setModalResumoMotoboy] = useState<string | null>(null);
   const [geocodedStops, setGeocodedStops] = useState<Record<string, {lat: number, lng: number} | null>>({});
   const geocodingQueue = useRef<Set<string>>(new Set());
-  
+  const [lojaCoords, setLojaCoords] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
+
   const canEdit = temPermissao ? temPermissao('despacho', 'aba_logistica', 'editar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -105,7 +132,12 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       else setPedidosCozinha([]);
     });
 
-    return () => { unsubClientes(); unsubFunc(); unsubDespachos(); unsubVendas(); unsubEntregas(); unsubPedidosCoz(); };
+    const unsubLojaCoords = onValue(ref(db, 'configuracoes/taxas_entrega'), snap => {
+      const data = snap.val();
+      if (data) setLojaCoords({ lat: data.loja_lat ?? null, lng: data.loja_lng ?? null });
+    });
+
+    return () => { unsubClientes(); unsubFunc(); unsubDespachos(); unsubVendas(); unsubEntregas(); unsubPedidosCoz(); unsubLojaCoords(); };
   }, []);
 
   useEffect(() => {
@@ -200,10 +232,12 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
 
   const openGoogleMaps = (paradas: ParadaRota[]) => {
     if (paradas.length === 0) return;
-    const originAddress = encodeURIComponent('Avenida Antonio Olinto, 8, Centro, Curvelo, 35790-001');
-    const mapBaseUrl = `https://www.google.com/maps/dir/${originAddress}/`;
+    const origin = lojaCoords.lat && lojaCoords.lng
+      ? `${lojaCoords.lat},${lojaCoords.lng}`
+      : encodeURIComponent('Avenida Antonio Olinto, 8, Centro, Curvelo, 35790-001');
+    const mapBaseUrl = `https://www.google.com/maps/dir/${origin}/`;
     const stops = paradas.map(p => p.lat && p.lng ? `${p.lat},${p.lng}` : encodeURIComponent(p.endereco)).join('/');
-    const finalUrl = `${mapBaseUrl}${stops}/${originAddress}`;
+    const finalUrl = `${mapBaseUrl}${stops}/${origin}`;
     window.open(finalUrl, '_blank');
   };
 
@@ -482,6 +516,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
           <h3 className="text-lg font-bold mb-4 text-gray-800 flex items-center"><Map className="mr-2 text-indigo-600"/> Rastreamento em Tempo Real</h3>
           <div className="flex-1 rounded-xl overflow-hidden border border-gray-200 relative z-0" style={{ minHeight: '500px' }}>
             <MapContainer center={[-18.7580961, -44.4333648]} zoom={13} style={{ height: '100%', minHeight: '500px', width: '100%', zIndex: 1 }}>
+              <InvalidateSize />
               <TileLayer
                 attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
@@ -496,7 +531,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                 const speedKmh = Math.round((loc.velocidade || 0) * 3.6);
 
                 const motoIcon = new L.Icon({
-                  iconUrl: 'https://cdn-icons-png.flaticon.com/512/3209/3209935.png',
+                  iconUrl: motoImg,
                   iconSize: [40, 40],
                   iconAnchor: [20, 40],
                   popupAnchor: [0, -40],

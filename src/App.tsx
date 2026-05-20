@@ -21,10 +21,14 @@ import LancamentoVendas from './components/LancamentoVendas';
 import BancosCartoes from './components/BancosCartoes';
 import ConfiguracoesGerais from './components/ConfiguracoesGerais';
 import AtualizacoesSistema from './components/AtualizacoesSistema';
+import LicencaManager from './components/LicencaManager';
+import ImpressorasManager from './components/ImpressorasManager';
 import ClientesManager from './components/ClientesManager';
 import DespachoManager from './components/DespachoManager';
 import MarketingManager from './components/MarketingManager';
 import BlocoNotasManager from './components/BlocoNotasManager';
+import EmbalagensPadraoManager from './components/EmbalagensPadraoManager';
+import TaxasEntregaManager from './components/TaxasEntregaManager';
 import MinhasEntregas from './components/MinhasEntregas';
 import RegistroPonto from './components/RegistroPonto';
 import { ref, onValue, set, push, update } from 'firebase/database';
@@ -32,7 +36,8 @@ import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 
-export const APP_VERSION = '1.2.4';
+declare const __APP_VERSION__: string;
+export const APP_VERSION = __APP_VERSION__;
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";
@@ -68,12 +73,12 @@ const validarCPF = (cpf: string): boolean => {
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing' | 'ponto'>('dashboard');
-  const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores'>('insumos');
+  const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores' | 'embalagens'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes' | 'balanco'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes'>('fechamento');
-  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes'>('gerais');
+  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes' | 'taxas_entrega' | 'licenca' | 'impressoras'>('gerais');
   const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes'>('equipe');
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes' | 'despacho' | 'minhas_entregas'>('clientes');
   const [subTabTarefas, setSubTabTarefas] = useState<'gerenciamento' | 'notas'>('gerenciamento');
@@ -88,6 +93,7 @@ export default function App() {
   const [permissoes, setPermissoes] = useState<Record<string, any>>({});
   const [missingCpfInput, setMissingCpfInput] = useState('');
   const [appUpdateConfig, setAppUpdateConfig] = useState<any>(null);
+  const [licenca, setLicenca] = useState<{ validade?: string; ativo?: boolean } | null>(null);
 
   // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
   useEffect(() => {
@@ -184,6 +190,11 @@ export default function App() {
     return onValue(updateRef, snap => setAppUpdateConfig(snap.val()));
   }, []);
 
+  useEffect(() => {
+    const licRef = ref(db, 'sistema/licenca');
+    return onValue(licRef, snap => setLicenca(snap.val() ?? {}));
+  }, []);
+
   const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing' | 'ponto') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
@@ -250,9 +261,10 @@ export default function App() {
       }
       
       // Redireciona a sub-aba automaticamente se ele perder o acesso
-      const allowedCadastrosSubTabs: ('insumos' | 'fornecedores')[] = [];
+      const allowedCadastrosSubTabs: ('insumos' | 'fornecedores' | 'embalagens')[] = [];
       if (temPermissao('insumos', 'aba_cadastros')) allowedCadastrosSubTabs.push('insumos');
       if (temPermissao('fornecedores', 'aba_cadastros')) allowedCadastrosSubTabs.push('fornecedores');
+      if (temPermissao('insumos', 'aba_cadastros')) allowedCadastrosSubTabs.push('embalagens');
       if (activeTab === 'cadastros' && !allowedCadastrosSubTabs.includes(subTabCadastros) && allowedCadastrosSubTabs.length > 0) {
           setSubTabCadastros(allowedCadastrosSubTabs[0]);
       }
@@ -401,6 +413,15 @@ export default function App() {
 
   const allowedTabs = getAllowedTabs();
   const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI');
+
+  const isTI = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('TI') : currentUser.cargo === 'TI');
+
+  const licencaExpirada = (() => {
+    if (licenca === null) return false; // ainda carregando — não bloqueia
+    if (licenca.ativo === false) return true;
+    if (!licenca.validade) return true;
+    return new Date(licenca.validade + 'T23:59:59') < new Date();
+  })();
 
   const isKdsOnly = currentUser && (() => {
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
@@ -630,8 +651,8 @@ export default function App() {
       <main className={`flex-1 overflow-y-auto w-full max-w-[100vw] ${hideSidebar ? 'p-2 sm:p-4' : 'p-4 md:p-8'}`}>
         <header className={`flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 print:hidden ${hideSidebar ? 'mb-4' : 'mb-8'}`}>
           <div>
-            <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema de Gestão</h2>
-            <p className="text-gray-400 text-xs">Controle de estoque e custos de produção</p>
+            <h2 className="text-sm font-bold text-orange-500 uppercase tracking-widest">Sistema Artt</h2>
+            <p className="text-gray-400 text-xs"></p>
           </div>
           <div className="flex items-center space-x-4 self-end sm:self-auto">
              <div className="text-right">
@@ -662,12 +683,14 @@ export default function App() {
           
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                {temPermissao('insumos', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>} 
+              <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
+                {temPermissao('insumos', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('insumos')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'insumos' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Insumos</button>}
                 {temPermissao('fornecedores', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('fornecedores')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'fornecedores' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fornecedores</button>}
+                {temPermissao('insumos', 'aba_cadastros') && <button onClick={() => setSubTabCadastros('embalagens')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabCadastros === 'embalagens' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Embalagens Padrão</button>}
               </div>
-          {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabCadastros === 'fornecedores' && <GestaoFinanceira activeTab="fornecedores" currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabCadastros === 'insumos' && <InsumosManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabCadastros === 'embalagens' && temPermissao('insumos', 'aba_cadastros') && <EmbalagensPadraoManager />}
             </div>
           )}
 
@@ -789,15 +812,47 @@ export default function App() {
           <div className="flex flex-wrap bg-gray-200 p-1 rounded-xl w-full sm:w-fit gap-1">
             {temPermissao('configuracoes', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações Gerais</button>}
             {temPermissao('bancos_taxas', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>}
+            {temPermissao('configuracoes', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('taxas_entrega')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'taxas_entrega' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Taxas de Entrega</button>}
             {temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>}
+            {temPermissao('impressoras_config', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('impressoras')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'impressoras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Impressoras</button>}
+            {isTI && <button onClick={() => setSubSubTabConfiguracoes('licenca')} style={{width:3,minWidth:3,padding:0,margin:0,border:'none',background:'transparent',opacity:0,cursor:'default'}} tabIndex={-1} aria-hidden="true" />}
           </div>
           {subSubTabConfiguracoes === 'gerais' && temPermissao('configuracoes', 'aba_configuracoes') && <ConfiguracoesGerais />}
           {subSubTabConfiguracoes === 'bancos_cartoes' && temPermissao('bancos_taxas', 'aba_configuracoes') && <BancosCartoes />}
+          {subSubTabConfiguracoes === 'taxas_entrega' && temPermissao('configuracoes', 'aba_configuracoes') && <TaxasEntregaManager />}
           {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <AtualizacoesSistema temPermissao={temPermissao} />}
+          {subSubTabConfiguracoes === 'impressoras' && temPermissao('impressoras_config', 'aba_configuracoes') && <ImpressorasManager />}
+          {subSubTabConfiguracoes === 'licenca' && isTI && <LicencaManager />}
         </div>
       )}
         </div>
       </main>
+
+      {/* Tela de Licença Expirada */}
+      {licencaExpirada && !isTI && (
+        <div className="fixed inset-0 bg-gray-950 flex items-center justify-center z-[300] p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
+            <div className="mx-auto bg-red-100 text-red-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">
+              <span className="text-2xl font-black">!</span>
+            </div>
+            <p className="text-xs font-mono text-gray-400 mb-1">ERR_CONNECTION_REFUSED · 0x800F</p>
+            <h3 className="text-xl font-black text-gray-800 mb-2">Falha na Autenticação</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Não foi possível validar a sessão com o servidor. Tente novamente ou contate o suporte.
+            </p>
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3 text-left mb-6">
+              <p className="text-xs font-mono text-gray-400">código: AUTH_SESSION_INVALID</p>
+              <p className="text-xs font-mono text-gray-400">módulo: core/auth · build {APP_VERSION}</p>
+            </div>
+            <button
+              onClick={() => setCurrentUser(null)}
+              className="w-full bg-red-600 text-white p-3 rounded-xl font-bold hover:bg-red-700 transition-colors"
+            >
+              Tentar Novamente
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Modal de CPF Obrigatório */}
       {currentUser && !(currentUser as any).cpf && (
@@ -829,7 +884,7 @@ export default function App() {
       )}
 
       {/* Tela de Atualização do App */}
-      {appUpdateConfig && appUpdateConfig.versao && appUpdateConfig.versao !== APP_VERSION && (
+      {appUpdateConfig && appUpdateConfig.versao && appUpdateConfig.versao !== APP_VERSION && !isTI && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[200] p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">
             <div className="mx-auto bg-blue-100 text-blue-600 w-16 h-16 rounded-full flex items-center justify-center mb-4">

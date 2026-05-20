@@ -202,6 +202,7 @@ export default function ModalContas({
             await set(push(ref(db, 'tarefas')), {
               titulo: `${tipoConta === 'pagar' ? 'Pagar' : 'Receber'} Conta: ${descricao} (${i}/${parcelas})`,
               descricao: `Vencimento programado. Valor: R$ ${valFinal.toFixed(2).replace('.', ',')}`,
+              codigo: Math.floor(1000 + Math.random() * 9000).toString(),
               responsaveisIds: [responsavelLembrete], dataAgendada: dataStr, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: 'Nenhuma', status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null,
               contaVinculadaId: newContaRef.key, contaVinculadaTipo: tipoConta
             });
@@ -223,6 +224,7 @@ export default function ModalContas({
           await set(push(ref(db, 'tarefas')), {
             titulo: `${tipoConta === 'pagar' ? 'Pagar' : 'Receber'} Conta: ${descricao}`,
             descricao: `Vencimento programado. Valor: R$ ${total.toFixed(2).replace('.', ',')}`,
+            codigo: Math.floor(1000 + Math.random() * 9000).toString(),
             responsaveisIds: [responsavelLembrete], dataAgendada: vencimento, horaAgendada: horaLembrete, prioridade: 'Alta', categoria: 'Financeiro', recorrencia: rec, status: 'pendente', notificadoWhatsApp: false, timestamp: Date.now(), criadoPor: currentUser?.id || null,
             contaVinculadaId: newContaRef.key, contaVinculadaTipo: tipoConta
           });

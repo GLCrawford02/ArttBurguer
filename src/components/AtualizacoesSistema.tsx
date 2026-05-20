@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation, Printer } from 'lucide-react';
 import { APP_VERSION } from '../App';
 
 export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: any }) {
@@ -28,6 +28,19 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
   };
 
   const updates = [
+    {
+      versao: '1.2.5',
+      titulo: 'Impressão por Impressoras, Software .exe e Licença do Sistema',
+      descricao: 'Roteamento automático de impressão por categoria de produto, geração de executável Windows (.exe) com Electron, e sistema de licença com controle remoto de acesso.',
+      features: [
+        'Roteamento de Impressoras: Configure qual categoria de produto (Hambúrgueres, Bebidas, etc.) vai para a Cozinha ou para o Balcão. Ao confirmar um pedido, o sistema imprime automaticamente os tickets separados em cada impressora.',
+        'Impressão Silenciosa no .exe: No software Windows, a impressão ocorre diretamente na impressora configurada, sem abrir nenhuma janela de diálogo.',
+        'Software Windows (.exe): O sistema agora pode ser instalado como aplicativo desktop via Electron, com ícone da ArttBurger na barra de tarefas.',
+        'Licença do Sistema: Controle remoto de acesso com validade configurável. Quando expirada, o sistema exibe uma tela de erro para usuários não autorizados.',
+        'Permissões de Impressoras: A aba de roteamento de impressoras agora aparece nas permissões de acesso por cargo.',
+      ],
+      icon: <Printer className="text-blue-500" size={20} />
+    },
     {
       versao: '1.2.4',
       titulo: 'Correção do Mapa na Tela do Entregador',

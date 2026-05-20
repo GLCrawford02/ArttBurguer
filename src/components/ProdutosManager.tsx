@@ -12,6 +12,7 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
   const [searchTerm, setSearchTerm] = useState('');
   
   const [categoriasDb, setCategoriasDb] = useState<{id: string, nome: string}[]>([]);
+  const [embalagensPadrao, setEmbalagensPadrao] = useState<{ delivery: {insumoId: string, quantidade: number}[], salao: {insumoId: string, quantidade: number}[] }>({ delivery: [], salao: [] });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [editProduto, setEditProduto] = useState<Produto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -72,10 +73,21 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
       }
     });
 
+    const toArr = (val: any) => {
+      if (!val) return [];
+      const arr = Array.isArray(val) ? val : Object.values(val);
+      return (arr as any[]).filter(Boolean);
+    };
+    const unsubEmbalagens = onValue(ref(db, 'configuracoes/embalagens_padrao'), snap => {
+      const data = snap.val();
+      if (data) setEmbalagensPadrao({ delivery: toArr(data.delivery), salao: toArr(data.salao) });
+    });
+
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubCategorias();
+      unsubEmbalagens();
     };
   }, []);
 
@@ -225,7 +237,8 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
         insumos={insumos} 
         produtos={produtos} 
         categoriasDb={categoriasDb} 
-        showToast={showToast} 
+        showToast={showToast}
+        embalagensPadrao={embalagensPadrao}
       />
 
       {/* Lista de Produtos e Venda */}

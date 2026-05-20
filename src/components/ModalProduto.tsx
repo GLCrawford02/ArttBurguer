@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
 import { Calculator, Search, CheckCircle, AlertTriangle, Plus, Trash2, X, Sparkles, Bot, Loader2, Settings, Pencil } from 'lucide-react';
 
-export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, produtos, categoriasDb, showToast }: any) {
+export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, produtos, categoriasDb, showToast, embalagensPadrao }: any) {
   const [nomeProduto, setNomeProduto] = useState('');
   const [categoria, setCategoria] = useState('');
   const [precoVenda, setPrecoVenda] = useState<string>('');
@@ -197,8 +197,21 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
           custoTotal: custoTotalFicha || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData
         });
       } else if (criarDuplo) {
-        const getId = (nomeBuscado: string) => insumos.find((i: Insumo) => (i.nome || '').trim().toLowerCase() === (nomeBuscado || '').trim().toLowerCase())?.id;
-        const buildIngs = (extras: {nome: string, qtd: number}[]) => {
+        const hasConfig = (embalagensPadrao?.delivery?.length > 0 || embalagensPadrao?.salao?.length > 0);
+
+        const buildIngsByIds = (extras: {insumoId: string, quantidade: number}[]) => {
+          const novos = ingredientesSelecionados.map(ing => ({ ...ing }));
+          extras.forEach(extra => {
+            if (!extra.insumoId) return;
+            const existente = novos.find(i => i.insumoId === extra.insumoId);
+            if (existente) existente.quantidade += extra.quantidade;
+            else novos.push({ insumoId: extra.insumoId, quantidade: extra.quantidade });
+          });
+          return novos;
+        };
+
+        const buildIngsByNames = (extras: {nome: string, qtd: number}[]) => {
+          const getId = (nomeBuscado: string) => insumos.find((i: Insumo) => (i.nome || '').trim().toLowerCase() === (nomeBuscado || '').trim().toLowerCase())?.id;
           const novos = ingredientesSelecionados.map(ing => ({ ...ing }));
           extras.forEach(extra => {
             const id = getId(extra.nome);
@@ -210,10 +223,15 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
           });
           return novos;
         };
-        const ingDelivery = buildIngs([{ nome: 'CH3', qtd: 1 }, { nome: 'Papel laminado', qtd: 1 }, { nome: 'Lacre', qtd: 1 }, { nome: 'Adesivo nominal', qtd: 1 }, { nome: 'Sacola', qtd: 1 }, { nome: 'Sache Ketchup', qtd: 1 }, { nome: 'Sache Maionese', qtd: 1 }, { nome: 'Guardanapo', qtd: 1 }]);
-        const ingSalao = buildIngs([{ nome: 'Palito Golf', qtd: 1 }, { nome: 'Papel acoplado', qtd: 1 }]);
+
+        const ingDelivery = hasConfig
+          ? buildIngsByIds(embalagensPadrao.delivery || [])
+          : buildIngsByNames([{ nome: 'CH3', qtd: 1 }, { nome: 'Papel laminado', qtd: 1 }, { nome: 'Lacre', qtd: 1 }, { nome: 'Adesivo nominal', qtd: 1 }, { nome: 'Sacola', qtd: 1 }, { nome: 'Sache Ketchup', qtd: 1 }, { nome: 'Sache Maionese', qtd: 1 }, { nome: 'Guardanapo', qtd: 1 }]);
+        const ingSalao = hasConfig
+          ? buildIngsByIds(embalagensPadrao.salao || [])
+          : buildIngsByNames([{ nome: 'Palito Golf', qtd: 1 }, { nome: 'Papel acoplado', qtd: 1 }]);
         const calcCusto = (ings: IngredienteReceita[]) => ings.reduce((acc, ing) => acc + calcularCustoIngrediente(ing), 0);
-  
+
         await set(push(produtosRef), { nome: `/ ${nomeProduto}`, categoria, ingredientes: ingDelivery, custoTotal: calcCusto(ingDelivery) || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData });
         await set(push(produtosRef), { nome: `% ${nomeProduto}`, categoria, ingredientes: ingSalao, custoTotal: calcCusto(ingSalao) || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData });
       } else {
@@ -229,8 +247,13 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
     }
   };
 
-  const embalagensNecessarias = ['Palito Golf', 'Papel acoplado', 'Papel laminado', 'CH3', 'Lacre', 'Adesivo nominal', 'Sacola', 'Sache Ketchup', 'Sache Maionese', 'Guardanapo'];
-  const insumosFaltantes = embalagensNecessarias.filter(nome => !insumos.some((i: Insumo) => (i.nome || '').trim().toLowerCase() === nome.trim().toLowerCase()));
+  const hasEmbalagemConfig = (embalagensPadrao?.delivery?.length > 0 || embalagensPadrao?.salao?.length > 0);
+  const insumosFaltantes: string[] = hasEmbalagemConfig
+    ? [...new Set([...(embalagensPadrao?.delivery || []), ...(embalagensPadrao?.salao || [])].map((e: any) => e.insumoId))]
+        .filter((id: string) => !insumos.find((i: Insumo) => i.id === id))
+        .map(() => 'Insumo removido do sistema')
+    : ['Palito Golf', 'Papel acoplado', 'Papel laminado', 'CH3', 'Lacre', 'Adesivo nominal', 'Sacola', 'Sache Ketchup', 'Sache Maionese', 'Guardanapo']
+        .filter(nome => !insumos.some((i: Insumo) => (i.nome || '').trim().toLowerCase() === nome.trim().toLowerCase()));
 
   return (
     <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4 overflow-y-auto">
@@ -298,7 +321,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                   <div className="relative w-full">
                     <div className="flex items-center border border-gray-200 rounded-lg bg-white focus-within:ring-2 focus-within:ring-blue-500 transition-colors h-full"><Search size={16} className="ml-3 text-gray-400 shrink-0" /><input type="text" value={searchInsumoReceita} onChange={e => { setSearchInsumoReceita(e.target.value); setTempInsumoId(''); setShowInsumoReceitaDropdown(true); }} onFocus={() => setShowInsumoReceitaDropdown(true)} onBlur={() => setTimeout(() => setShowInsumoReceitaDropdown(false), 200)} className="w-full p-2 outline-none rounded-lg text-sm bg-transparent" placeholder="Buscar insumo para a receita..." /></div>
-                    {showInsumoReceitaDropdown && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => !embalagensNecessarias.some(emb => emb.toLowerCase() === (i.nome || '').trim().toLowerCase())).filter((i: Insumo) => i.nome.toLowerCase().includes(searchInsumoReceita.toLowerCase())).map((i: Insumo) => (<div key={i.id} onClick={() => { setTempInsumoId(i.id); setSearchInsumoReceita(i.nome); setShowInsumoReceitaDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center"><span className="font-medium text-gray-800">{i.nome}</span><span className="text-gray-400 text-xs ml-2">{i.unidade}</span></div>))}</div>)}
+                    {showInsumoReceitaDropdown && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">{(() => { const embIds = new Set([...(embalagensPadrao?.delivery || []), ...(embalagensPadrao?.salao || [])].map((e: any) => e.insumoId)); return insumos.filter((i: Insumo) => !embIds.has(i.id)).filter((i: Insumo) => i.nome.toLowerCase().includes(searchInsumoReceita.toLowerCase())).map((i: Insumo) => (<div key={i.id} onClick={() => { setTempInsumoId(i.id); setSearchInsumoReceita(i.nome); setShowInsumoReceitaDropdown(false); }} className="p-2 text-sm hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center"><span className="font-medium text-gray-800">{i.nome}</span><span className="text-gray-400 text-xs ml-2">{i.unidade}</span></div>)); })()}</div>)}
                   </div>
                   <div className="flex space-x-2"><input type="number" value={tempQtd} onChange={e => setTempQtd(Number(e.target.value))} className="w-24 p-2 border border-gray-200 rounded-lg outline-none bg-white focus:ring-2 focus:ring-blue-500" placeholder="Qtd" /><button onClick={addIngrediente} className="flex-1 bg-gray-800 text-white p-2 rounded-lg text-sm font-bold hover:bg-gray-900 transition-colors shadow-sm">Adicionar à Lista</button></div>
                 </div>

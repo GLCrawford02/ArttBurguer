@@ -10,6 +10,7 @@ import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
 import 'leaflet/dist/leaflet.css';
+import motoImg from '../assets/moto.png';
 
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 
@@ -28,8 +29,25 @@ function FitBounds({ positions }: { positions: [number, number][] }) {
 function InvalidateSize() {
   const map = useMap();
   useEffect(() => {
-    setTimeout(() => map.invalidateSize(), 100);
-  }, []);
+    const timer = setTimeout(() => map.invalidateSize(), 400);
+    
+    let observer: ResizeObserver | null = null;
+    const container = map.getContainer();
+    if (container && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        map.invalidateSize();
+      });
+      observer.observe(container);
+    }
+    
+    return () => {
+      clearTimeout(timer);
+      if (observer && container) {
+        observer.unobserve(container);
+        observer.disconnect();
+      }
+    };
+  }, [map]);
   return null;
 }
 
@@ -354,7 +372,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
       {/* Mapa do entregador */}
       {(() => {
         const motoIcon = new L.Icon({
-          iconUrl: 'https://cdn-icons-png.flaticon.com/512/3209/3209935.png',
+          iconUrl: motoImg,
           iconSize: [40, 40], iconAnchor: [20, 40], popupAnchor: [0, -40],
         });
         const casaPendenteIcon = new L.Icon({

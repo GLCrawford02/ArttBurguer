@@ -61,6 +61,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const grokKey = 'xai-Fh7xVsGIiq5cwKfvQVosE35aPsE4kT2hTJJGAgVHt2B2bnc0aMBWPfkuWvay0cfPok2Gmxlxs7iAqP4Z';
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+  const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
+  const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
@@ -154,6 +156,16 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     onValue(configMesasRef, snap => {
       if (snap.val()) setQtdMesas(Number(snap.val()));
     });
+
+    const configImpressorasRef = ref(db, 'configuracoes/impressoras');
+    onValue(configImpressorasRef, snap => {
+      setConfigImpressoras(snap.val() || {});
+    });
+
+    const nomesRef = ref(db, 'configuracoes/impressoras_nomes');
+    onValue(nomesRef, snap => {
+      setNomesImpressoras(snap.val() || { cozinha: '', balcao: '' });
+    });
   }, []);
 
   const taxasComPadroes = [
@@ -228,6 +240,97 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       if (newQtd < newEnviado) newEnviado = newQtd;
       return { ...prev, [id]: { ...current, qtd: newQtd, enviadoCozinha: newEnviado } };
     });
+  };
+
+  const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerName?: string) => {
+    if (itens.length === 0) return;
+
+    const dataHora = new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    let itensHtml = '';
+    itens.forEach((item: any) => {
+      itensHtml += `<div class="item"><span class="item-qty">${item.qtd}x</span> <span class="item-nome">${item.nome}</span></div>`;
+      if (item.opcoes) {
+        const { montagem, pontoCarne, adicionais, restricoes, observacao } = item.opcoes;
+        if (montagem && Object.values(montagem).length > 0)
+          itensHtml += `<div class="item-sub">Montagem: ${Object.values(montagem).join(', ')}</div>`;
+        if (pontoCarne)
+          itensHtml += `<div class="item-sub">Ponto: ${pontoCarne}</div>`;
+        if (adicionais && Object.values(adicionais).length > 0)
+          Object.values(adicionais).forEach((a: any) => {
+            itensHtml += `<div class="item-sub">+ ${a.qtd}x ${a.nome}</div>`;
+          });
+        if (restricoes && Object.values(restricoes).length > 0)
+          itensHtml += `<div class="item-sub item-sem">SEM: ${Object.values(restricoes).join(', ')}</div>`;
+        if (observacao)
+          itensHtml += `<div class="item-sub">Obs: ${observacao}</div>`;
+      }
+      itensHtml += `<hr/>`;
+    });
+
+    const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  @page { size: 80mm auto; margin: 4mm 3mm; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; width: 74mm; margin: 0 auto; line-height: 1.5; }
+  .header { text-align: center; padding-bottom: 6px; margin-bottom: 6px; border-bottom: 2px solid #000; }
+  .dest { font-size: 24px; font-weight: bold; letter-spacing: 4px; }
+  .ident { font-size: 15px; font-weight: bold; margin-top: 2px; }
+  .hora { font-size: 11px; color: #333; }
+  .item { margin: 5px 0 2px; }
+  .item-qty { font-weight: bold; min-width: 20px; display: inline-block; }
+  .item-nome { font-weight: bold; font-size: 14px; }
+  .item-sub { font-size: 11px; padding-left: 22px; color: #222; }
+  .item-sem { font-weight: bold; text-decoration: underline; }
+  hr { border: none; border-top: 1px dashed #999; margin: 5px 0; }
+</style></head><body>
+<div class="header">
+  <div class="dest">*** ${destLabel} ***</div>
+  <div class="ident">${identificador}</div>
+  <div class="hora">${dataHora}</div>
+</div>
+${itensHtml}
+</body></html>`;
+
+    const electron = (window as any).electronAPI;
+    if (electron && printerName) {
+      // Electron: impressão silenciosa na impressora configurada
+      try { await electron.imprimir(printerName, html); } catch (e) { console.error('Erro ao imprimir via Electron:', e); }
+    } else {
+      // Web/APK: abre janela do navegador como fallback
+      const win = window.open('', '_blank');
+      if (!win) return;
+      win.document.write(html);
+      win.document.close();
+      win.focus();
+      setTimeout(() => { win.onafterprint = () => win.close(); win.print(); }, 300);
+    }
+  };
+
+  const dispararImpressaoSeparada = (identificador: string, carrinhoSnapshot: Record<string, any>) => {
+    if (Object.keys(configImpressoras).length === 0) return;
+
+    const itensNovos = Object.values(carrinhoSnapshot).filter(
+      (item: any) => item.qtd > (item.enviadoCozinha || 0)
+    ).map((item: any) => ({
+      ...item,
+      qtd: item.qtd - (item.enviadoCozinha || 0)
+    }));
+
+    if (itensNovos.length === 0) return;
+
+    const itensCozinha: any[] = [];
+    const itensBalcao: any[] = [];
+
+    itensNovos.forEach((item: any) => {
+      const prod = [...produtos, ...promocoes].find(p => p.id === item.produtoId);
+      const categoria = prod?.tipoItem === 'Promoção' ? 'Promoções' : (prod?.categoria || '');
+      const destino = configImpressoras[categoria] || 'cozinha';
+      if (destino === 'cozinha' || destino === 'ambos') itensCozinha.push(item);
+      if (destino === 'balcao' || destino === 'ambos') itensBalcao.push(item);
+    });
+
+    imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, nomesImpressoras.cozinha);
+    imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, nomesImpressoras.balcao);
   };
 
   const dispararParaCozinha = async (identificador: string, tipo: string, referenciaId?: string) => {
@@ -340,6 +443,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
     } else {
+        dispararImpressaoSeparada(`Mesa ${mesaSelecionada}`, pdvCarrinho);
         const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa', `mesa_${mesaSelecionada}`);
       await set(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`), {
         carrinho: novoCarrinho,
@@ -375,6 +479,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     } else {
       const id = entregaSelecionada || `delivery_${Date.now()}`;
       const numDiario = getNumeroDiario('Entrega', entregaSelecionada);
+        dispararImpressaoSeparada(`Delivery: ${pdvCliente.nome}`, pdvCarrinho);
         const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega', id);
       await set(ref(db, `entregas_abertas/${id}`), {
         clienteId: pdvCliente.id,
@@ -427,66 +532,134 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     let itensHtml = '';
     if (viewComanda.itens) {
       viewComanda.itens.forEach((item: any) => {
+        const subtotal = (item.preco * item.qtd).toFixed(2);
         itensHtml += `
-          <div style="display: flex; justify-content: space-between; margin-bottom: 5px;">
-            <div>${item.qtd}x ${item.nome}</div>
-            <div>R$ ${(item.preco * item.qtd).toFixed(2)}</div>
-          </div>
-        `;
-        if (item.opcoes) {
-          if (item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Montagem: ${Object.values(item.opcoes.montagem).join(', ')}</div>`;
-          if (item.opcoes.pontoCarne) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Ponto: ${item.opcoes.pontoCarne}</div>`;
-          if (item.opcoes.adicionais && Object.values(item.opcoes.adicionais).length > 0) Object.values(item.opcoes.adicionais).forEach((a: any) => {
-            itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">+ ${a.qtd}x AD/ ${a.nome}</div>`;
-          });
-          if (item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">- Sem: ${Object.values(item.opcoes.restricoes).join(', ')}</div>`;
-          if (item.opcoes.observacao) itensHtml += `<div style="font-size: 10px; color: #555; padding-left: 10px;">Obs: ${item.opcoes.observacao}</div>`;
+          <div class="item-row">
+            <div class="item-desc">
+              <span class="item-qty">${item.qtd}x</span> ${item.nome}
+            </div>
+            <div class="item-price">R$ ${subtotal}</div>
+          </div>`;
+        if (item.preco > 0) {
+          itensHtml += `<div class="item-sub">Unit: R$ ${item.preco.toFixed(2)}</div>`;
         }
+        if (item.opcoes) {
+          const { montagem, pontoCarne, adicionais, restricoes, observacao } = item.opcoes;
+          if (montagem && Object.values(montagem).length > 0)
+            itensHtml += `<div class="item-sub">Montagem: ${Object.values(montagem).join(', ')}</div>`;
+          if (pontoCarne)
+            itensHtml += `<div class="item-sub">Ponto: ${pontoCarne}</div>`;
+          if (adicionais && Object.values(adicionais).length > 0)
+            Object.values(adicionais).forEach((a: any) => {
+              itensHtml += `<div class="item-sub">+ ${a.qtd}x ${a.nome}</div>`;
+            });
+          if (restricoes && Object.values(restricoes).length > 0)
+            itensHtml += `<div class="item-sub item-sem">SEM: ${Object.values(restricoes).join(', ')}</div>`;
+          if (observacao)
+            itensHtml += `<div class="item-sub">Obs: ${observacao}</div>`;
+        }
+        itensHtml += `<div class="item-divider"></div>`;
       });
     }
 
     let pagamentosHtml = '';
-    if (viewComanda.pagamentos) {
+    if (viewComanda.pagamentos && viewComanda.pagamentos.length > 0) {
       viewComanda.pagamentos.forEach((p: any) => {
-        pagamentosHtml += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><div>${p.nomeTaxa}</div><div>R$ ${p.valor.toFixed(2)}</div></div>`;
+        pagamentosHtml += `<div class="row"><span>${p.nomeTaxa}</span><span>R$ ${Number(p.valor).toFixed(2)}</span></div>`;
       });
     } else if (viewComanda.nomeTaxa) {
-      pagamentosHtml += `<div style="display: flex; justify-content: space-between; margin-bottom: 2px;"><div>${viewComanda.nomeTaxa}</div><div>R$ ${viewComanda.valor.toFixed(2)}</div></div>`;
+      pagamentosHtml = `<div class="row"><span>${viewComanda.nomeTaxa}</span><span>R$ ${Number(viewComanda.valor).toFixed(2)}</span></div>`;
     }
 
-    const html = `
-      <html>
-        <head>
-          <title>Cupom - ${viewComanda.descricao || 'Venda'}</title>
-          <style>
-            body { font-family: monospace; width: 80mm; margin: 0 auto; padding: 10px; color: #000; }
-            .header { text-align: center; margin-bottom: 10px; }
-            .title { font-size: 18px; font-weight: bold; margin: 0; }
-            .subtitle { font-size: 12px; margin: 2px 0; }
-            .divider { border-bottom: 1px dashed #000; margin: 10px 0; }
-            .item-list { font-size: 12px; margin-bottom: 10px; }
-            .totals { font-size: 14px; font-weight: bold; display: flex; justify-content: space-between; }
-            .footer { text-align: center; font-size: 10px; margin-top: 20px; }
-            @media print { body { width: 100%; margin: 0; padding: 0; } }
-          </style>
-        </head>
-        <body>
-          <div class="header"><h1 class="title">ARTT BURGER</h1><p class="subtitle">${viewComanda.descricao || 'Venda Balcão'} ${viewComanda.tipoPedido ? `(${viewComanda.tipoPedido})` : ''}</p><p class="subtitle">${new Date(viewComanda.timestamp).toLocaleString('pt-BR')}</p>${viewComanda.clienteNome ? `<p class="subtitle">Cliente: ${viewComanda.clienteNome}</p>` : ''}</div>
-          <div class="divider"></div>
-          <div class="item-list">${itensHtml}</div>
-          <div class="divider"></div>
-          ${viewComanda.desconto > 0 ? `<div style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 5px;"><div>Desconto ${viewComanda.cupom ? `(${viewComanda.cupom})` : ''}</div><div>- R$ ${viewComanda.desconto.toFixed(2)}</div></div><div class="divider"></div>` : ''}
-          <div style="font-size: 12px; margin-bottom: 5px;">${pagamentosHtml}</div>
-          <div class="divider"></div>
-          <div class="totals"><span>TOTAL</span><span>R$ ${viewComanda.valor.toFixed(2)}</span></div>
-          <div class="footer"><p>Obrigado pela preferência!</p><p>Volte sempre</p></div>
-        </body>
-      </html>
-    `;
+    const numPedido = viewComanda.numeroDiario ? `#${viewComanda.numeroDiario}` : '';
+    const dataHora = new Date(viewComanda.timestamp).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    const tipo = viewComanda.tipoPedido ? `• ${viewComanda.tipoPedido}` : '';
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Cupom ${numPedido}</title>
+  <style>
+    @page { size: 80mm auto; margin: 4mm 3mm; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 12px;
+      color: #000;
+      width: 74mm;
+      margin: 0 auto;
+      line-height: 1.45;
+    }
+    .center { text-align: center; }
+    .bold { font-weight: bold; }
+    .store-name { font-size: 20px; font-weight: bold; letter-spacing: 2px; }
+    .tag { font-size: 11px; margin: 2px 0; }
+    .order-num { font-size: 15px; font-weight: bold; margin: 4px 0; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 6px 0; }
+    .section-title { font-size: 10px; font-weight: bold; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 4px; color: #444; }
+    .item-row { display: flex; justify-content: space-between; align-items: baseline; gap: 4px; font-weight: bold; }
+    .item-desc { flex: 1; word-break: break-word; }
+    .item-qty { display: inline-block; min-width: 18px; }
+    .item-price { white-space: nowrap; text-align: right; }
+    .item-sub { font-size: 10px; color: #333; padding-left: 22px; line-height: 1.3; }
+    .item-sem { font-weight: bold; text-decoration: underline; }
+    .item-divider { border-top: 1px dotted #ccc; margin: 4px 0; }
+    .row { display: flex; justify-content: space-between; gap: 4px; margin-bottom: 2px; }
+    .desconto { color: #000; font-weight: bold; }
+    .total-row { display: flex; justify-content: space-between; font-size: 16px; font-weight: bold; margin: 4px 0; }
+    .footer { text-align: center; font-size: 10px; margin-top: 8px; line-height: 1.6; }
+    @media print {
+      @page { size: 80mm auto; margin: 4mm 3mm; }
+      body { width: 74mm; }
+    }
+  </style>
+</head>
+<body>
+  <div class="center">
+    <div class="store-name">ARTT BURGER</div>
+    <div class="tag">${viewComanda.descricao || 'Venda Balcão'} ${tipo}</div>
+    ${numPedido ? `<div class="order-num">Pedido ${numPedido}</div>` : ''}
+    <div class="tag">${dataHora}</div>
+    ${viewComanda.clienteNome ? `<div class="tag bold">Cliente: ${viewComanda.clienteNome}</div>` : ''}
+  </div>
+
+  <hr class="divider">
+  <div class="section-title">Itens do Pedido</div>
+  ${itensHtml}
+
+  ${viewComanda.desconto > 0 ? `
+  <hr class="divider">
+  <div class="row desconto">
+    <span>Desconto${viewComanda.cupom ? ` (${viewComanda.cupom})` : ''}</span>
+    <span>- R$ ${Number(viewComanda.desconto).toFixed(2)}</span>
+  </div>` : ''}
+
+  <hr class="divider">
+  <div class="section-title">Pagamento</div>
+  ${pagamentosHtml}
+
+  <hr class="divider">
+  <div class="total-row">
+    <span>TOTAL</span>
+    <span>R$ ${Number(viewComanda.valor).toFixed(2)}</span>
+  </div>
+  <hr class="divider">
+
+  <div class="footer">
+    <div>Obrigado pela preferencia!</div>
+    <div>Volte sempre. :)</div>
+  </div>
+</body>
+</html>`;
+
     win.document.write(html);
     win.document.close();
     win.focus();
-    setTimeout(() => { win.print(); win.close(); }, 500);
+    setTimeout(() => {
+      win.onafterprint = () => win.close();
+      win.print();
+    }, 400);
   };
 
   const handleOpenPdvItemModal = (item: any) => {
@@ -609,6 +782,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
       else if (pdvTipoPedido === 'Mesa') ident = `Mesa ${mesaSelecionada}`;
       else if (pdvCliente) ident = `Balcão: ${pdvCliente.nome}`;
+      dispararImpressaoSeparada(ident, pdvCarrinho);
       await dispararParaCozinha(ident, pdvTipoPedido);
   
       const statusEntregaAtual = pdvTipoPedido === 'Entrega' && entregaSelecionada && entregasAbertas[entregaSelecionada]?.statusEntrega
@@ -1528,6 +1702,20 @@ Formato esperado:
                  <span className="font-bold text-gray-800 uppercase">Total</span>
                  <span className="font-black text-2xl text-green-600">R$ {viewComanda.valor.toFixed(2)}</span>
                </div>
+            </div>
+            <div className="p-4 border-t border-gray-100 bg-gray-50 rounded-b-xl flex gap-3">
+              <button
+                onClick={handleImprimirCupom}
+                className="flex-1 flex items-center justify-center gap-2 bg-gray-800 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-gray-900 transition-colors"
+              >
+                <Printer size={16} /> Imprimir / Salvar PDF
+              </button>
+              <button
+                onClick={() => setViewComanda(null)}
+                className="px-5 py-2.5 bg-gray-200 text-gray-700 rounded-lg font-bold text-sm hover:bg-gray-300 transition-colors"
+              >
+                Fechar
+              </button>
             </div>
           </div>
         </div>

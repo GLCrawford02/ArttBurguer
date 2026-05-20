@@ -41,6 +41,7 @@
     "categorias_despesa": { ".write": true },
     
     "cupons": { ".write": true },
-    "bloco_notas": { ".write": true }
+    "bloco_notas": { ".write": true },
+    "sistema": { ".write": true }
   }
 }
