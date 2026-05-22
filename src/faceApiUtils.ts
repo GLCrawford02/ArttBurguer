@@ -1,18 +1,46 @@
 import * as faceapi from 'face-api.js';
 
-// Modelos servidos localmente (public/weights/) — sem dependência de internet
-const MODEL_URL = '/weights';
+// Modelos servidos localmente (public/weights/); CDN como fallback
+const MODEL_LOCAL = '/weights';
+const MODEL_CDN   = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
 
 let loadPromise: Promise<void> | null = null;
+
+async function tryLoadFrom(url: string): Promise<void> {
+  // Verifica se o arquivo local é válido antes de tentar carregar
+  // (evita parsear página de erro 404 como binário de pesos)
+  if (url === MODEL_LOCAL) {
+    try {
+      const res = await fetch(`${url}/tiny_face_detector_model-shard1`, { method: 'HEAD' });
+      if (!res.ok || (res.headers.get('content-length') ?? '0') < '10000') {
+        throw new Error('local_unavailable');
+      }
+    } catch {
+      throw new Error('local_unavailable');
+    }
+  }
+  await Promise.all([
+    faceapi.nets.tinyFaceDetector.loadFromUri(url),
+    faceapi.nets.faceLandmark68Net.loadFromUri(url),
+    faceapi.nets.faceRecognitionNet.loadFromUri(url),
+  ]);
+}
 
 export async function ensureFaceModelsLoaded(): Promise<void> {
   if (faceapi.nets.tinyFaceDetector.isLoaded) return;
   if (!loadPromise) {
-    loadPromise = Promise.all([
-      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
-      faceapi.nets.faceLandmark68Net.loadFromUri(MODEL_URL),
-      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
-    ]).then(() => undefined);
+    loadPromise = tryLoadFrom(MODEL_LOCAL)
+      .catch(() => {
+        // Fallback para CDN se os arquivos locais não estiverem disponíveis
+        faceapi.nets.tinyFaceDetector.dispose?.();
+        faceapi.nets.faceLandmark68Net.dispose?.();
+        faceapi.nets.faceRecognitionNet.dispose?.();
+        return tryLoadFrom(MODEL_CDN);
+      })
+      .catch(err => {
+        loadPromise = null; // Permite nova tentativa em vez de manter promise rejeitada
+        throw err;
+      });
   }
   await loadPromise;
 }

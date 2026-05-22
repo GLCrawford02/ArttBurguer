@@ -6,7 +6,7 @@ const https = require('https');
 const fs = require('fs');
 const path = require('path');
 
-const BASE = 'https://raw.githubusercontent.com/justadudewhohacks/face-api.js/master/weights';
+const BASE = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@0.22.2/weights';
 const DEST = path.join(__dirname, '..', 'public', 'weights');
 
 const FILES = [
