@@ -3,7 +3,8 @@ import { ref, onValue, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
-import { CheckCircle, Clock, MapPin, AlertTriangle, Coffee, LogIn, LogOut, RefreshCw } from 'lucide-react';
+import { CheckCircle, Clock, MapPin, AlertTriangle, Coffee, LogIn, LogOut, RefreshCw, ScanFace, X } from 'lucide-react';
+import { ensureFaceModelsLoaded, faceapi } from '../faceApiUtils';
 
 const RESTAURANTE_LAT = -18.757167;
 const RESTAURANTE_LNG = -44.429278;
@@ -64,6 +65,13 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
   const capWatchRef = useRef<string | null>(null);
   const webWatchRef = useRef<number | null>(null);
 
+  const [faceModeAtivo, setFaceModeAtivo] = useState(false);
+  const [faceStatus, setFaceStatus] = useState('');
+  const faceVideoRef = useRef<HTMLVideoElement>(null);
+  const faceStreamRef = useRef<MediaStream | null>(null);
+  const faceScanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const baterPontoRef = useRef<(tipo: 'chegada' | 'saida_almoco' | 'volta_almoco' | 'saida_final') => Promise<void>>(null!);
+
   const dataHoje = new Date().toISOString().split('T')[0]; // YYYY-MM-DD (chave Firebase)
   const dataHojeBR = new Date().toLocaleDateString('pt-BR'); // DD/MM/YYYY (exibição)
 
@@ -116,6 +124,8 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
     return () => {
       if (capWatchRef.current) { Geolocation.clearWatch({ id: capWatchRef.current }); capWatchRef.current = null; }
       if (webWatchRef.current !== null) { navigator.geolocation.clearWatch(webWatchRef.current); webWatchRef.current = null; }
+      if (faceScanIntervalRef.current) { clearInterval(faceScanIntervalRef.current); }
+      if (faceStreamRef.current) { faceStreamRef.current.getTracks().forEach(t => t.stop()); }
     };
   }, []);
 
@@ -158,6 +168,99 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
     } finally {
       setSalvando(null);
     }
+  };
+
+  // Mantém baterPontoRef sempre atualizado para o interval não usar closure stale
+  baterPontoRef.current = baterPonto;
+
+  const pararFaceMode = () => {
+    if (faceScanIntervalRef.current) { clearInterval(faceScanIntervalRef.current); faceScanIntervalRef.current = null; }
+    if (faceStreamRef.current) { faceStreamRef.current.getTracks().forEach(t => t.stop()); faceStreamRef.current = null; }
+    setFaceModeAtivo(false);
+    setFaceStatus('');
+  };
+
+  const ativarFaceMode = async () => {
+    if (!dentroDaArea) {
+      showToast('Você precisa estar no estabelecimento para usar esta função!', 'error');
+      return;
+    }
+    if (!currentUser?.faceDescriptor?.length) {
+      showToast('Seu rosto não está cadastrado. Solicite ao gerente para cadastrar na aba Funcionários.', 'error');
+      return;
+    }
+
+    setFaceModeAtivo(true);
+    setFaceStatus('Iniciando câmera...');
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      faceStreamRef.current = stream;
+      setTimeout(() => {
+        if (faceVideoRef.current) { faceVideoRef.current.srcObject = stream; faceVideoRef.current.play(); }
+      }, 100);
+    } catch {
+      setFaceStatus('Câmera não disponível neste dispositivo.');
+      return;
+    }
+
+    setFaceStatus('Carregando modelos de IA...');
+    try {
+      await ensureFaceModelsLoaded();
+    } catch {
+      setFaceStatus('Falha ao carregar modelos. Verifique a conexão.');
+      return;
+    }
+
+    const descriptor = new Float32Array(currentUser.faceDescriptor);
+
+    // Captura o próximo step disponível no momento de abertura da câmera
+    const proximoStepId = (['chegada', 'saida_almoco', 'volta_almoco', 'saida_final'] as const).find(id => {
+      if (id === 'chegada') return !pontoHoje?.chegada;
+      if (id === 'saida_almoco') return !!pontoHoje?.chegada && !pontoHoje?.saida_almoco;
+      if (id === 'volta_almoco') return !!pontoHoje?.saida_almoco && !pontoHoje?.volta_almoco;
+      if (id === 'saida_final') return !!pontoHoje?.chegada && !pontoHoje?.saida_final && (!pontoHoje?.saida_almoco || !!pontoHoje?.volta_almoco);
+      return false;
+    });
+
+    const nomeStep: Record<string, string> = {
+      chegada: 'Chegada',
+      saida_almoco: 'Saída Almoço',
+      volta_almoco: 'Volta Almoço',
+      saida_final: 'Saída',
+    };
+
+    if (!proximoStepId) {
+      setFaceStatus('Nenhum registro pendente para hoje.');
+      setTimeout(pararFaceMode, 2000);
+      return;
+    }
+
+    setFaceStatus(`Olhe para a câmera — ${nomeStep[proximoStepId]}`);
+
+    faceScanIntervalRef.current = setInterval(async () => {
+      if (!faceVideoRef.current) return;
+      try {
+        const detection = await faceapi
+          .detectSingleFace(faceVideoRef.current, new faceapi.TinyFaceDetectorOptions())
+          .withFaceLandmarks()
+          .withFaceDescriptor();
+
+        if (!detection) {
+          setFaceStatus(`Olhe para a câmera — ${nomeStep[proximoStepId]}`);
+          return;
+        }
+
+        const distFace = faceapi.euclideanDistance(detection.descriptor, descriptor);
+
+        if (distFace < 0.5) {
+          pararFaceMode();
+          await baterPontoRef.current(proximoStepId);
+        } else {
+          setFaceStatus('Rosto não reconhecido. Tente se aproximar...');
+        }
+      } catch { /* frame error, continua */ }
+    }, 1500);
   };
 
   const steps = [
@@ -260,6 +363,39 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
         </div>
       </div>
 
+      {/* Botão Face ou Preview da câmera */}
+      {!faceModeAtivo ? (
+        <button
+          onClick={ativarFaceMode}
+          disabled={!dentroDaArea || !!salvando}
+          className={`w-full flex items-center justify-center gap-2 p-4 rounded-xl font-bold text-sm transition-all ${
+            dentroDaArea
+              ? 'bg-orange-500 text-white hover:bg-orange-600 active:scale-95 shadow-lg shadow-orange-200'
+              : 'bg-gray-100 text-gray-300 cursor-not-allowed'
+          }`}
+        >
+          <ScanFace size={20} />
+          Bater Ponto com Reconhecimento Facial
+        </button>
+      ) : (
+        <div className="bg-gray-900 rounded-2xl overflow-hidden shadow-xl">
+          <div className="relative h-72">
+            <video ref={faceVideoRef} className="w-full h-full object-cover" muted playsInline />
+            {faceStatus && (
+              <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm text-white text-sm text-center py-2.5 px-3 font-medium">
+                {faceStatus}
+              </div>
+            )}
+          </div>
+          <button
+            onClick={pararFaceMode}
+            className="w-full p-3 flex items-center justify-center gap-2 text-gray-400 hover:text-white text-sm font-medium transition-colors"
+          >
+            <X size={16} /> Cancelar
+          </button>
+        </div>
+      )}
+
       {/* Steps */}
       <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
         <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
@@ -274,7 +410,7 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
             const eSeguinte = step.disponivel;
             const bloqueado = !jaBatido && !eSeguinte;
             const estaCarregando = salvando === step.id;
-            const podeBater = eSeguinte && dentroDaArea && !salvando;
+            const podeBater = eSeguinte && dentroDaArea && !salvando && !faceModeAtivo;
 
             return (
               <div key={step.id} className={`flex items-center gap-4 p-4 transition-colors ${jaBatido ? 'bg-green-50/40' : ''}`}>

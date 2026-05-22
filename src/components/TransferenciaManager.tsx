@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
-import { ref, onValue, runTransaction, push, set } from 'firebase/database';
+import { useState, useEffect, useRef } from 'react';
+import { ref, onValue, runTransaction, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
-import { ArrowRight, Search, CheckCircle, AlertTriangle, History, User, Clock, Package } from 'lucide-react';
+import { ArrowRight, Search, CheckCircle, AlertTriangle, History, User, Clock, Package, Scan } from 'lucide-react';
 
 export default function TransferenciaManager({ currentUser: _currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -16,6 +16,16 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
   const [pinModal, setPinModal] = useState(false);
   const [pin, setPin] = useState('');
   const [pendingTransfer, setPendingTransfer] = useState<{ insumo: Insumo; qty: number; tipo: 'container' | 'variavel' | 'simples' } | null>(null);
+  const [barcodeFocusId, setBarcodeFocusId] = useState<string | null>(null);
+  const [barcodeVincularModal, setBarcodeVincularModal] = useState<{ code: string } | null>(null);
+  const [barcodeVincularSearch, setBarcodeVincularSearch] = useState('');
+  const [barcodeVincularId, setBarcodeVincularId] = useState<string | null>(null);
+
+  const barcodeBufferRef = useRef('');
+  const lastKeyTimeRef = useRef(0);
+  const barcodeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pinModalRef = useRef(false);
+  const allInsumosRef = useRef<Insumo[]>([]);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ msg, type });
@@ -46,6 +56,62 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       }),
     ];
     return () => unsubs.forEach(u => u());
+  }, []);
+
+  useEffect(() => { pinModalRef.current = pinModal; }, [pinModal]);
+  useEffect(() => { allInsumosRef.current = insumos; }, [insumos]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (pinModalRef.current) return;
+      const target = e.target as HTMLInputElement;
+      if (target.tagName === 'INPUT' && target.type === 'number') return;
+
+      const now = Date.now();
+
+      if (e.key === 'Enter') {
+        const code = barcodeBufferRef.current.trim();
+        barcodeBufferRef.current = '';
+        if (code.length >= 3) {
+          const all = allInsumosRef.current;
+          const found = all.find(i => i.codigoBarras === code || i.sku === code);
+          if (found && found.transferivel) {
+            setBarcodeFocusId(found.id);
+            setSearch('');
+            setTimeout(() => {
+              document.getElementById(`card-${found.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              (document.getElementById(`qty-${found.id}`) as HTMLInputElement | null)?.focus();
+            }, 80);
+            setTimeout(() => setBarcodeFocusId(null), 3000);
+          } else {
+            setBarcodeVincularModal({ code });
+            setBarcodeVincularSearch('');
+            setBarcodeVincularId(null);
+          }
+        }
+        return;
+      }
+
+      const timeDiff = now - lastKeyTimeRef.current;
+      lastKeyTimeRef.current = now;
+
+      if (timeDiff > 100 && barcodeBufferRef.current.length > 0) {
+        barcodeBufferRef.current = '';
+      }
+
+      if (e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) {
+        barcodeBufferRef.current += e.key;
+      }
+
+      if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
+      barcodeTimeoutRef.current = setTimeout(() => { barcodeBufferRef.current = ''; }, 500);
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (barcodeTimeoutRef.current) clearTimeout(barcodeTimeoutRef.current);
+    };
   }, []);
 
   // Segue a cadeia do container até a unidade base
@@ -90,11 +156,10 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     )
     .sort((a, b) => a.nome.localeCompare(b.nome));
 
-  // Variáveis STANDALONE: isVariavel = true, transferivel = true, SEM container pai acima
-  // Produtos variáveis que têm cadeia (Caixa → Pacote → esse) devem ser transferidos
-  // pelo card do Pacote na seção CONTAINERS — não precisam de card próprio aqui
+  // Variáveis: isVariavel = true, transferivel = true
+  // executeVariavelTransfer já trata com e sem pai — a condição de "sem pai" ocultava produtos válidos
   const variaveis = insumos
-    .filter(i => !!i.isVariavel && !!i.transferivel && !insumos.some(x => x.insumoVinculado === i.id))
+    .filter(i => !!i.isVariavel && !!i.transferivel)
     .filter(i =>
       i.nome.toLowerCase().includes(search.toLowerCase()) ||
       (i.sku ?? '').toLowerCase().includes(search.toLowerCase())
@@ -393,6 +458,13 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     }
   }
 
+  async function salvarVinculoBarcode() {
+    if (!barcodeVincularModal || !barcodeVincularId) return;
+    await update(ref(db, `insumos/${barcodeVincularId}`), { codigoBarras: barcodeVincularModal.code });
+    showToast(`Código ${barcodeVincularModal.code} vinculado com sucesso!`);
+    setBarcodeVincularModal(null);
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -406,15 +478,21 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
             Transfira Pacotes ou Caixas para a cozinha. Caixas são abertas automaticamente se precisar.
           </p>
         </div>
-        <div className="relative w-full sm:w-auto">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
-          <input
-            type="text"
-            placeholder="Buscar produto..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-            className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 text-sm w-full sm:w-64"
-          />
+        <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+          <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 px-2.5 py-1.5 rounded-full shrink-0">
+            <Scan size={12} />
+            <span>Leitor de código ativo</span>
+          </div>
+          <div className="relative w-full sm:w-auto">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+            <input
+              type="text"
+              placeholder="Buscar produto..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 text-sm w-full sm:w-64"
+            />
+          </div>
         </div>
       </div>
 
@@ -440,7 +518,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
             'bg-purple-100 text-purple-700';
 
           return (
-            <div key={insumo.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-4">
+            <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
               {/* Título */}
               <div className="flex items-start gap-2 flex-wrap">
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mt-0.5 shrink-0 ${levelColor}`}>
@@ -489,6 +567,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
               {/* Input + botão */}
               <div className="flex gap-2">
                 <input
+                  id={`qty-${insumo.id}`}
                   type="number"
                   min="0"
                   step="1"
@@ -546,7 +625,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
               const isLoading = loadingIds.has(insumo.id);
               const excede = qty > estacionado && qty > 0;
               return (
-                <div key={insumo.id} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col gap-4">
+                <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
                   <p className="font-bold text-gray-900">{insumo.nome}</p>
                   <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
                     <div className="flex justify-between">
@@ -560,6 +639,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
                   </div>
                   <div className="flex gap-2">
                     <input
+                      id={`qty-${insumo.id}`}
                       type="number" min="0" step="1"
                       value={quantities[insumo.id] || ''}
                       onChange={e => setQuantities(prev => ({ ...prev, [insumo.id]: e.target.value }))}
@@ -608,7 +688,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
               const excede = qty > displayStock && qty > 0;
 
               return (
-                <div key={insumo.id} className="bg-white rounded-xl border border-purple-100 shadow-sm p-5 flex flex-col gap-4">
+                <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-purple-100'}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-purple-100 text-purple-700">VARIÁVEL</span>
@@ -652,6 +732,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
 
                   <div className="flex gap-2">
                     <input
+                      id={`qty-${insumo.id}`}
                       type="number"
                       min="0"
                       step="1"
@@ -719,6 +800,63 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
           {toast.msg}
         </div>
       )}
+
+      {/* Modal vincular código de barras */}
+      {barcodeVincularModal && (() => {
+        const filtrado = insumos
+          .filter(i => i.nome.toLowerCase().includes(barcodeVincularSearch.toLowerCase()) || (i.sku ?? '').toLowerCase().includes(barcodeVincularSearch.toLowerCase()))
+          .slice(0, 8);
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-xl shadow-xl p-6 max-w-md w-full">
+              <h3 className="text-lg font-bold text-gray-800 mb-1 flex items-center gap-2">
+                <Scan size={18} className="text-orange-500" />
+                Código não cadastrado
+              </h3>
+              <p className="text-sm text-gray-500 mb-4">
+                Código lido: <span className="font-mono font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded">{barcodeVincularModal.code}</span>
+                <br />Selecione o produto correspondente para vincular:
+              </p>
+              <input
+                autoFocus
+                type="text"
+                placeholder="Buscar produto..."
+                value={barcodeVincularSearch}
+                onChange={e => { setBarcodeVincularSearch(e.target.value); setBarcodeVincularId(null); }}
+                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-400 mb-2"
+              />
+              <div className="space-y-1 max-h-48 overflow-y-auto mb-4">
+                {filtrado.map(i => (
+                  <button
+                    key={i.id}
+                    onClick={() => setBarcodeVincularId(i.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${barcodeVincularId === i.id ? 'bg-orange-500 text-white font-bold' : 'hover:bg-gray-100 text-gray-700'}`}
+                  >
+                    {i.nome}
+                    {i.codigoBarras && <span className="ml-2 text-[10px] opacity-60 font-mono">({i.codigoBarras})</span>}
+                  </button>
+                ))}
+                {filtrado.length === 0 && <p className="text-xs text-gray-400 text-center py-4">Nenhum produto encontrado.</p>}
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setBarcodeVincularModal(null)}
+                  className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={salvarVinculoBarcode}
+                  disabled={!barcodeVincularId}
+                  className="flex-1 p-3 text-white bg-orange-500 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-40 transition-colors"
+                >
+                  Vincular
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Modal PIN */}
       {pinModal && (

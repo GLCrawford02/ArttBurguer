@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Dashboard from './components/Dashboard';
 import InsumosManager from './components/InsumosManager';
 import ProdutosManager from './components/ProdutosManager';
@@ -7,7 +7,8 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, Clock } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, Clock, ScanFace, KeyRound } from 'lucide-react';
+import { ensureFaceModelsLoaded, faceapi } from './faceApiUtils';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
@@ -97,6 +98,13 @@ export default function App() {
   const [missingCpfInput, setMissingCpfInput] = useState('');
   const [appUpdateConfig, setAppUpdateConfig] = useState<any>(null);
   const [licenca, setLicenca] = useState<{ validade?: string; ativo?: boolean } | null>(null);
+
+  const [loginMode, setLoginMode] = useState<'pin' | 'face'>('pin');
+  const [faceStatus, setFaceStatus] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const funcionariosRef = useRef(funcionarios);
 
   // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
   useEffect(() => {
@@ -345,6 +353,81 @@ export default function App() {
     };
   }, [currentUser]);
 
+  useEffect(() => { funcionariosRef.current = funcionarios; }, [funcionarios]);
+
+  const stopCamera = () => {
+    if (scanIntervalRef.current) { clearInterval(scanIntervalRef.current); scanIntervalRef.current = null; }
+    if (streamRef.current) { streamRef.current.getTracks().forEach(t => t.stop()); streamRef.current = null; }
+  };
+
+  useEffect(() => {
+    if (loginMode !== 'face') { stopCamera(); setFaceStatus(''); return; }
+
+    let aborted = false;
+
+    const run = async () => {
+      setFaceStatus('Iniciando câmera...');
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        if (aborted) { stream.getTracks().forEach(t => t.stop()); return; }
+        streamRef.current = stream;
+        if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
+      } catch {
+        if (!aborted) setFaceStatus('Câmera não disponível. Use o PIN.');
+        return;
+      }
+
+      if (!aborted) setFaceStatus('Carregando modelos de IA...');
+      try {
+        await ensureFaceModelsLoaded();
+      } catch {
+        if (!aborted) setFaceStatus('Falha ao carregar modelos. Verifique a conexão.');
+        return;
+      }
+
+      if (aborted) return;
+      setFaceStatus('Posicione seu rosto na câmera...');
+
+      scanIntervalRef.current = setInterval(async () => {
+        if (!videoRef.current || aborted) return;
+        const funcs = funcionariosRef.current.filter(f => f.faceDescriptor && f.faceDescriptor.length > 0);
+        if (funcs.length === 0) { setFaceStatus('Nenhum rosto cadastrado. Use o PIN.'); return; }
+
+        try {
+          const detection = await faceapi
+            .detectSingleFace(videoRef.current, new faceapi.TinyFaceDetectorOptions())
+            .withFaceLandmarks()
+            .withFaceDescriptor();
+
+          if (!detection) { setFaceStatus('Posicione seu rosto na câmera...'); return; }
+
+          setFaceStatus('Reconhecendo...');
+
+          const labeled = funcs.map(f =>
+            new faceapi.LabeledFaceDescriptors(f.id, [new Float32Array(f.faceDescriptor!)])
+          );
+          const matcher = new faceapi.FaceMatcher(labeled, 0.5);
+          const match = matcher.findBestMatch(detection.descriptor);
+
+          if (match.label !== 'unknown' && !aborted) {
+            const user = funcionariosRef.current.find(f => f.id === match.label);
+            if (user) {
+              if ((user as any).ativo === false) { setFaceStatus('Usuário inativo. Acesso negado.'); return; }
+              stopCamera();
+              setLoginMode('pin');
+              setCurrentUser(user);
+              setLoginError('');
+            }
+          }
+        } catch { /* frame error, continue */ }
+      }, 1500);
+    };
+
+    run();
+    return () => { aborted = true; stopCamera(); };
+  }, [loginMode]);
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const user = funcionarios.find(f => String(f.pin) === pinInput);
@@ -397,19 +480,51 @@ export default function App() {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 md:p-8" translate="no">
         <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
-        <div className="bg-white rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-12 w-full max-w-sm md:max-w-md lg:max-w-lg transition-all duration-300">
-          <div className="flex justify-center mb-6 md:mb-10">
+        <div className={`bg-white rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-10 w-full transition-all duration-300 ${loginMode === 'face' ? 'max-w-lg md:max-w-xl' : 'max-w-sm md:max-w-md lg:max-w-lg'}`}>
+          <div className="flex justify-center mb-6 md:mb-8">
             <img src={logoImg} alt="ArttBurger Logo" className="h-28 md:h-40 w-auto object-contain transition-all duration-300" />
           </div>
-          <p className="text-center text-gray-500 mb-6 md:mb-10 text-sm md:text-lg font-medium">Digite seu PIN para entrar no sistema</p>
-          
-          <form onSubmit={handleLogin} className="space-y-4 md:space-y-6">
-            <input type="tel" autoComplete="off" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl md:text-6xl tracking-[0.5em] font-mono p-4 md:p-6 lg:p-8 border-2 border-gray-200 rounded-xl md:rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all text-gray-800" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
-            {loginError && <p className="text-red-500 text-sm md:text-base text-center font-bold">{loginError}</p>}
-            <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 md:p-6 rounded-xl md:rounded-2xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg md:text-2xl shadow-lg hover:shadow-xl">
-              Entrar no Sistema
-            </button>
-          </form>
+
+          {loginMode === 'pin' ? (
+            <>
+              <p className="text-center text-gray-500 mb-6 md:mb-10 text-sm md:text-lg font-medium">Digite seu PIN para entrar no sistema</p>
+              <form onSubmit={handleLogin} className="space-y-4 md:space-y-6">
+                <input type="tel" autoComplete="off" maxLength={4} autoFocus value={pinInput} onChange={(e) => setPinInput(e.target.value.replace(/\D/g, ''))} className="w-full text-center text-4xl md:text-6xl tracking-[0.5em] font-mono p-4 md:p-6 lg:p-8 border-2 border-gray-200 rounded-xl md:rounded-2xl outline-none focus:border-orange-500 focus:ring-4 focus:ring-orange-50 transition-all text-gray-800" placeholder="****" style={{ WebkitTextSecurity: 'disc' } as any} />
+                {loginError && <p className="text-red-500 text-sm md:text-base text-center font-bold">{loginError}</p>}
+                <button type="submit" disabled={pinInput.length !== 4} className="w-full bg-orange-500 text-white p-4 md:p-6 rounded-xl md:rounded-2xl font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors text-lg md:text-2xl shadow-lg hover:shadow-xl">
+                  Entrar no Sistema
+                </button>
+              </form>
+              <div className="mt-6 text-center">
+                <button
+                  onClick={() => { setLoginError(''); setPinInput(''); setLoginMode('face'); }}
+                  className="inline-flex items-center gap-2 text-sm text-gray-400 hover:text-orange-500 transition-colors font-medium"
+                >
+                  <ScanFace size={18} />
+                  Entrar com Reconhecimento Facial
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-center text-gray-600 mb-4 text-sm md:text-base font-semibold">Reconhecimento Facial</p>
+              <div className="relative rounded-2xl overflow-hidden bg-gray-900 mb-4 h-72 md:h-96">
+                <video ref={videoRef} className="w-full h-full object-cover" muted playsInline />
+                {faceStatus && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm text-white text-xs text-center py-2 px-3">
+                    {faceStatus}
+                  </div>
+                )}
+              </div>
+              <button
+                onClick={() => setLoginMode('pin')}
+                className="w-full flex items-center justify-center gap-2 p-3 md:p-4 text-gray-600 border-2 border-gray-200 rounded-xl md:rounded-2xl hover:bg-gray-50 transition-colors text-sm md:text-base font-semibold"
+              >
+                <KeyRound size={16} />
+                Voltar para PIN
+              </button>
+            </>
+          )}
         </div>
       </div>
     );

@@ -1,8 +1,9 @@
-import { useState, useEffect, FormEvent } from 'react';
+import { useState, useEffect, useRef, FormEvent } from 'react';
 import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
-import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare } from 'lucide-react';
+import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare, Camera, ScanFace } from 'lucide-react';
+import { ensureFaceModelsLoaded, faceapi } from '../faceApiUtils';
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";
@@ -46,6 +47,12 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
   
   const [formData, setFormData] = useState<{nome: string, pin: string, cargo: string[], ativo: boolean, telefone: string, cpf: string}>({ nome: '', pin: '', cargo: ['Atendente'], ativo: true, telefone: '', cpf: '' });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
+
+  const [faceModalFuncId, setFaceModalFuncId] = useState<string | null>(null);
+  const [faceCapturing, setFaceCapturing] = useState(false);
+  const [faceCaptureStatus, setFaceCaptureStatus] = useState('');
+  const faceVideoRef = useRef<HTMLVideoElement>(null);
+  const faceStreamRef = useRef<MediaStream | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -217,6 +224,54 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       : currentUser.cargo === 'Administrador' || currentUser.cargo === 'Dono' || currentUser.cargo === 'TI'
   );
 
+  const closeFaceModal = () => {
+    if (faceStreamRef.current) { faceStreamRef.current.getTracks().forEach(t => t.stop()); faceStreamRef.current = null; }
+    setFaceModalFuncId(null);
+    setFaceCapturing(false);
+    setFaceCaptureStatus('');
+  };
+
+  const openFaceModal = async (funcId: string) => {
+    setFaceModalFuncId(funcId);
+    setFaceCaptureStatus('Iniciando câmera...');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      faceStreamRef.current = stream;
+      setTimeout(() => {
+        if (faceVideoRef.current) { faceVideoRef.current.srcObject = stream; faceVideoRef.current.play(); }
+      }, 100);
+      setFaceCaptureStatus('Posicione o rosto centralizado e clique em Capturar.');
+    } catch {
+      setFaceCaptureStatus('Câmera não disponível neste dispositivo.');
+    }
+  };
+
+  const captureFace = async () => {
+    if (!faceVideoRef.current || !faceModalFuncId) return;
+    setFaceCapturing(true);
+    setFaceCaptureStatus('Carregando modelos de IA...');
+    try {
+      await ensureFaceModelsLoaded();
+      setFaceCaptureStatus('Detectando rosto...');
+      const detection = await faceapi
+        .detectSingleFace(faceVideoRef.current, new faceapi.TinyFaceDetectorOptions())
+        .withFaceLandmarks()
+        .withFaceDescriptor();
+      if (!detection) {
+        setFaceCaptureStatus('Nenhum rosto detectado. Centralize o rosto e tente novamente.');
+        setFaceCapturing(false);
+        return;
+      }
+      await set(ref(db, `funcionarios/${faceModalFuncId}/faceDescriptor`), Array.from(detection.descriptor));
+      setFaceCaptureStatus('✓ Rosto cadastrado com sucesso!');
+      showToast('Rosto cadastrado!', 'success');
+      setTimeout(() => closeFaceModal(), 1200);
+    } catch {
+      setFaceCaptureStatus('Erro ao processar. Verifique a conexão com a internet.');
+      setFaceCapturing(false);
+    }
+  };
+
   const funcHistorico = transferencias.filter(t => t.funcionarioId === historicoFuncionarioId);
   const selectedFunc = funcionarios.find(f => f.id === historicoFuncionarioId);
 
@@ -380,8 +435,16 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
                       <p className="text-xs text-gray-500 mt-1 font-mono">CPF: {formatCpf((f as any).cpf)}</p>
                     )}
                     <p className="text-xs text-gray-500 font-mono">PIN: {isAdminOrDono ? f.pin : '****'}</p>
+                    {f.faceDescriptor && f.faceDescriptor.length > 0 && (
+                      <span className="inline-flex items-center gap-1 text-[10px] font-bold text-green-700 bg-green-50 border border-green-200 px-1.5 py-0.5 rounded-full mt-1">
+                        <ScanFace size={10} /> Rosto cadastrado
+                      </span>
+                    )}
                   </div>
                   <div className="flex space-x-2">
+                    <button onClick={() => openFaceModal(f.id)} className="p-1.5 text-purple-500 hover:bg-purple-50 rounded-lg" title="Cadastrar Rosto">
+                      <Camera size={18} />
+                    </button>
                     <button onClick={() => setHistoricoFuncionarioId(f.id)} className={`p-1.5 rounded-lg ${historicoFuncionarioId === f.id ? 'bg-indigo-100 text-indigo-600' : 'text-gray-400 hover:bg-gray-100'}`} title="Ver Histórico">
                       <History size={18} />
                     </button>
@@ -410,6 +473,49 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
         </div>
       </div>
       {toast && (<div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>{toast.type === 'success' ? <CheckCircle className="mr-2" size={20} /> : <AlertTriangle className="mr-2" size={20} />}<span className="whitespace-pre-line">{toast.message}</span></div>)}
+
+      {faceModalFuncId && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl p-6 w-full max-w-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2">
+                <ScanFace size={20} className="text-purple-500" />
+                Cadastrar Rosto
+              </h3>
+              <button onClick={closeFaceModal} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg">
+                <X size={20} />
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mb-3">
+              <span className="font-semibold text-gray-700">{funcionarios.find(f => f.id === faceModalFuncId)?.nome}</span>
+            </p>
+            <div className="relative rounded-xl overflow-hidden bg-gray-900 mb-4" style={{ aspectRatio: '4/3' }}>
+              <video ref={faceVideoRef} className="w-full h-full object-cover" muted playsInline />
+            </div>
+            {faceCaptureStatus && (
+              <p className={`text-xs text-center mb-4 font-medium ${faceCaptureStatus.startsWith('✓') ? 'text-green-600' : 'text-gray-500'}`}>
+                {faceCaptureStatus}
+              </p>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={closeFaceModal}
+                className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={captureFace}
+                disabled={faceCapturing || !faceStreamRef.current}
+                className="flex-1 p-3 text-white bg-purple-500 rounded-xl font-bold hover:bg-purple-600 disabled:opacity-50 transition-colors flex items-center justify-center gap-2"
+              >
+                <Camera size={16} />
+                {faceCapturing ? 'Processando...' : 'Capturar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

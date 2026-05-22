@@ -38,8 +38,8 @@ run('npx cap sync',   { label: 'Capacitor sync' });
 
 // ── 4. Git ──────────────────────────────────────────
 run('git add .',                      { label: 'git add .' });
-run(`git commit -m "V${version}"`,    { label: `git commit "V${version}"` });
-run('git push',                       { label: 'git push' });
+tryRun(`git commit -m "V${version}"`, { label: `git commit "V${version}"` });
+tryRun('git push',                    { label: 'git push' });
 
 // ── 5. Abrir Android Studio ─────────────────────────
 tryRun('npx cap open android', { label: 'Abrindo Android Studio' });

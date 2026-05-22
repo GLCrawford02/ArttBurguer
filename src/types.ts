@@ -29,6 +29,7 @@ export interface Insumo {
   ultimoPrecoCompra?: number;
   validadeIndefinida?: boolean;
   restrito?: boolean;
+  codigoBarras?: string;
 }
 
 export interface IngredienteReceita {
@@ -67,6 +68,7 @@ export interface Funcionario {
   nome: string;
   pin: string;
   cargo?: string | string[];
+  faceDescriptor?: number[];
 }
 
 export interface ConsumoLog {
