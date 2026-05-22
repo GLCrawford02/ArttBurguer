@@ -185,7 +185,11 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
       showToast('Você precisa estar no estabelecimento para usar esta função!', 'error');
       return;
     }
-    if (!currentUser?.faceDescriptor?.length) {
+    const rawDesc = currentUser?.faceDescriptor;
+    const descValues: number[] = rawDesc
+      ? (Array.isArray(rawDesc) ? rawDesc : Object.values(rawDesc))
+      : [];
+    if (descValues.length !== 128) {
       showToast('Seu rosto não está cadastrado. Solicite ao gerente para cadastrar na aba Funcionários.', 'error');
       return;
     }
@@ -212,7 +216,7 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
       return;
     }
 
-    const descriptor = new Float32Array(currentUser.faceDescriptor);
+    const descriptor = new Float32Array(descValues);
 
     // Captura o próximo step disponível no momento de abertura da câmera
     const proximoStepId = (['chegada', 'saida_almoco', 'volta_almoco', 'saida_final'] as const).find(id => {

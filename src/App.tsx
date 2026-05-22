@@ -453,7 +453,20 @@ export default function App() {
 
       scanIntervalRef.current = setInterval(async () => {
         if (!videoRef.current || aborted) return;
-        const funcs = funcionariosRef.current.filter(f => f.faceDescriptor && f.faceDescriptor.length > 0);
+
+        // Firebase pode retornar faceDescriptor como objeto {0:..,1:..} ou como array —
+        // Object.values() normaliza os dois casos antes de criar o Float32Array
+        const toDescriptor = (raw: any): Float32Array | null => {
+          if (!raw) return null;
+          const vals: number[] = Array.isArray(raw) ? raw : Object.values(raw);
+          if (vals.length !== 128) return null;
+          return new Float32Array(vals);
+        };
+
+        const funcs = funcionariosRef.current
+          .map(f => ({ f, desc: toDescriptor(f.faceDescriptor) }))
+          .filter((x): x is { f: typeof x.f; desc: Float32Array } => x.desc !== null);
+
         if (funcs.length === 0) { setFaceStatus('Nenhum rosto cadastrado. Use o PIN.'); return; }
 
         try {
@@ -466,10 +479,11 @@ export default function App() {
 
           setFaceStatus('Reconhecendo...');
 
-          const labeled = funcs.map(f =>
-            new faceapi.LabeledFaceDescriptors(f.id, [new Float32Array(f.faceDescriptor!)])
+          const labeled = funcs.map(({ f, desc }) =>
+            new faceapi.LabeledFaceDescriptors(f.id, [desc])
           );
-          const matcher = new faceapi.FaceMatcher(labeled, 0.5);
+          // Threshold 0.6 — mais tolerante para variações de iluminação e ângulo
+          const matcher = new faceapi.FaceMatcher(labeled, 0.6);
           const match = matcher.findBestMatch(detection.descriptor);
 
           if (match.label !== 'unknown' && !aborted) {
