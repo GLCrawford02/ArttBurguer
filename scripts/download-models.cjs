@@ -21,10 +21,20 @@ const FILES = [
 
 if (!fs.existsSync(DEST)) fs.mkdirSync(DEST, { recursive: true });
 
+const MIN_SIZES = {
+  'tiny_face_detector_model-shard1': 100_000,
+  'face_landmark_68_model-shard1': 100_000,
+  'face_recognition_model-shard1': 1_000_000,
+  'face_recognition_model-shard2': 1_000_000,
+};
+
 function download(file) {
   return new Promise((resolve, reject) => {
     const dest = path.join(DEST, file);
-    if (fs.existsSync(dest)) { console.log(`  já existe: ${file}`); return resolve(); }
+    const minSize = MIN_SIZES[file] || 100;
+    if (fs.existsSync(dest) && fs.statSync(dest).size >= minSize) {
+      console.log(`  já existe: ${file}`); return resolve();
+    }
     const out = fs.createWriteStream(dest);
     const url = `${BASE}/${file}`;
     console.log(`  baixando: ${file}`);
