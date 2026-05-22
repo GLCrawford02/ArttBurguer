@@ -1,6 +1,7 @@
 import * as faceapi from 'face-api.js';
 
-const MODEL_URL = 'https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights';
+// Modelos servidos localmente (public/weights/) — sem dependência de internet
+const MODEL_URL = '/weights';
 
 let loadPromise: Promise<void> | null = null;
 

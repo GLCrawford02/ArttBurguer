@@ -266,8 +266,8 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       setFaceCaptureStatus('✓ Rosto cadastrado com sucesso!');
       showToast('Rosto cadastrado!', 'success');
       setTimeout(() => closeFaceModal(), 1200);
-    } catch {
-      setFaceCaptureStatus('Erro ao processar. Verifique a conexão com a internet.');
+    } catch (e: any) {
+      setFaceCaptureStatus(`Erro ao processar: ${e?.message || 'desconhecido'}. Tente novamente.`);
       setFaceCapturing(false);
     }
   };

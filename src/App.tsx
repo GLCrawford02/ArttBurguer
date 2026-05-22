@@ -107,12 +107,60 @@ export default function App() {
   });
   const [etapaPermissao, setEtapaPermissao] = useState<'idle' | 'localizacao' | 'camera' | 'concluido'>('idle');
 
+  const [gpsLigado, setGpsLigado] = useState(!Capacitor.isNativePlatform());
+  const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [notificacaoEntrega, setNotificacaoEntrega] = useState<string | null>(null);
+  const despachosConhecidosRef = useRef<Set<string>>(new Set());
+
   const [loginMode, setLoginMode] = useState<'pin' | 'face'>('pin');
   const [faceStatus, setFaceStatus] = useState('');
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const funcionariosRef = useRef(funcionarios);
+
+  // GPS: verifica se localização está ativa no dispositivo (apenas Android)
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const checarGps = () => {
+      navigator.geolocation.getCurrentPosition(
+        () => setGpsLigado(true),
+        (err) => { if (err.code === 2) setGpsLigado(false); else setGpsLigado(true); },
+        { timeout: 5000, enableHighAccuracy: false, maximumAge: 0 }
+      );
+    };
+    checarGps();
+    gpsIntervalRef.current = setInterval(checarGps, 4000);
+    return () => { if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current); };
+  }, []);
+
+  // Buzzer: salva último entregador logado e ouve novos despachos para notificá-lo
+  useEffect(() => {
+    if (!Capacitor.isNativePlatform()) return;
+    const lastId = localStorage.getItem('arttburger_last_entregador_id');
+    const lastNome = localStorage.getItem('arttburger_last_entregador_nome');
+    if (!lastId || !lastNome) return;
+
+    const despRef = ref(db, 'despachos');
+    const unsub = onValue(despRef, snap => {
+      if (!snap.val()) return;
+      const todos: any[] = Object.entries(snap.val()).map(([id, v]: any) => ({ id, ...v }));
+      const meus = todos.filter(d => d.motoboyId === lastId && d.status === 'Em Rota');
+      const novos = meus.filter(d => !despachosConhecidosRef.current.has(d.id));
+      novos.forEach(d => despachosConhecidosRef.current.add(d.id));
+      if (novos.length > 0) {
+        tocarBuzina();
+        if (navigator.vibrate) navigator.vibrate([500, 200, 500, 200, 800]);
+        setNotificacaoEntrega(`Nova entrega atribuída a ${lastNome}! 🛵`);
+        setTimeout(() => setNotificacaoEntrega(null), 8000);
+      }
+      // Pré-popula os IDs já conhecidos na primeira carga (sem notificar)
+      if (despachosConhecidosRef.current.size === 0)
+        meus.forEach(d => despachosConhecidosRef.current.add(d.id));
+    });
+    return () => unsub();
+  }, []);
 
   // Salva a sessão para não deslogar quando a página atualiza ou o código é salvo no localhost
   useEffect(() => {
@@ -442,6 +490,24 @@ export default function App() {
     return () => { aborted = true; stopCamera(); };
   }, [loginMode]);
 
+  const tocarBuzina = () => {
+    try {
+      const ctx = new AudioContext();
+      const tones = [[180, 0, 0.25], [220, 0.28, 0.25], [180, 0.56, 0.35]];
+      tones.forEach(([freq, start, dur]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sawtooth';
+        osc.frequency.value = freq as number;
+        gain.gain.setValueAtTime(0.45, ctx.currentTime + (start as number));
+        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + (start as number) + (dur as number));
+        osc.start(ctx.currentTime + (start as number));
+        osc.stop(ctx.currentTime + (start as number) + (dur as number));
+      });
+    } catch { /* AudioContext não disponível */ }
+  };
+
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
     const user = funcionarios.find(f => String(f.pin) === pinInput);
@@ -452,6 +518,15 @@ export default function App() {
         setCurrentUser(user);
         setPinInput('');
         setLoginError('');
+        // Salva o último entregador logado para notificações de despacho
+        if (Capacitor.isNativePlatform()) {
+          const cargos: string[] = Array.isArray(user.cargo) ? user.cargo : [user.cargo || ''];
+          const isEntregador = cargos.some(c => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'));
+          if (isEntregador) {
+            localStorage.setItem('arttburger_last_entregador_id', user.id);
+            localStorage.setItem('arttburger_last_entregador_nome', user.nome);
+          }
+        }
       }
     } else {
       setLoginError('PIN incorreto ou usuário não encontrado.');
@@ -516,6 +591,29 @@ export default function App() {
     await new Promise(r => setTimeout(r, 400));
     concluirPermissoes();
   };
+
+  if (Capacitor.isNativePlatform() && !gpsLigado) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6" translate="no">
+        <style>{`html { font-size: clamp(12px, 1vw + 10px, 16px); }`}</style>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center gap-5">
+          <img src={logoImg} alt="ArttBurger" className="h-20 w-auto object-contain" />
+          <span className="text-5xl">📍</span>
+          <div className="text-center">
+            <h2 className="text-xl font-black text-gray-800">Localização Desativada</h2>
+            <p className="text-sm text-gray-500 mt-2">
+              O GPS do seu dispositivo está desligado. Ative a localização nas configurações do sistema e volte aqui.
+            </p>
+          </div>
+          <div className="bg-gray-50 rounded-xl p-4 w-full text-sm text-gray-600 border border-gray-200">
+            <p className="font-bold text-gray-700 mb-1">Como ativar:</p>
+            <p>Configurações → Localização → Ativar</p>
+          </div>
+          <p className="text-xs text-gray-400 animate-pulse">Verificando automaticamente...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!permissoesOk) {
     return (
@@ -663,6 +761,16 @@ export default function App() {
   return (
     <div className="h-screen bg-gray-50 flex flex-col xl:flex-row overflow-hidden" translate="no">
       <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+
+      {/* Banner de nova entrega para entregadores */}
+      {notificacaoEntrega && (
+        <div className="fixed top-0 inset-x-0 z-[999] flex items-center justify-between gap-3 bg-orange-500 text-white px-5 py-4 shadow-2xl animate-bounce">
+          <span className="text-2xl">🛵</span>
+          <p className="font-black text-base flex-1">{notificacaoEntrega}</p>
+          <button onClick={() => setNotificacaoEntrega(null)} className="text-white/80 hover:text-white"><X size={22}/></button>
+        </div>
+      )}
+
       {/* Mobile Header */}
       {!hideSidebar && (
       <div className="xl:hidden bg-gray-900 text-white p-4 flex justify-between items-center z-20 shrink-0 print:hidden">
