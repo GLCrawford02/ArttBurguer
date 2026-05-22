@@ -39,6 +39,8 @@ import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
+import { Capacitor } from '@capacitor/core';
+import { Geolocation } from '@capacitor/geolocation';
 
 declare const __APP_VERSION__: string;
 export const APP_VERSION = __APP_VERSION__;
@@ -98,6 +100,12 @@ export default function App() {
   const [missingCpfInput, setMissingCpfInput] = useState('');
   const [appUpdateConfig, setAppUpdateConfig] = useState<any>(null);
   const [licenca, setLicenca] = useState<{ validade?: string; ativo?: boolean } | null>(null);
+
+  const [permissoesOk, setPermissoesOk] = useState<boolean>(() => {
+    if (!Capacitor.isNativePlatform()) return true;
+    return localStorage.getItem('arttburger_permissoes') === 'ok';
+  });
+  const [solicitandoPermissoes, setSolicitandoPermissoes] = useState(false);
 
   const [loginMode, setLoginMode] = useState<'pin' | 'face'>('pin');
   const [faceStatus, setFaceStatus] = useState('');
@@ -481,6 +489,69 @@ export default function App() {
       console.error(e);
     }
   };
+
+  const solicitarPermissoes = async () => {
+    setSolicitandoPermissoes(true);
+    try {
+      // 1. Localização (foreground)
+      await Geolocation.requestPermissions({ permissions: ['location'] }).catch(() => {});
+      // 2. Câmera — aciona diálogo nativo via getUserMedia e encerra imediatamente
+      if (navigator.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+          stream.getTracks().forEach(t => t.stop());
+        } catch { /* usuário pode negar câmera; não bloqueia o app */ }
+      }
+    } finally {
+      localStorage.setItem('arttburger_permissoes', 'ok');
+      setPermissoesOk(true);
+      setSolicitandoPermissoes(false);
+    }
+  };
+
+  if (!permissoesOk) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-6" translate="no">
+        <style>{`html { font-size: clamp(12px, 1vw + 10px, 16px); }`}</style>
+        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center gap-6">
+          <img src={logoImg} alt="ArttBurger" className="h-24 w-auto object-contain" />
+          <div className="text-center">
+            <h2 className="text-xl font-black text-gray-800">Permissões necessárias</h2>
+            <p className="text-sm text-gray-500 mt-1">O app precisa das permissões abaixo para funcionar corretamente.</p>
+          </div>
+          <div className="w-full space-y-3">
+            <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+              <span className="text-2xl shrink-0">📍</span>
+              <div>
+                <p className="font-bold text-gray-800 text-sm">Localização</p>
+                <p className="text-xs text-gray-500">Necessária para registro de ponto e rastreamento de entregas em tempo real.</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
+              <span className="text-2xl shrink-0">📷</span>
+              <div>
+                <p className="font-bold text-gray-800 text-sm">Câmera</p>
+                <p className="text-xs text-gray-500">Usada para reconhecimento facial no login e no registro de ponto.</p>
+              </div>
+            </div>
+          </div>
+          <button
+            onClick={solicitarPermissoes}
+            disabled={solicitandoPermissoes}
+            className="w-full py-4 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-black rounded-2xl text-base shadow-lg transition-colors disabled:opacity-60"
+          >
+            {solicitandoPermissoes ? 'Aguarde...' : 'Conceder Permissões'}
+          </button>
+          <button
+            onClick={() => { localStorage.setItem('arttburger_permissoes', 'ok'); setPermissoesOk(true); }}
+            className="text-xs text-gray-400 underline"
+          >
+            Pular por agora
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (!currentUser) {
     return (
