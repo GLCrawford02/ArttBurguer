@@ -505,11 +505,13 @@ export default function App() {
   };
 
   const solicitarCamera = async () => {
-    if (navigator.mediaDevices?.getUserMedia) {
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-        stream.getTracks().forEach(t => t.stop());
-      } catch { /* câmera negada não bloqueia o app */ }
+    try {
+      // Acessa getUserMedia diretamente — agora que CAMERA está no manifest,
+      // o Android exibe o diálogo nativo de permissão
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+      stream.getTracks().forEach(t => t.stop());
+    } catch {
+      // Permissão negada ou câmera indisponível — registra e segue
     }
     await new Promise(r => setTimeout(r, 400));
     concluirPermissoes();
@@ -526,7 +528,7 @@ export default function App() {
             <>
               <div className="text-center">
                 <h2 className="text-xl font-black text-gray-800">Permissões necessárias</h2>
-                <p className="text-sm text-gray-500 mt-1">Vamos solicitar 2 permissões, uma de cada vez. Toque em <strong>Conceder</strong> nas janelas que aparecerem.</p>
+                <p className="text-sm text-gray-500 mt-1">Vamos solicitar 2 permissões, uma de cada vez. Toque em <strong>Permitir</strong> nas janelas que aparecerem.</p>
               </div>
               <div className="w-full space-y-3">
                 <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
@@ -550,12 +552,6 @@ export default function App() {
               >
                 Começar →
               </button>
-              <button
-                onClick={concluirPermissoes}
-                className="text-xs text-gray-400 underline"
-              >
-                Pular por agora
-              </button>
             </>
           )}
 
@@ -572,14 +568,13 @@ export default function App() {
             <div className="text-center flex flex-col items-center gap-4">
               <span className="text-6xl">📷</span>
               <h2 className="text-xl font-black text-gray-800">Permissão de Câmera</h2>
-              <p className="text-sm text-gray-500">Agora toque em <strong>"Permitir"</strong> na janela da câmera.</p>
+              <p className="text-sm text-gray-500">Toque em <strong>"Solicitar"</strong> e depois em <strong>"Permitir"</strong> na janela que aparecer.</p>
               <button
                 onClick={solicitarCamera}
-                className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-2xl text-base shadow-lg transition-colors"
+                className="w-full py-4 bg-purple-600 hover:bg-purple-700 active:bg-purple-800 text-white font-black rounded-2xl text-base shadow-lg transition-colors"
               >
                 Solicitar Câmera →
               </button>
-              <button onClick={concluirPermissoes} className="text-xs text-gray-400 underline">Pular câmera</button>
             </div>
           )}
         </div>
