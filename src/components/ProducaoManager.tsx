@@ -223,8 +223,13 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   };
 
   const handleAceitarComanda = async (pedidoId: string) => {
-    await update(ref(db, `pedidos_cozinha/${pedidoId}`), { status: 'Em Produção', aceitoEm: Date.now() });
-    showToast('Comanda aceita! Em produção.', 'success');
+    await update(ref(db, `pedidos_cozinha/${pedidoId}/kdsAceito`), { [activeKds]: true });
+    // Marca globalmente como Em Produção somente na primeira aceitação (para outras telas)
+    const pedido = pedidosCozinha.find(p => p.id === pedidoId);
+    if (pedido?.status === 'Pendente' || pedido?.status === 'Novo') {
+      await update(ref(db, `pedidos_cozinha/${pedidoId}`), { status: 'Em Produção', aceitoEm: Date.now() });
+    }
+    showToast(`${activeKds}: Comanda aceita!`, 'success');
   };
 
   const pendentes = pedidosCozinha.filter(p => p.status !== 'Concluído' && p.status !== 'Cancelado').sort((a, b) => a.timestamp - b.timestamp);
@@ -328,13 +333,13 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                       <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200`}>{ped.origem || 'PDV'}</span>
                     </div>
                     <div className="flex justify-between items-center mt-1">
-                      <span className="text-xs font-bold text-gray-500">{ped.status === 'Em Produção' ? 'Em Produção' : 'Aguardando'}</span>
+                      <span className="text-xs font-bold text-gray-500">{ped.kdsAceito?.[activeKds] ? 'Em Produção' : 'Aguardando'}</span>
                       <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center shadow-sm ${timeColor}`}><Clock size={12} className="mr-1"/> {timeDiff} min</span>
                     </div>
                   </div>
                   <div className="relative flex-1 bg-white flex flex-col">
                     <div className="p-4 space-y-3 overflow-hidden max-h-[180px]">
-                    {(ped.status === 'Pendente' || ped.status === 'Novo') ? (
+                    {!ped.kdsAceito?.[activeKds] ? (
                       <div className="flex flex-col items-center justify-center h-full text-center space-y-4 py-4">
                         <AlertTriangle size={36} className="text-yellow-500" />
                         <p className="text-sm font-bold text-gray-700">Nova comanda recebida</p>
@@ -383,7 +388,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                       <Maximize2 size={14} className="mr-1" /> Tela Cheia
                     </button>
                   </div>
-                  {(ped.status !== 'Pendente' && ped.status !== 'Novo') && (
+                  {ped.kdsAceito?.[activeKds] && (
                     <button onClick={() => handleProntoKds(ped)} className={`p-4 font-bold text-sm flex items-center justify-center transition-colors ${allItemsDone && activeKds !== 'Expedição' ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
                       <CheckCircle size={18} className="mr-2"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
                     </button>
@@ -450,9 +455,15 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                 </div>
                 
                 <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-100 shrink-0">
-                  <button onClick={() => { if (expandedOrder.status !== 'Pendente' && expandedOrder.status !== 'Novo') { const allItemsDoneExpanded = expandedOrder.itensKds.every((ik: any) => ik.concluidoNoKds); handleProntoKds(expandedOrder); if (activeKds === 'Expedição' || allItemsDoneExpanded) { setExpandedKdsOrderId(null); } } }} disabled={expandedOrder.status === 'Pendente' || expandedOrder.status === 'Novo'} className={`w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md ${expandedOrder.status === 'Pendente' || expandedOrder.status === 'Novo' ? 'bg-gray-300 text-gray-500 cursor-not-allowed' : activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                    <CheckCircle size={28} className="mr-3"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
-                  </button>
+                  {!expandedOrder.kdsAceito?.[activeKds] ? (
+                    <button onClick={() => { handleAceitarComanda(expandedOrder.id); }} className="w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md bg-yellow-500 hover:bg-yellow-600 text-white">
+                      <AlertTriangle size={28} className="mr-3"/> Aceitar Comanda
+                    </button>
+                  ) : (
+                    <button onClick={() => { const allItemsDoneExpanded = expandedOrder.itensKds.every((ik: any) => ik.concluidoNoKds); handleProntoKds(expandedOrder); if (activeKds === 'Expedição' || allItemsDoneExpanded) setExpandedKdsOrderId(null); }} className={`w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md ${activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
+                      <CheckCircle size={28} className="mr-3"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

@@ -64,7 +64,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
-  const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; pontosPorReal: number } | null>(null);
+  const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; valorPorCarimbo: number; carimbosParaPremio: number } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
@@ -172,7 +172,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     const fidelidadeRef = ref(db, 'fidelidade_config');
     onValue(fidelidadeRef, snap => {
       const data = snap.val();
-      if (data) setConfigFidelidade({ ativo: data.ativo ?? true, pontosPorReal: data.pontosPorReal ?? 1 });
+      if (data) setConfigFidelidade({ ativo: data.ativo ?? true, valorPorCarimbo: data.valorPorCarimbo ?? 50, carimbosParaPremio: data.carimbosParaPremio ?? 10 });
     });
 
     const fidelidadePontosRef = ref(db, 'fidelidade_pontos');
@@ -836,12 +836,13 @@ ${itensHtml}
         await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
 
         if (configFidelidade?.ativo && totalPdv > 0) {
-          const pontosGanhos = Math.floor(totalPdv * configFidelidade.pontosPorReal);
-          if (pontosGanhos > 0) {
+          const valorPorCarimbo = configFidelidade.valorPorCarimbo || 50;
+          const carimbosGanhos = Math.floor(totalPdv / valorPorCarimbo);
+          if (carimbosGanhos > 0) {
             const pontosRef = ref(db, `fidelidade_pontos/${pdvCliente.id}`);
             await runTransaction(pontosRef, (dados) => {
               const atual = dados || { clienteId: pdvCliente.id, clienteNome: pdvCliente.nome, pontos: 0, totalGasto: 0 };
-              atual.pontos = (atual.pontos || 0) + pontosGanhos;
+              atual.pontos = (atual.pontos || 0) + carimbosGanhos;
               atual.totalGasto = (atual.totalGasto || 0) + totalPdv;
               atual.clienteId = pdvCliente.id;
               atual.clienteNome = pdvCliente.nome;
@@ -849,8 +850,8 @@ ${itensHtml}
             });
             await set(push(ref(db, `fidelidade_pontos/${pdvCliente.id}/historico`)), {
               tipo: 'ganho',
-              pontos: pontosGanhos,
-              descricao: `Compra R$ ${totalPdv.toFixed(2)} — ${Object.values(pdvCarrinho).map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}`,
+              pontos: carimbosGanhos,
+              descricao: `Compra R$ ${totalPdv.toFixed(2)} — ${carimbosGanhos} carimbo(s)`,
               timestamp: Date.now(),
               operadorId: currentUser?.id || '',
               operadorNome: currentUser?.nome || 'PDV',
@@ -1316,18 +1317,21 @@ Formato esperado:
               <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cliente {pdvTipoPedido === 'Entrega' ? '(Obrigatório)' : '(Opcional)'}</label>
               {pdvCliente ? (
                 <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
-                  <div className="flex items-center gap-2 min-w-0">
+                  <div className="flex items-center gap-2 min-w-0 flex-wrap">
                     <User size={16} className="text-indigo-600 shrink-0"/>
                     <span className="font-bold text-indigo-800 text-sm truncate">{pdvCliente.nome}</span>
-                    {configFidelidade?.ativo && pontosPorCliente[pdvCliente.id] !== undefined && (
-                      <span className="ml-1 bg-yellow-100 text-yellow-700 text-xs font-black px-2 py-0.5 rounded-full shrink-0">
-                        ⭐ {pontosPorCliente[pdvCliente.id]} pts
+                    {configFidelidade?.ativo && (
+                      <span className="bg-orange-100 text-orange-700 text-xs font-black px-2 py-0.5 rounded-full shrink-0">
+                        ★ {pontosPorCliente[pdvCliente.id] || 0}/{configFidelidade.carimbosParaPremio || 10}
                       </span>
                     )}
-                    {configFidelidade?.ativo && totalPdv > 0 && (
+                    {configFidelidade?.ativo && totalPdv > 0 && Math.floor(totalPdv / (configFidelidade.valorPorCarimbo || 50)) > 0 && (
                       <span className="text-xs text-green-600 font-bold shrink-0">
-                        +{Math.floor(totalPdv * configFidelidade.pontosPorReal)} pts
+                        +{Math.floor(totalPdv / (configFidelidade.valorPorCarimbo || 50))} carimbo(s)
                       </span>
+                    )}
+                    {configFidelidade?.ativo && (pontosPorCliente[pdvCliente.id] || 0) >= (configFidelidade.carimbosParaPremio || 10) && (
+                      <span className="text-xs bg-green-100 text-green-700 font-black px-2 py-0.5 rounded-full animate-pulse shrink-0">🎁 PRÊMIO!</span>
                     )}
                   </div>
                   <button onClick={() => setPdvCliente(null)} className="text-indigo-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-100 shrink-0"><X size={18}/></button>
@@ -1346,7 +1350,9 @@ Formato esperado:
                           </div>
                           <div className="flex items-center gap-2">
                             {configFidelidade?.ativo && pontosPorCliente[c.id] > 0 && (
-                              <span className="text-xs bg-yellow-100 text-yellow-700 font-bold px-2 py-0.5 rounded-full">⭐ {pontosPorCliente[c.id]} pts</span>
+                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                {pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? '🎁' : '★'} {pontosPorCliente[c.id]}/{configFidelidade.carimbosParaPremio || 10}
+                              </span>
                             )}
                             <Plus size={16} className="text-indigo-500"/>
                           </div>

@@ -34,7 +34,6 @@ import RegistroPonto from './components/RegistroPonto';
 import DREManager from './components/DREManager';
 import FidelidadeManager from './components/FidelidadeManager';
 import EscalaManager from './components/EscalaManager';
-import AlertasSino, { useAlertas } from './components/AlertasManager';
 import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -86,7 +85,6 @@ export default function App() {
   const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes' | 'escala'>('equipe');
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes'  | 'fidelidade' | 'despacho' | 'minhas_entregas'>('clientes');
   const [subTabTarefas, setSubTabTarefas] = useState<'gerenciamento' | 'notas'>('gerenciamento');
-  const { alertas, alertasNaoLidos, alertasUrgentes, marcarLido, marcarTodosLidos } = useAlertas();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
   const [currentUser, setCurrentUser] = useState<Funcionario | null>(() => {
@@ -662,7 +660,6 @@ export default function App() {
             <p className="text-gray-400 text-xs"></p>
           </div>
           <div className="flex items-center space-x-3 self-end sm:self-auto">
-             <AlertasSino alertas={alertas} alertasNaoLidos={alertasNaoLidos} alertasUrgentes={alertasUrgentes} marcarLido={marcarLido} marcarTodosLidos={marcarTodosLidos} />
              <div className="text-right">
                <p className="text-sm font-bold text-gray-800">{currentUser.nome}</p>
                <p className="text-xs text-gray-500">{Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : (currentUser.cargo || 'Atendente')}</p>
