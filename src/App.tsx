@@ -105,7 +105,7 @@ export default function App() {
     if (!Capacitor.isNativePlatform()) return true;
     return localStorage.getItem('arttburger_permissoes') === 'ok';
   });
-  const [solicitandoPermissoes, setSolicitandoPermissoes] = useState(false);
+  const [etapaPermissao, setEtapaPermissao] = useState<'idle' | 'localizacao' | 'camera' | 'concluido'>('idle');
 
   const [loginMode, setLoginMode] = useState<'pin' | 'face'>('pin');
   const [faceStatus, setFaceStatus] = useState('');
@@ -490,23 +490,29 @@ export default function App() {
     }
   };
 
-  const solicitarPermissoes = async () => {
-    setSolicitandoPermissoes(true);
-    try {
-      // 1. Localização (foreground)
-      await Geolocation.requestPermissions({ permissions: ['location'] }).catch(() => {});
-      // 2. Câmera — aciona diálogo nativo via getUserMedia e encerra imediatamente
-      if (navigator.mediaDevices?.getUserMedia) {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
-          stream.getTracks().forEach(t => t.stop());
-        } catch { /* usuário pode negar câmera; não bloqueia o app */ }
-      }
-    } finally {
-      localStorage.setItem('arttburger_permissoes', 'ok');
-      setPermissoesOk(true);
-      setSolicitandoPermissoes(false);
+  const concluirPermissoes = () => {
+    localStorage.setItem('arttburger_permissoes', 'ok');
+    setPermissoesOk(true);
+    setEtapaPermissao('concluido');
+  };
+
+  const solicitarLocalizacao = async () => {
+    setEtapaPermissao('localizacao');
+    await Geolocation.requestPermissions({ permissions: ['location'] }).catch(() => {});
+    // Aguarda 600 ms para o diálogo nativo fechar antes de abrir o próximo
+    await new Promise(r => setTimeout(r, 600));
+    setEtapaPermissao('camera');
+  };
+
+  const solicitarCamera = async () => {
+    if (navigator.mediaDevices?.getUserMedia) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+        stream.getTracks().forEach(t => t.stop());
+      } catch { /* câmera negada não bloqueia o app */ }
     }
+    await new Promise(r => setTimeout(r, 400));
+    concluirPermissoes();
   };
 
   if (!permissoesOk) {
@@ -515,39 +521,67 @@ export default function App() {
         <style>{`html { font-size: clamp(12px, 1vw + 10px, 16px); }`}</style>
         <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center gap-6">
           <img src={logoImg} alt="ArttBurger" className="h-24 w-auto object-contain" />
-          <div className="text-center">
-            <h2 className="text-xl font-black text-gray-800">Permissões necessárias</h2>
-            <p className="text-sm text-gray-500 mt-1">O app precisa das permissões abaixo para funcionar corretamente.</p>
-          </div>
-          <div className="w-full space-y-3">
-            <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
-              <span className="text-2xl shrink-0">📍</span>
-              <div>
-                <p className="font-bold text-gray-800 text-sm">Localização</p>
-                <p className="text-xs text-gray-500">Necessária para registro de ponto e rastreamento de entregas em tempo real.</p>
+
+          {etapaPermissao === 'idle' && (
+            <>
+              <div className="text-center">
+                <h2 className="text-xl font-black text-gray-800">Permissões necessárias</h2>
+                <p className="text-sm text-gray-500 mt-1">Vamos solicitar 2 permissões, uma de cada vez. Toque em <strong>Conceder</strong> nas janelas que aparecerem.</p>
               </div>
-            </div>
-            <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
-              <span className="text-2xl shrink-0">📷</span>
-              <div>
-                <p className="font-bold text-gray-800 text-sm">Câmera</p>
-                <p className="text-xs text-gray-500">Usada para reconhecimento facial no login e no registro de ponto.</p>
+              <div className="w-full space-y-3">
+                <div className="flex items-start gap-3 p-3 bg-blue-50 rounded-xl border border-blue-100">
+                  <span className="text-2xl shrink-0">📍</span>
+                  <div>
+                    <p className="font-bold text-gray-800 text-sm">1ª — Localização</p>
+                    <p className="text-xs text-gray-500">Registro de ponto e rastreamento de entregas.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 p-3 bg-purple-50 rounded-xl border border-purple-100">
+                  <span className="text-2xl shrink-0">📷</span>
+                  <div>
+                    <p className="font-bold text-gray-800 text-sm">2ª — Câmera</p>
+                    <p className="text-xs text-gray-500">Reconhecimento facial no login e no registro de ponto.</p>
+                  </div>
+                </div>
               </div>
+              <button
+                onClick={solicitarLocalizacao}
+                className="w-full py-4 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-black rounded-2xl text-base shadow-lg transition-colors"
+              >
+                Começar →
+              </button>
+              <button
+                onClick={concluirPermissoes}
+                className="text-xs text-gray-400 underline"
+              >
+                Pular por agora
+              </button>
+            </>
+          )}
+
+          {etapaPermissao === 'localizacao' && (
+            <div className="text-center flex flex-col items-center gap-4">
+              <span className="text-6xl">📍</span>
+              <h2 className="text-xl font-black text-gray-800">Permissão de Localização</h2>
+              <p className="text-sm text-gray-500">Toque em <strong>"Permitir"</strong> na janela do sistema que acabou de aparecer.</p>
+              <p className="text-xs text-gray-400 animate-pulse">Aguardando sua resposta...</p>
             </div>
-          </div>
-          <button
-            onClick={solicitarPermissoes}
-            disabled={solicitandoPermissoes}
-            className="w-full py-4 bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white font-black rounded-2xl text-base shadow-lg transition-colors disabled:opacity-60"
-          >
-            {solicitandoPermissoes ? 'Aguarde...' : 'Conceder Permissões'}
-          </button>
-          <button
-            onClick={() => { localStorage.setItem('arttburger_permissoes', 'ok'); setPermissoesOk(true); }}
-            className="text-xs text-gray-400 underline"
-          >
-            Pular por agora
-          </button>
+          )}
+
+          {etapaPermissao === 'camera' && (
+            <div className="text-center flex flex-col items-center gap-4">
+              <span className="text-6xl">📷</span>
+              <h2 className="text-xl font-black text-gray-800">Permissão de Câmera</h2>
+              <p className="text-sm text-gray-500">Agora toque em <strong>"Permitir"</strong> na janela da câmera.</p>
+              <button
+                onClick={solicitarCamera}
+                className="w-full py-4 bg-purple-600 hover:bg-purple-700 text-white font-black rounded-2xl text-base shadow-lg transition-colors"
+              >
+                Solicitar Câmera →
+              </button>
+              <button onClick={concluirPermissoes} className="text-xs text-gray-400 underline">Pular câmera</button>
+            </div>
+          )}
         </div>
       </div>
     );

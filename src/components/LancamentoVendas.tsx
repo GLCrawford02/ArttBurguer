@@ -1291,7 +1291,7 @@ Formato esperado:
               {Object.keys(entregasAbertas).length > 0 ? (
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
                   {Object.entries(entregasAbertas).map(([id, entrega]: any) => {
-                    const total = Object.values(entrega.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+                    const total = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
                     return (
                       <button key={id} onClick={() => handleAbrirEntrega(id)} className="p-3 sm:p-4 rounded-xl border-2 border-orange-500 bg-orange-50 text-orange-700 shadow-sm flex flex-col justify-center items-start transition-all hover:bg-orange-100">
                         <span className="font-bold text-sm truncate w-full text-left">{entrega.clienteNome}</span>
@@ -1315,7 +1315,7 @@ Formato esperado:
                 {Array.from({length: qtdMesas}).map((_, i) => {
                   const num = i + 1;
                   const isAberta = mesasAbertas[`mesa_${num}`] || mesasAbertas[num];
-                  const total = isAberta ? Object.values(isAberta.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) : 0;
+                  const total = isAberta ? ((Object.values(isAberta.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number) : 0;
                   return (
                     <div key={num} onClick={() => handleAbrirMesa(num)} className={`relative p-2 sm:p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-20 sm:h-24 cursor-pointer ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm hover:bg-orange-100' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
                       <span className="text-xl sm:text-2xl font-black leading-none pointer-events-none">{num}</span>
@@ -1991,7 +1991,7 @@ Formato esperado:
                 </div>
                 <div className="p-4 flex-1 overflow-y-auto space-y-3">
                   {Object.keys(entregasAbertas).length > 0 ? Object.entries(entregasAbertas).map(([id, entrega]: any) => {
-                    const total = Object.values(entrega.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+                    const total = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
                     return (
                       <button key={id} onClick={() => { setShowPainelEntregas(false); handleAbrirEntrega(id); }} className="w-full text-left p-3 rounded-xl border border-orange-200 bg-white hover:bg-orange-50 transition-colors shadow-sm group">
                         <div className="flex justify-between items-start">
