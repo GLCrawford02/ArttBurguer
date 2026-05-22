@@ -164,7 +164,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
-        list.sort((a, b) => a.nome.localeCompare(b.nome));
+        list.sort((a, b) => (a.nome || '').localeCompare(b.nome || ''));
         setClientes(list);
       } else {
         setClientes([]);

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer, Lock } from 'lucide-react';
+
+const CARGOS_EDIT_AUTORIZADO = ['Dono', 'TI', 'Admin', 'Administrador', 'Gerente', 'Caixa'];
+const AUTH_SESSION_MS = 5 * 60 * 1000;
 
 export default function LancamentoVendas({ currentUser, permissoes = {} }: { currentUser?: any, permissoes?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
@@ -27,6 +30,9 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [showDescontoModal, setShowDescontoModal] = useState(false);
   const [descontoInput, setDescontoInput] = useState('');
   const [descontoPin, setDescontoPin] = useState('');
+
+  const [authEditModal, setAuthEditModal] = useState<{ itemId: string; pin: string } | null>(null);
+  const [editAuthSession, setEditAuthSession] = useState<number | null>(null);
 
 
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
@@ -235,6 +241,30 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     }
   };
 
+  const isEditAuthValid = () =>
+    editAuthSession !== null && Date.now() - editAuthSession < AUTH_SESSION_MS;
+
+  const handleMinusClick = (id: string, item: { qtd: number; enviadoCozinha?: number }) => {
+    const enviado = item.enviadoCozinha || 0;
+    if (enviado > 0 && item.qtd <= enviado && !isEditAuthValid()) {
+      setAuthEditModal({ itemId: id, pin: '' });
+      return;
+    }
+    updateCartItemQtd(id, -1);
+  };
+
+  const handleConfirmAuthEdit = () => {
+    if (!authEditModal) return;
+    const func = funcionarios.find(f => String(f.pin) === authEditModal.pin);
+    if (!func) return showToast('PIN inválido.', 'error');
+    const cargos: string[] = Array.isArray(func.cargo) ? func.cargo : [func.cargo || ''];
+    const autorizado = cargos.some(c => CARGOS_EDIT_AUTORIZADO.includes(c));
+    if (!autorizado) return showToast('Permissão negada. Precisa ser Caixa, Gerente ou superior.', 'error');
+    setEditAuthSession(Date.now());
+    updateCartItemQtd(authEditModal.itemId, -1);
+    setAuthEditModal(null);
+  };
+
   const updateCartItemQtd = (cartItemId: string, delta: number) => {
     setPdvCarrinho((prev: any) => {
       const current = prev[cartItemId];
@@ -313,8 +343,8 @@ ${itensHtml}
     if (electron && printerName) {
       // Electron: impressão silenciosa na impressora configurada
       try { await electron.imprimir(printerName, html); } catch (e) { console.error('Erro ao imprimir via Electron:', e); }
-    } else {
-      // Web/APK: abre janela do navegador como fallback
+    } else if (!electron) {
+      // Web/APK: abre janela do navegador como fallback (só fora do Electron)
       const win = window.open('', '_blank');
       if (!win) return;
       win.document.write(html);
@@ -322,6 +352,7 @@ ${itensHtml}
       win.focus();
       setTimeout(() => { win.onafterprint = () => win.close(); win.print(); }, 300);
     }
+    // Electron sem impressora configurada: ignora silenciosamente
   };
 
   const dispararImpressaoSeparada = (identificador: string, carrinhoSnapshot: Record<string, any>) => {
@@ -471,6 +502,10 @@ ${itensHtml}
       showToast(`Pedido salvo na Mesa ${mesaSelecionada}!`, 'success');
       setPdvDescontoAplicado(null);
     }
+    setPdvItemModal(null);
+    setPdvSearchProd('');
+    setPdvSearchCliente('');
+    setIsCartExpanded(false);
     setPdvView('mapa');
   };
 
@@ -479,6 +514,12 @@ ${itensHtml}
     setMesaSelecionada(null);
     setPdvTipoPedido('Entrega');
     setPdvDescontoAplicado(null);
+    setPdvItemModal(null);
+    setPdvSearchProd('');
+    setPdvSearchCliente('');
+    setIsCartExpanded(false);
+    setPdvDescricao('');
+    setPdvPagamentos([{ taxaId: '', valor: 0 }]);
     const entregaData = entregasAbertas[id];
     if (entregaData) {
       setPdvCarrinho(entregaData.carrinho || {});
@@ -510,6 +551,10 @@ ${itensHtml}
       showToast('Pedido de Delivery salvo!', 'success');
       setPdvDescontoAplicado(null);
     }
+    setPdvItemModal(null);
+    setPdvSearchProd('');
+    setPdvSearchCliente('');
+    setIsCartExpanded(false);
     setPdvView('mapa');
   };
 
@@ -874,6 +919,10 @@ ${itensHtml}
       setPdvDescontoAplicado(null);
       setMesaSelecionada(null);
       setEntregaSelecionada(null);
+      setPdvItemModal(null);
+      setPdvSearchProd('');
+      setPdvSearchCliente('');
+      setIsCartExpanded(false);
       setPdvView('mapa');
       showToast('Venda finalizada com sucesso!', 'success');
     } catch (error: any) {
@@ -1218,12 +1267,12 @@ Formato esperado:
             <h3 className="text-xl font-bold text-gray-800 flex items-center"><Store className="mr-2 text-green-600"/> Controle de Mesas e Pedidos</h3>
             <div className="flex flex-col sm:flex-row flex-wrap gap-3 w-full xl:w-auto">
               {isCaixaOrAdmin && (
-                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 bg-gray-800 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvView('caixa'); }} className="flex-1 bg-gray-800 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-gray-900 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
                   <Store size={18} className="mr-2 shrink-0" /> Venda Balcão
                 </button>
               )}
               {canDelivery && (
-                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvView('caixa'); }} className="flex-1 bg-green-600 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+                <button onClick={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvView('caixa'); }} className="flex-1 bg-green-600 text-white px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-green-700 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
                   <Truck size={18} className="mr-2 shrink-0" /> Novo Delivery
                 </button>
               )}
@@ -1375,7 +1424,19 @@ Formato esperado:
                         <div className="flex-1 min-w-0 pr-2">
                           <div className="flex items-center">
                             <div className="flex items-center space-x-2 mr-3 bg-gray-100 rounded p-1 shrink-0">
-                              <button onClick={() => updateCartItemQtd(id, -1)} className="text-gray-500 hover:text-red-500 hover:bg-white rounded px-2 py-1 transition-colors"><Minus size={18}/></button>
+                              {(() => {
+                                const enviado = item.enviadoCozinha || 0;
+                                const bloqueado = enviado > 0 && item.qtd <= enviado && !isEditAuthValid();
+                                return (
+                                  <button
+                                    onClick={() => handleMinusClick(id, item)}
+                                    title={bloqueado ? 'Requer autorização do Caixa/Gerente' : ''}
+                                    className={`rounded px-2 py-1 transition-colors ${bloqueado ? 'text-orange-500 hover:text-orange-700 hover:bg-white' : 'text-gray-500 hover:text-red-500 hover:bg-white'}`}
+                                  >
+                                    {bloqueado ? <Lock size={16}/> : <Minus size={18}/>}
+                                  </button>
+                                );
+                              })()}
                               <span className="font-black w-6 text-center text-base">{item.qtd}</span>
                               <button onClick={() => updateCartItemQtd(id, 1)} className="text-gray-500 hover:text-green-500 hover:bg-white rounded px-2 py-1 transition-colors"><Plus size={18}/></button>
                             </div>
@@ -1700,6 +1761,44 @@ Formato esperado:
         <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md p-4 rounded-xl shadow-2xl text-white font-bold flex items-start z-[100] transition-all animate-in slide-in-from-bottom-5 duration-300 ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.type === 'success' ? <CheckCircle className="mr-3 shrink-0 mt-0.5" size={20} /> : <AlertTriangle className="mr-3 shrink-0 mt-0.5" size={20} />}
           <span className="whitespace-pre-line break-words text-sm flex-1">{toast.message}</span>
+        </div>
+      )}
+
+      {authEditModal && (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 flex flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h3 className="font-black text-gray-800 flex items-center gap-2"><Lock size={18} className="text-orange-500"/> Edição Bloqueada</h3>
+              <button onClick={() => setAuthEditModal(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            <p className="text-sm text-gray-500">Este item já foi enviado à cozinha. Digite o PIN de um <strong>Caixa, Gerente ou superior</strong> para autorizar a edição.</p>
+            <div className="flex justify-center gap-3">
+              {[1,2,3,4,5,6,7,8,9,'',0,'←'].map((k, i) => (
+                <button
+                  key={i}
+                  onClick={() => {
+                    if (k === '←') setAuthEditModal(m => m ? { ...m, pin: m.pin.slice(0, -1) } : null);
+                    else if (k !== '') setAuthEditModal(m => m ? { ...m, pin: m.pin + k } : null);
+                  }}
+                  className={`w-14 h-14 rounded-xl font-black text-xl ${k === '' ? 'invisible' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-800'} transition-colors`}
+                >
+                  {k}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-center gap-2">
+              {[1,2,3,4].map(i => (
+                <div key={i} className={`w-4 h-4 rounded-full border-2 ${(authEditModal.pin?.length || 0) >= i ? 'bg-orange-500 border-orange-500' : 'border-gray-300'}`}/>
+              ))}
+            </div>
+            <button
+              onClick={handleConfirmAuthEdit}
+              disabled={!authEditModal.pin}
+              className="w-full py-3 bg-orange-500 text-white rounded-xl font-black text-base hover:bg-orange-600 disabled:opacity-40 transition-colors"
+            >
+              Autorizar Edição
+            </button>
+          </div>
         </div>
       )}
 

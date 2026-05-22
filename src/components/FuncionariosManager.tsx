@@ -3,7 +3,7 @@ import { ref, push, set, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
 import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare, Camera, ScanFace } from 'lucide-react';
-import { ensureFaceModelsLoaded, faceapi } from '../faceApiUtils';
+import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 
 const validarCPF = (cpf: string): boolean => {
   let apenasNumeros = "";
@@ -235,14 +235,14 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     setFaceModalFuncId(funcId);
     setFaceCaptureStatus('Iniciando câmera...');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const stream = await getCameraStream();
       faceStreamRef.current = stream;
       setTimeout(() => {
         if (faceVideoRef.current) { faceVideoRef.current.srcObject = stream; faceVideoRef.current.play(); }
       }, 100);
       setFaceCaptureStatus('Posicione o rosto centralizado e clique em Capturar.');
-    } catch {
-      setFaceCaptureStatus('Câmera não disponível neste dispositivo.');
+    } catch (e) {
+      setFaceCaptureStatus(getCameraErrorMsg(e));
     }
   };
 

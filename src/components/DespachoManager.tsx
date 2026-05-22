@@ -3,7 +3,7 @@ import { ref, onValue, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
-import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X } from 'lucide-react';
+import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X, Clock } from 'lucide-react';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
@@ -61,6 +61,16 @@ function InvalidateSize() {
   return null;
 }
 
+function FitBoundsPendentes({ coords }: { coords: [number, number][] }) {
+  const map = useMap();
+  useEffect(() => {
+    if (coords.length === 0) return;
+    const bounds = L.latLngBounds(coords);
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 15 });
+  }, [coords.length]);
+  return null;
+}
+
 export default function DespachoManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -80,7 +90,16 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
   const geocodingQueue = useRef<Set<string>>(new Set());
   const [lojaCoords, setLojaCoords] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
 
+  const [mapaMiniAtivo, setMapaMiniAtivo] = useState(false);
+  const [geocodedPendentes, setGeocodedPendentes] = useState<Record<string, { lat: number; lng: number } | null>>({});
+  const geocodingPendentesRef = useRef<Set<string>>(new Set());
+
   const canEdit = temPermissao ? temPermissao('despacho', 'aba_logistica', 'editar') : true;
+
+  const todosPedidosPendente = [
+    ...entregasAbertas.filter(e => !e.statusEntrega || e.statusEntrega === 'Pendente'),
+    ...pedidosPendente
+  ].sort((a, b) => a.timestamp - b.timestamp);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -180,6 +199,48 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     if (activeDespachoTab === 'mapa') processGeocoding();
     return () => { isMounted = false; };
   }, [despachos, activeDespachoTab]);
+
+  // Geocodifica endereços dos pedidos pendentes quando o mini-mapa está ativo
+  useEffect(() => {
+    if (!mapaMiniAtivo) return;
+    let cancelled = false;
+
+    const geocode = async () => {
+      for (const ped of todosPedidosPendente) {
+        if (cancelled) break;
+        if (geocodingPendentesRef.current.has(ped.id)) continue;
+        geocodingPendentesRef.current.add(ped.id);
+
+        const c = clientes.find(cl => cl.id === ped.clienteId);
+        if (!c) { setGeocodedPendentes(prev => ({ ...prev, [ped.id]: null })); continue; }
+
+        if ((c as any).lat && (c as any).lng) {
+          setGeocodedPendentes(prev => ({ ...prev, [ped.id]: { lat: (c as any).lat, lng: (c as any).lng } }));
+          continue;
+        }
+
+        const endereco = formatarEndereco(c);
+        if (!endereco) { setGeocodedPendentes(prev => ({ ...prev, [ped.id]: null })); continue; }
+
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(endereco)}&limit=1`);
+          const data = await res.json();
+          if (!cancelled) {
+            setGeocodedPendentes(prev => ({
+              ...prev,
+              [ped.id]: data?.length > 0 ? { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) } : null
+            }));
+          }
+        } catch {
+          if (!cancelled) setGeocodedPendentes(prev => ({ ...prev, [ped.id]: null }));
+        }
+        if (!cancelled) await new Promise(r => setTimeout(r, 1200));
+      }
+    };
+
+    geocode();
+    return () => { cancelled = true; };
+  }, [mapaMiniAtivo, todosPedidosPendente.map(p => p.id).join(','), clientes.length]);
 
   const formatarEndereco = (c: Cliente) => {
     const partes = [];
@@ -348,11 +409,6 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     }
   };
 
-  const todosPedidosPendente = [
-    ...entregasAbertas.filter(e => !e.statusEntrega || e.statusEntrega === 'Pendente'),
-    ...pedidosPendente
-  ].sort((a, b) => a.timestamp - b.timestamp);
-
   const filteredPedidos = searchTerm ? todosPedidosPendente.filter(p => (p.clienteNome || '').toLowerCase().includes(searchTerm.toLowerCase())) : todosPedidosPendente;
   const despachosAtivos = despachos.filter(d => d.status === 'Em Rota');
 
@@ -383,8 +439,138 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
           
           {/* Coluna Esquerda: Pedidos Aguardando */}
           <div className="lg:col-span-7 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col min-h-[600px]">
-            <h3 className="text-lg font-bold text-gray-800 flex items-center mb-4"><Package className="mr-2 text-indigo-600" size={24}/> Pedidos Aguardando Entrega ({todosPedidosPendente.length})</h3>
-            
+            <div className="flex items-center justify-between mb-4 shrink-0">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center">
+                <Package className="mr-2 text-indigo-600" size={24}/>
+                Pedidos Aguardando Entrega ({todosPedidosPendente.length})
+              </h3>
+              <button
+                onClick={() => setMapaMiniAtivo(v => !v)}
+                className={`flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-full border transition-all ${
+                  mapaMiniAtivo
+                    ? 'bg-indigo-600 text-white border-indigo-600 shadow-md'
+                    : 'bg-white text-gray-500 border-gray-200 hover:border-indigo-300 hover:text-indigo-600'
+                }`}
+              >
+                <Map size={13} />
+                {mapaMiniAtivo ? 'Fechar Mapa' : 'Ver Mapa'}
+              </button>
+            </div>
+
+            {/* Mini-mapa de calor de espera */}
+            {mapaMiniAtivo && (() => {
+              const coordsValidas: [number, number][] = todosPedidosPendente
+                .map(p => geocodedPendentes[p.id])
+                .filter(Boolean)
+                .map(c => [c!.lat, c!.lng]);
+
+              return (
+                <div className="mb-4 rounded-xl overflow-hidden border border-gray-200 relative shrink-0" style={{ height: 320, zIndex: 0 }}>
+                  <MapContainer
+                    center={lojaCoords.lat && lojaCoords.lng ? [lojaCoords.lat, lojaCoords.lng] : [-18.7580961, -44.4333648]}
+                    zoom={14}
+                    style={{ height: '100%', width: '100%', zIndex: 1 }}
+                    zoomControl={false}
+                    attributionControl={false}
+                  >
+                    <InvalidateSize />
+                    <FitBoundsPendentes coords={coordsValidas} />
+                    <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+
+                    {todosPedidosPendente.map(ped => {
+                      const coords = geocodedPendentes[ped.id];
+                      if (!coords) return null;
+
+                      const relacionados = ped.isAberta
+                        ? pedidosCozinha.filter(p => p.referenciaId === ped.id)
+                        : pedidosCozinha.filter(p => p.identificador === `Delivery: ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
+                      const isPronto = relacionados.length === 0 || relacionados.every(p => p.status === 'Concluído' || p.status === 'Cancelado');
+
+                      const minutos = Math.floor((Date.now() - ped.timestamp) / 60000);
+                      const cor = !isPronto ? '#9ca3af'
+                        : minutos < 40 ? '#22c55e'
+                        : minutos < 50 ? '#eab308'
+                        : '#ef4444';
+
+                      const tamanho = !isPronto ? 16 : minutos >= 50 ? 22 : 18;
+                      const icon = L.divIcon({
+                        html: `<div style="width:${tamanho}px;height:${tamanho}px;background:${cor};border:2.5px solid white;border-radius:50%;box-shadow:0 2px 6px rgba(0,0,0,0.35)"></div>`,
+                        className: '',
+                        iconSize: [tamanho, tamanho],
+                        iconAnchor: [tamanho / 2, tamanho / 2],
+                      });
+
+                      const kitchenTs = !isPronto && relacionados.length > 0
+                        ? Math.min(...relacionados.map(p => p.timestamp))
+                        : null;
+
+                      const c = clientes.find(cl => cl.id === ped.clienteId);
+
+                      const jaNaRota = rotaAtual.some(r => r.pedidoId === ped.id);
+
+                      return (
+                        <Marker key={ped.id} position={[coords.lat, coords.lng]} icon={icon}>
+                          <Popup minWidth={180}>
+                            <p className="font-bold text-gray-800 text-sm mb-0.5">
+                              #{ped.numeroDiario || '?'} — {c?.nome || ped.clienteNome}
+                            </p>
+                            <p className="text-xs text-gray-500 mb-1">{c ? formatarEndereco(c) : ''}</p>
+                            {!isPronto ? (
+                              <p className="text-xs font-bold text-gray-500 flex items-center gap-1 mb-2">
+                                <Clock size={11} />
+                                Na cozinha desde {kitchenTs
+                                  ? new Date(kitchenTs).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })
+                                  : new Date(ped.timestamp).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
+                              </p>
+                            ) : (
+                              <>
+                                <p className="text-xs font-bold mb-2" style={{ color: cor }}>
+                                  {minutos < 40
+                                    ? `✅ Pronto há ${minutos}min`
+                                    : minutos < 50
+                                    ? `⏳ Esperando ${minutos}min`
+                                    : `🔴 Urgente — ${minutos}min esperando`}
+                                </p>
+                                {canEdit && (
+                                  <button
+                                    onClick={() => handleAddParada(ped)}
+                                    disabled={jaNaRota}
+                                    style={{
+                                      width: '100%', padding: '5px 8px', borderRadius: 6,
+                                      background: jaNaRota ? '#e5e7eb' : '#4f46e5',
+                                      color: jaNaRota ? '#9ca3af' : 'white',
+                                      fontWeight: 700, fontSize: 11, border: 'none',
+                                      cursor: jaNaRota ? 'default' : 'pointer',
+                                    }}
+                                  >
+                                    {jaNaRota ? '✓ Já na rota' : '+ Adicionar à Rota'}
+                                  </button>
+                                )}
+                              </>
+                            )}
+                          </Popup>
+                        </Marker>
+                      );
+                    })}
+                  </MapContainer>
+
+                  {/* Legenda */}
+                  <div className="absolute bottom-2 left-2 z-[1000] bg-white/90 backdrop-blur-sm rounded-lg px-2.5 py-1.5 shadow-md flex gap-3 text-[10px] font-bold text-gray-600 pointer-events-none">
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block shrink-0"/>{'<'}40min</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-yellow-400 inline-block shrink-0"/>40-50min</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block shrink-0"/>{'>'}50min</span>
+                    <span className="flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-gray-400 inline-block shrink-0"/>Cozinha</span>
+                  </div>
+
+                  {todosPedidosPendente.length > 0 && coordsValidas.length === 0 && (
+                    <div className="absolute inset-0 flex items-center justify-center z-[1000] bg-white/70 text-xs text-gray-500 font-medium pointer-events-none">
+                      Buscando coordenadas...
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
+
             <div className="relative mb-4 shrink-0">
               <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
               <input type="text" placeholder="Filtrar pedidos..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} className="w-full pl-9 pr-3 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-gray-50" />

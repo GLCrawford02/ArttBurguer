@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
-import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation, Printer } from 'lucide-react';
+import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation, Printer, ScanFace } from 'lucide-react';
 import { APP_VERSION } from '../App';
 
 export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: any }) {
@@ -28,6 +28,21 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
   };
 
   const updates = [
+    {
+      versao: '1.2.7',
+      titulo: 'Reconhecimento Facial, Leitor de Código de Barras e HTTPS Mobile',
+      descricao: 'Login e registro de ponto por reconhecimento facial, leitura automática de código de barras no estoque e conexão segura para acesso via celular.',
+      features: [
+        'Reconhecimento Facial no Login: Botão "Entrar com Reconhecimento Facial" na tela de login. A câmera identifica o funcionário automaticamente — sem digitar PIN. Alterna entre os dois modos com um clique. Requer cadastro do rosto previamente.',
+        'Cadastro de Rosto: Na aba Funcionários → Equipe, botão de câmera ao lado de cada funcionário para fotografar e salvar o rosto no banco de dados. Badge "Rosto cadastrado" confirma o registro.',
+        'Reconhecimento Facial no Registro de Ponto: Botão "Bater Ponto com Reconhecimento Facial" na tela de Ponto. Abre câmera, reconhece o funcionário logado e registra automaticamente a próxima etapa do dia (chegada, almoço, volta ou saída). Mantém a validação de 20m de distância.',
+        'Leitor de Código de Barras na Transferência: Conecte qualquer leitor USB ou Bluetooth. Ao escanear um produto, o card correspondente é destacado em verde e o campo de quantidade é focado automaticamente. Badge "Leitor de código ativo" sempre visível no cabeçalho.',
+        'Cadastro de Código de Barras por Leitura: Ao escanear um código ainda não cadastrado, abre um modal para vincular ao produto correto — sem precisar digitar nada no cadastro. O código fica salvo para leituras futuras.',
+        'Correção — Produtos Base na Transferência: Produtos variáveis (isVariável = true) que fazem parte de uma cadeia (ex: Ketchup dentro de Pacote de Ketchup) e estavam marcados como transferíveis não apareciam em nenhuma seção. Corrigido: agora aparecem corretamente em Produtos Variáveis.',
+        'HTTPS no Servidor de Desenvolvimento: Câmera em celulares requer conexão segura. O servidor de desenvolvimento agora roda em HTTPS automaticamente, liberando acesso à câmera em todos os navegadores mobile. Mensagens de erro de câmera passaram a indicar o motivo exato (permissão negada, câmera em uso, HTTPS necessário, etc.).',
+      ],
+      icon: <ScanFace className="text-orange-500" size={20} />
+    },
     {
       versao: '1.2.6',
       titulo: 'DRE, Escala de Turnos, Fidelidade, Alertas e Planilhas Avançadas',

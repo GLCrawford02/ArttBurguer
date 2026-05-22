@@ -4,7 +4,7 @@ import { db } from '../firebase';
 import { Capacitor } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { CheckCircle, Clock, MapPin, AlertTriangle, Coffee, LogIn, LogOut, RefreshCw, ScanFace, X } from 'lucide-react';
-import { ensureFaceModelsLoaded, faceapi } from '../faceApiUtils';
+import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 
 const RESTAURANTE_LAT = -18.757167;
 const RESTAURANTE_LNG = -44.429278;
@@ -194,13 +194,13 @@ export default function RegistroPonto({ currentUser }: { currentUser: any }) {
     setFaceStatus('Iniciando câmera...');
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+      const stream = await getCameraStream();
       faceStreamRef.current = stream;
       setTimeout(() => {
         if (faceVideoRef.current) { faceVideoRef.current.srcObject = stream; faceVideoRef.current.play(); }
       }, 100);
-    } catch {
-      setFaceStatus('Câmera não disponível neste dispositivo.');
+    } catch (e) {
+      setFaceStatus(getCameraErrorMsg(e));
       return;
     }
 

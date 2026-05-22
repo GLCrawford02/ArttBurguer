@@ -8,7 +8,7 @@ import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
 import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, Clock, ScanFace, KeyRound } from 'lucide-react';
-import { ensureFaceModelsLoaded, faceapi } from './faceApiUtils';
+import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from './faceApiUtils';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
 import PermissoesManager from './components/PermissoesManager';
@@ -333,7 +333,12 @@ export default function App() {
 
     const isExempt = currentUser && (() => {
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
-      return cargosArr.some((c: string) => ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c) || c.toUpperCase().includes('KDS'));
+      return cargosArr.some((c: string) =>
+        ['Administrador', 'Gerente', 'Dono', 'TI'].includes(c) ||
+        c.toUpperCase().includes('KDS') ||
+        c.toLowerCase().includes('entregador') ||
+        c.toLowerCase().includes('motoboy')
+      );
     })();
 
     if (currentUser && !isExempt) {
@@ -368,13 +373,14 @@ export default function App() {
     const run = async () => {
       setFaceStatus('Iniciando câmera...');
 
+      let stream: MediaStream;
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        stream = await getCameraStream();
         if (aborted) { stream.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = stream;
         if (videoRef.current) { videoRef.current.srcObject = stream; await videoRef.current.play(); }
-      } catch {
-        if (!aborted) setFaceStatus('Câmera não disponível. Use o PIN.');
+      } catch (e) {
+        if (!aborted) setFaceStatus(getCameraErrorMsg(e));
         return;
       }
 
