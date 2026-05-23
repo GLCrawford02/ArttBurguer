@@ -7,7 +7,7 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, Clock, ScanFace, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, ScanFace, KeyRound } from 'lucide-react';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from './faceApiUtils';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
@@ -31,7 +31,6 @@ import BlocoNotasManager from './components/BlocoNotasManager';
 import EmbalagensPadraoManager from './components/EmbalagensPadraoManager';
 import TaxasEntregaManager from './components/TaxasEntregaManager';
 import MinhasEntregas from './components/MinhasEntregas';
-import RegistroPonto from './components/RegistroPonto';
 import DREManager from './components/DREManager';
 import FidelidadeManager from './components/FidelidadeManager';
 import EscalaManager from './components/EscalaManager';
@@ -78,7 +77,7 @@ const validarCPF = (cpf: string): boolean => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing' | 'ponto'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores' | 'embalagens'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes' | 'balanco'>('compras');
@@ -142,11 +141,20 @@ export default function App() {
     const lastNome = localStorage.getItem('arttburger_last_entregador_nome');
     if (!lastId || !lastNome) return;
 
+    let primeiraLeitura = true;
     const despRef = ref(db, 'despachos');
     const unsub = onValue(despRef, snap => {
-      if (!snap.val()) return;
+      if (!snap.val()) { primeiraLeitura = false; return; }
       const todos: any[] = Object.entries(snap.val()).map(([id, v]: any) => ({ id, ...v }));
       const meus = todos.filter(d => d.motoboyId === lastId && d.status === 'Em Rota');
+
+      if (primeiraLeitura) {
+        // Na primeira leitura só popula o Set sem notificar (despachos já existentes)
+        meus.forEach(d => despachosConhecidosRef.current.add(d.id));
+        primeiraLeitura = false;
+        return;
+      }
+
       const novos = meus.filter(d => !despachosConhecidosRef.current.has(d.id));
       novos.forEach(d => despachosConhecidosRef.current.add(d.id));
       if (novos.length > 0) {
@@ -155,9 +163,6 @@ export default function App() {
         setNotificacaoEntrega(`Nova entrega atribuída a ${lastNome}! 🛵`);
         setTimeout(() => setNotificacaoEntrega(null), 8000);
       }
-      // Pré-popula os IDs já conhecidos na primeira carga (sem notificar)
-      if (despachosConhecidosRef.current.size === 0)
-        meus.forEach(d => despachosConhecidosRef.current.add(d.id));
     });
     return () => unsub();
   }, []);
@@ -210,7 +215,7 @@ export default function App() {
       const hash = window.location.hash.replace('#', '') as any; 
       console.log('🔗 URL mudou para a aba:', hash);
       
-      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing', 'ponto'].includes(hash)) {
+      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'].includes(hash)) {
         setActiveTab(hash as any);
       }
       setIsMobileMenuOpen(false);
@@ -262,7 +267,7 @@ export default function App() {
     return onValue(licRef, snap => setLicenca(snap.val() ?? {}));
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing' | 'ponto') => {
+  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -284,12 +289,12 @@ export default function App() {
     const cargos = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
     
     const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
-    if (isKdsOnly) return ['producao', 'ponto'];
+    if (isKdsOnly) return ['producao'];
 
     const isEntregadorOnly = cargos.length > 0 && cargos.every((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'));
-    if (isEntregadorOnly) return ['logistica', 'ponto'];
+    if (isEntregadorOnly) return ['logistica'];
 
-    if (cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'logistica', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'configuracoes', 'tarefas', 'marketing', 'ponto'];
+    if (cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'logistica', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'configuracoes', 'tarefas', 'marketing'];
 
     const allowed: string[] = [];
     
@@ -315,8 +320,7 @@ export default function App() {
     if (hasPerm('tarefas', 'aba_tarefas') || hasPerm('bloco_notas', 'aba_tarefas')) allowed.push('tarefas');
     if (hasPerm('marketing', 'aba_marketing')) allowed.push('marketing');
 
-    allowed.push('ponto'); // Ponto disponível para todos os funcionários
-    if (allowed.length === 1) allowed.unshift('pdv'); // fallback se só tem ponto
+    if (allowed.length === 0) allowed.push('pdv'); // fallback mínimo
     return allowed;
   };
 
@@ -972,15 +976,6 @@ export default function App() {
         </button>
         )}
 
-        <button
-          onClick={() => handleTabChange('ponto')}
-          className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
-            activeTab === 'ponto' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-          }`}
-        >
-          <Clock size={20} />
-          <span>Registro de Ponto</span>
-        </button>
         </nav>
 
         <div className="p-4 border-t border-gray-800">
@@ -1016,7 +1011,6 @@ export default function App() {
         <div className="w-full mx-auto">
           {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
 
-          {activeTab === 'ponto' && <RegistroPonto currentUser={currentUser} />}
           
           {activeTab === 'tarefas' && (
             <div className="space-y-6">
