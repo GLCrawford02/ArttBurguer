@@ -20,6 +20,9 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
   const [barcodeVincularModal, setBarcodeVincularModal] = useState<{ code: string } | null>(null);
   const [barcodeVincularSearch, setBarcodeVincularSearch] = useState('');
   const [barcodeVincularId, setBarcodeVincularId] = useState<string | null>(null);
+  const [selecionados, setSelecionados] = useState<Record<string, 'container' | 'variavel' | 'simples'>>({});
+  const [bulkPinModal, setBulkPinModal] = useState(false);
+  const [bulkPin, setBulkPin] = useState('');
 
   const barcodeBufferRef = useRef('');
   const lastKeyTimeRef = useRef(0);
@@ -208,9 +211,32 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     setPinModal(true);
   }
 
-  async function executeVariavelTransfer(funcionario: Funcionario) {
-    if (!pendingTransfer) return;
-    const { insumo, qty } = pendingTransfer;
+  function toggleSelecionado(id: string, tipo: 'container' | 'variavel' | 'simples') {
+    setSelecionados(prev => {
+      if (prev[id]) { const n = { ...prev }; delete n[id]; return n; }
+      return { ...prev, [id]: tipo };
+    });
+  }
+
+  async function handleBulkPinConfirm() {
+    const func = funcionarios.find(f => String(f.pin) === bulkPin);
+    if (!func) { showToast('PIN inválido!', 'error'); return; }
+    setBulkPinModal(false);
+    setBulkPin('');
+    for (const [id, tipo] of Object.entries(selecionados)) {
+      const insumo = insumos.find(i => i.id === id);
+      const qty = parseFloat(quantities[id] || '0');
+      if (!insumo || !qty || qty <= 0) continue;
+      if (tipo === 'variavel') await executeVariavelTransfer(func, { insumo, qty });
+      else if (tipo === 'simples') await executeSimples(func, { insumo, qty });
+      else await executeTransfer(func, { insumo, qty });
+    }
+    setSelecionados({});
+  }
+
+  async function executeVariavelTransfer(funcionario: Funcionario, override?: { insumo: Insumo; qty: number }) {
+    if (!override && !pendingTransfer) return;
+    const { insumo, qty } = override ?? pendingTransfer!;
 
     const ownStock = Number(insumo.estoqueEstacionario ?? 0);
     const parent = findParent(insumo);       // ex: Pacote
@@ -308,9 +334,9 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     }
   }
 
-  async function executeTransfer(funcionario: Funcionario) {
-    if (!pendingTransfer) return;
-    const { insumo, qty } = pendingTransfer;
+  async function executeTransfer(funcionario: Funcionario, override?: { insumo: Insumo; qty: number }) {
+    if (!override && !pendingTransfer) return;
+    const { insumo, qty } = override ?? pendingTransfer!;
 
     const chain = resolveChain(insumo);
     if (chain.length < 2) {
@@ -404,9 +430,9 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     }
   }
 
-  async function executeSimples(funcionario: Funcionario) {
-    if (!pendingTransfer) return;
-    const { insumo, qty } = pendingTransfer;
+  async function executeSimples(funcionario: Funcionario, override?: { insumo: Insumo; qty: number }) {
+    if (!override && !pendingTransfer) return;
+    const { insumo, qty } = override ?? pendingTransfer!;
     const available = Number(insumo.estoqueEstacionario ?? 0);
     if (available < qty) {
       showToast(`Estoque insuficiente. Estacionado: ${available} ${insumo.unidade}`, 'error');
@@ -479,6 +505,15 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
           </p>
         </div>
         <div className="flex items-center gap-3 w-full sm:w-auto flex-wrap sm:flex-nowrap">
+          {Object.keys(selecionados).length > 0 && (
+            <button
+              onClick={() => { setBulkPin(''); setBulkPinModal(true); }}
+              className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors whitespace-nowrap flex items-center gap-2 shrink-0"
+            >
+              <CheckCircle size={14} />
+              Transferir Marcados ({Object.keys(selecionados).length})
+            </button>
+          )}
           <div className="flex items-center gap-1.5 text-xs text-green-600 bg-green-50 border border-green-200 px-2.5 py-1.5 rounded-full shrink-0">
             <Scan size={12} />
             <span>Leitor de código ativo</span>
@@ -518,9 +553,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
             'bg-purple-100 text-purple-700';
 
           return (
-            <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
+            <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${selecionados[insumo.id] ? 'border-orange-400 ring-2 ring-orange-200' : barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
               {/* Título */}
               <div className="flex items-start gap-2 flex-wrap">
+                {qty > 0 && !excede && (
+                  <input type="checkbox" checked={!!selecionados[insumo.id]} onChange={() => toggleSelecionado(insumo.id, 'container')} className="mt-1 shrink-0 accent-orange-500 w-4 h-4 cursor-pointer" title="Marcar para transferência em lote" />
+                )}
                 <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase mt-0.5 shrink-0 ${levelColor}`}>
                   {level}
                 </span>
@@ -572,7 +610,16 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
                   min="0"
                   step="1"
                   value={quantities[insumo.id] || ''}
-                  onChange={e => setQuantities(prev => ({ ...prev, [insumo.id]: e.target.value }))}
+                  onChange={e => {
+                    const val = e.target.value;
+                    const q = parseFloat(val || '0');
+                    setQuantities(prev => ({ ...prev, [insumo.id]: val }));
+                    if (q > 0 && q <= maxDisponivel) {
+                      setSelecionados(prev => ({ ...prev, [insumo.id]: 'container' }));
+                    } else {
+                      setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
+                    }
+                  }}
                   placeholder={`Qtd (${insumo.unidade})`}
                   className={`flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 text-center transition-colors ${
                     excede ? 'border-red-300 focus:ring-red-300' : 'border-gray-200 focus:ring-orange-400'
@@ -601,76 +648,62 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
           );
         })}
 
-        {containers.length === 0 && (
-          <div className="col-span-3 text-center py-16 text-gray-400">
-            <Package size={40} className="mx-auto mb-2 opacity-30" />
-            <p className="font-medium">Nenhum produto para transferência.</p>
-            <p className="text-xs mt-1">Cadastre insumos com "Insumo Vinculado" para que apareçam aqui.</p>
-          </div>
-        )}
-      </div>
-
-      {/* Produtos Transferíveis Simples */}
-      {transferiveis.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h4 className="text-sm font-bold text-gray-600 uppercase tracking-wider">Produtos em Unidade</h4>
-            <span className="text-xs text-gray-400 font-normal">— estacionado → rotativo diretamente</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {transferiveis.map(insumo => {
-              const estacionado = Number(insumo.estoqueEstacionario ?? 0);
-              const rotativo = Number(insumo.estoqueRotativo ?? 0);
-              const qty = parseFloat(quantities[insumo.id] || '0');
-              const isLoading = loadingIds.has(insumo.id);
-              const excede = qty > estacionado && qty > 0;
-              return (
-                <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
-                  <p className="font-bold text-gray-900">{insumo.nome}</p>
-                  <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Estacionado</span>
-                      <span className="font-bold text-gray-800">{estacionado} {insumo.unidade}</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-gray-500">Rotativo</span>
-                      <span className="font-bold text-orange-500">{rotativo} {insumo.unidade}</span>
-                    </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <input
-                      id={`qty-${insumo.id}`}
-                      type="number" min="0" step="1"
-                      value={quantities[insumo.id] || ''}
-                      onChange={e => setQuantities(prev => ({ ...prev, [insumo.id]: e.target.value }))}
-                      placeholder={`Qtd (${insumo.unidade})`}
-                      className={`flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 text-center transition-colors ${excede ? 'border-red-300 focus:ring-red-300' : 'border-gray-200 focus:ring-orange-400'}`}
-                    />
-                    <button
-                      onClick={() => initiateTransfer(insumo, 'simples')}
-                      disabled={isLoading || !qty || qty <= 0 || excede}
-                      className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
-                    >
-                      {isLoading ? '...' : 'Transferir'}
-                    </button>
-                  </div>
-                  {excede && <p className="text-xs text-red-500 -mt-2">Máximo: {estacionado} {insumo.unidade}</p>}
+        {transferiveis.map(insumo => {
+          const estacionado = Number(insumo.estoqueEstacionario ?? 0);
+          const rotativo = Number(insumo.estoqueRotativo ?? 0);
+          const qty = parseFloat(quantities[insumo.id] || '0');
+          const isLoading = loadingIds.has(insumo.id);
+          const excede = qty > estacionado && qty > 0;
+          return (
+            <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${selecionados[insumo.id] ? 'border-orange-400 ring-2 ring-orange-200' : barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-gray-100'}`}>
+              <div className="flex items-center gap-2">
+                {qty > 0 && !excede && (
+                  <input type="checkbox" checked={!!selecionados[insumo.id]} onChange={() => toggleSelecionado(insumo.id, 'simples')} className="shrink-0 accent-orange-500 w-4 h-4 cursor-pointer" title="Marcar para transferência em lote" />
+                )}
+                <p className="font-bold text-gray-900">{insumo.nome}</p>
+              </div>
+              <div className="bg-gray-50 rounded-lg p-3 text-sm space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Estacionado</span>
+                  <span className="font-bold text-gray-800">{estacionado} {insumo.unidade}</span>
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+                <div className="flex justify-between">
+                  <span className="text-gray-500">Rotativo</span>
+                  <span className="font-bold text-orange-500">{rotativo} {insumo.unidade}</span>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <input
+                  id={`qty-${insumo.id}`}
+                  type="number" min="0" step="1"
+                  value={quantities[insumo.id] || ''}
+                  onChange={e => {
+                    const val = e.target.value;
+                    const q = parseFloat(val || '0');
+                    setQuantities(prev => ({ ...prev, [insumo.id]: val }));
+                    if (q > 0 && q <= estacionado) {
+                      setSelecionados(prev => ({ ...prev, [insumo.id]: 'simples' }));
+                    } else {
+                      setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
+                    }
+                  }}
+                  placeholder={`Qtd (${insumo.unidade})`}
+                  className={`flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 text-center transition-colors ${excede ? 'border-red-300 focus:ring-red-300' : 'border-gray-200 focus:ring-orange-400'}`}
+                />
+                <button
+                  onClick={() => initiateTransfer(insumo, 'simples')}
+                  disabled={isLoading || !qty || qty <= 0 || excede}
+                  className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors whitespace-nowrap"
+                >
+                  {isLoading ? '...' : 'Transferir'}
+                </button>
+              </div>
+              {excede && <p className="text-xs text-red-500 -mt-2">Máximo: {estacionado} {insumo.unidade}</p>}
+            </div>
+          );
+        })}
 
-      {/* Produtos Variáveis */}
-      {variaveis.length > 0 && (
-        <div className="space-y-3">
-          <div className="flex items-center gap-2">
-            <h4 className="text-sm font-bold text-gray-600 uppercase tracking-wider">Produtos Variáveis</h4>
-            <span className="text-xs text-gray-400 font-normal">— consumo não mensurável (ketchup, copos, toucas...)</span>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {variaveis.map(insumo => {
+        {variaveis.map(insumo => {
               const ownStock = Number(insumo.estoqueEstacionario ?? 0);
               const emUso = Number(insumo.estoqueRotativo ?? 0) >= 1;
               const parent = findParent(insumo);
@@ -688,11 +721,16 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
               const excede = qty > displayStock && qty > 0;
 
               return (
-                <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-purple-100'}`}>
+                <div key={insumo.id} id={`card-${insumo.id}`} className={`bg-white rounded-xl border shadow-sm p-5 flex flex-col gap-4 transition-all duration-300 ${selecionados[insumo.id] ? 'border-orange-400 ring-2 ring-orange-200' : barcodeFocusId === insumo.id ? 'border-green-400 ring-2 ring-green-300' : 'border-purple-100'}`}>
                   <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-purple-100 text-purple-700">VARIÁVEL</span>
-                      <p className="font-bold text-gray-900 leading-snug mt-1">{insumo.nome}</p>
+                    <div className="flex items-start gap-2">
+                      {qty > 0 && !excede && (
+                        <input type="checkbox" checked={!!selecionados[insumo.id]} onChange={() => toggleSelecionado(insumo.id, 'variavel')} className="mt-1 shrink-0 accent-orange-500 w-4 h-4 cursor-pointer" title="Marcar para transferência em lote" />
+                      )}
+                      <div>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-purple-100 text-purple-700">VARIÁVEL</span>
+                        <p className="font-bold text-gray-900 leading-snug mt-1">{insumo.nome}</p>
+                      </div>
                     </div>
                     <span className={`text-xs font-bold px-2 py-1 rounded-full shrink-0 ${emUso ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-600'}`}>
                       {emUso ? '✓ Em uso' : '✗ Esgotado'}
@@ -755,9 +793,15 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
                 </div>
               );
             })}
+
+        {containers.length === 0 && transferiveis.length === 0 && variaveis.length === 0 && (
+          <div className="col-span-3 text-center py-16 text-gray-400">
+            <Package size={40} className="mx-auto mb-2 opacity-30" />
+            <p className="font-medium">Nenhum produto para transferência.</p>
+            <p className="text-xs mt-1">Marque "Transferível" no cadastro dos insumos para que apareçam aqui.</p>
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
       {/* Histórico do dia */}
       {history.length > 0 && (
@@ -857,6 +901,46 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
           </div>
         );
       })()}
+
+      {/* Modal PIN — Transferência em lote */}
+      {bulkPinModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full">
+            <h3 className="text-xl font-bold text-gray-800 text-center mb-1">Transferir Marcados</h3>
+            <p className="text-sm text-center text-orange-600 font-semibold mb-1">
+              {Object.keys(selecionados).length} produto(s) selecionado(s)
+            </p>
+            <p className="text-sm text-gray-500 text-center mb-5">Digite seu PIN para autorizar todos.</p>
+            <input
+              type="tel"
+              autoComplete="off"
+              maxLength={4}
+              autoFocus
+              value={bulkPin}
+              onChange={e => setBulkPin(e.target.value.replace(/\D/g, ''))}
+              onKeyDown={e => e.key === 'Enter' && bulkPin.length === 4 && handleBulkPinConfirm()}
+              className="w-full text-center text-3xl tracking-[1em] font-mono p-4 border-2 border-gray-200 rounded-xl outline-none focus:border-orange-400 mb-4 transition-colors"
+              placeholder="••••"
+              style={{ WebkitTextSecurity: 'disc' } as any}
+            />
+            <div className="flex gap-3">
+              <button
+                onClick={() => { setBulkPinModal(false); setBulkPin(''); }}
+                className="flex-1 p-3 text-gray-600 bg-gray-100 rounded-xl font-bold hover:bg-gray-200 transition-colors"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={handleBulkPinConfirm}
+                disabled={bulkPin.length !== 4}
+                className="flex-1 p-3 text-white bg-orange-500 rounded-xl font-bold hover:bg-orange-600 disabled:opacity-40 transition-colors"
+              >
+                Confirmar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal PIN */}
       {pinModal && (

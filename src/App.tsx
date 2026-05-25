@@ -114,6 +114,7 @@ export default function App() {
 
   const [loginMode, setLoginMode] = useState<'pin' | 'face'>('pin');
   const [faceStatus, setFaceStatus] = useState('');
+  const [pinRotacaoNotif, setPinRotacaoNotif] = useState<{ pin: string; nome: string } | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -526,7 +527,10 @@ export default function App() {
     } catch { /* AudioContext não disponível */ }
   };
 
-  const handleLogin = (e: React.FormEvent) => {
+  const CARGOS_ROTACAO_PIN = ['Dono', 'Administrador', 'Admin', 'Gerente', 'TI'];
+  const QUINZE_DIAS_MS = 15 * 24 * 60 * 60 * 1000;
+
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const user = funcionarios.find(f => String(f.pin) === pinInput);
     if (user) {
@@ -536,6 +540,24 @@ export default function App() {
         setCurrentUser(user);
         setPinInput('');
         setLoginError('');
+
+        // Rotação automática de PIN a cada 15 dias para cargos admin
+        const cargosUser: string[] = Array.isArray(user.cargo) ? user.cargo : [user.cargo || ''];
+        if (cargosUser.some(c => CARGOS_ROTACAO_PIN.includes(c))) {
+          const pinLastChanged = (user as any).pinLastChanged as number | undefined;
+          const agora = Date.now();
+          if (!pinLastChanged) {
+            update(ref(db, `funcionarios/${user.id}`), { pinLastChanged: agora });
+          } else if (agora - pinLastChanged >= QUINZE_DIAS_MS) {
+            let newPin: string;
+            do {
+              newPin = String(Math.floor(1000 + Math.random() * 9000));
+            } while (funcionarios.some(f => String(f.pin) === newPin && f.id !== user.id));
+            await update(ref(db, `funcionarios/${user.id}`), { pin: newPin, pinLastChanged: agora });
+            setPinRotacaoNotif({ pin: newPin, nome: user.nome });
+          }
+        }
+
         // Salva o último entregador logado para notificações de despacho
         if (Capacitor.isNativePlatform()) {
           const cargos: string[] = Array.isArray(user.cargo) ? user.cargo : [user.cargo || ''];
@@ -779,6 +801,32 @@ export default function App() {
   return (
     <div className="h-screen bg-gray-50 flex flex-col xl:flex-row overflow-hidden" translate="no">
       <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+
+      {/* Notificação de rotação automática de PIN */}
+      {pinRotacaoNotif && (
+        <div className="fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center gap-5 text-center">
+            <div className="w-16 h-16 rounded-full bg-orange-100 flex items-center justify-center">
+              <KeyRound size={32} className="text-orange-500" />
+            </div>
+            <div>
+              <h2 className="text-xl font-black text-gray-800 mb-1">Senha Atualizada</h2>
+              <p className="text-sm text-gray-500">Sua senha foi alterada automaticamente após 15 dias.</p>
+            </div>
+            <div className="w-full bg-orange-50 border-2 border-orange-200 rounded-2xl p-5">
+              <p className="text-xs text-orange-600 font-semibold uppercase tracking-wide mb-2">No próximo acesso, utilize:</p>
+              <p className="text-5xl font-black tracking-[0.3em] text-orange-600">{pinRotacaoNotif.pin}</p>
+            </div>
+            <p className="text-xs text-gray-400">Guarde essa senha em um local seguro.</p>
+            <button
+              onClick={() => setPinRotacaoNotif(null)}
+              className="w-full py-4 bg-orange-500 hover:bg-orange-600 text-white font-black rounded-2xl text-base transition-colors"
+            >
+              Entendido
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Banner de nova entrega para entregadores */}
       {notificacaoEntrega && (

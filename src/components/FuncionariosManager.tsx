@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, FormEvent } from 'react';
-import { ref, push, set, onValue, remove } from 'firebase/database';
+import { ref, push, set, update, onValue, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Funcionario, TransferenciaLog } from '../types';
 import { Plus, Trash2, Save, Pencil, X, History, Users, CheckCircle, AlertTriangle, UserX, UserCheck, MessageSquare, Camera, ScanFace } from 'lucide-react';
@@ -66,12 +66,18 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
       const data = snapshot.val();
       if (data) {
         const list = Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val }));
+        const CARGO_PRIORIDADE: Record<string, number> = { 'Dono': 0, 'Administrador': 1, 'Admin': 1, 'Gerente': 2 };
         list.sort((a, b) => {
           const cargoA = Array.isArray(a.cargo) ? a.cargo[0] || 'Atendente' : a.cargo || 'Atendente';
           const cargoB = Array.isArray(b.cargo) ? b.cargo[0] || 'Atendente' : b.cargo || 'Atendente';
-          const cargoCompare = cargoA.localeCompare(cargoB);
-          if (cargoCompare !== 0) return cargoCompare;
-          return (a.nome || '').localeCompare(b.nome || '');
+          const prioA = CARGO_PRIORIDADE[cargoA] ?? 99;
+          const prioB = CARGO_PRIORIDADE[cargoB] ?? 99;
+          if (prioA !== prioB) return prioA - prioB;
+          if (prioA === 99 && prioB === 99) {
+            const cargoCompare = cargoA.localeCompare(cargoB, 'pt-BR');
+            if (cargoCompare !== 0) return cargoCompare;
+          }
+          return (a.nome || '').localeCompare(b.nome || '', 'pt-BR');
         });
         setFuncionarios(list);
       } else {
@@ -177,7 +183,12 @@ export default function FuncionariosManager({ currentUser }: { currentUser?: any
     const dataToSave = { ...formData, cpf: formData.cpf.replace(/\D/g, '') };
 
     if (editId) {
-      await set(ref(db, `funcionarios/${editId}`), dataToSave);
+      const funcAtual = funcionarios.find(f => f.id === editId);
+      const pinMudou = funcAtual && String(funcAtual.pin) !== String(formData.pin);
+      const CARGOS_ROTACAO = ['Dono', 'Administrador', 'Admin', 'Gerente', 'TI'];
+      const isAdminCargo = formData.cargo.some(c => CARGOS_ROTACAO.includes(c));
+      const extra: Record<string, any> = pinMudou && isAdminCargo ? { pinLastChanged: Date.now() } : {};
+      await update(ref(db, `funcionarios/${editId}`), { ...dataToSave, ...extra });
       setEditId(null);
       showToast('Funcionário atualizado!', 'success');
     } else {

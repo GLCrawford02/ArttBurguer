@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer, Lock } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer, Lock, ScanFace, Bell } from 'lucide-react';
+import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 
 const CARGOS_EDIT_AUTORIZADO = ['Dono', 'TI', 'Admin', 'Administrador', 'Gerente', 'Caixa'];
-const AUTH_SESSION_MS = 5 * 60 * 1000;
+const AUTH_SESSION_MS = 30 * 1000;
 
 export default function LancamentoVendas({ currentUser, permissoes = {} }: { currentUser?: any, permissoes?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
@@ -31,8 +32,12 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [descontoInput, setDescontoInput] = useState('');
   const [descontoPin, setDescontoPin] = useState('');
 
-  const [authEditModal, setAuthEditModal] = useState<{ itemId: string; pin: string } | null>(null);
+  const [authEditModal, setAuthEditModal] = useState<{ itemId: string } | null>(null);
   const [editAuthSession, setEditAuthSession] = useState<number | null>(null);
+  const [faceAuthStatus, setFaceAuthStatus] = useState('');
+  const faceAuthVideoRef = useRef<HTMLVideoElement>(null);
+  const faceAuthStreamRef = useRef<MediaStream | null>(null);
+  const faceAuthIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
 
   const [pdvView, setPdvView] = useState<'mapa' | 'caixa'>('mapa');
@@ -71,6 +76,13 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
   const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; valorPorCarimbo: number; carimbosParaPremio: number } | null>(null);
+
+  const [mesaNomeCliente, setMesaNomeCliente] = useState('');
+  const [alertPedidoConcluido, setAlertPedidoConcluido] = useState<any | null>(null);
+  const pedidosConcluidosRef = useRef<Set<string>>(new Set());
+  const primeiraLeituraPedidosRef = useRef(true);
+  const funcionariosRef = useRef<any[]>([]);
+  const confirmacoesX9Ref = useRef<Set<string>>(new Set());
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
@@ -190,7 +202,137 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
         setPontosPorCliente(mapa);
       } else setPontosPorCliente({});
     });
+
+    const confX9DbRef = ref(db, 'confirmacoes_x9');
+    onValue(confX9DbRef, snap => {
+      const ids = snap.val() ? new Set<string>(Object.keys(snap.val())) : new Set<string>();
+      confirmacoesX9Ref.current = ids;
+      // Derruba o popup em todos os dispositivos se já foi confirmado por alguém
+      setAlertPedidoConcluido(prev => (prev && ids.has(prev.id) ? null : prev));
+    });
   }, []);
+
+  useEffect(() => { funcionariosRef.current = funcionarios; }, [funcionarios]);
+
+  // Face auth for cart lock
+  useEffect(() => {
+    if (!authEditModal) {
+      if (faceAuthIntervalRef.current) { clearInterval(faceAuthIntervalRef.current); faceAuthIntervalRef.current = null; }
+      if (faceAuthStreamRef.current) { faceAuthStreamRef.current.getTracks().forEach(t => t.stop()); faceAuthStreamRef.current = null; }
+      setFaceAuthStatus('');
+      return;
+    }
+    let aborted = false;
+    const run = async () => {
+      setFaceAuthStatus('Iniciando câmera...');
+      let stream: MediaStream;
+      try {
+        stream = await getCameraStream();
+        if (aborted) { stream.getTracks().forEach(t => t.stop()); return; }
+        faceAuthStreamRef.current = stream;
+        if (faceAuthVideoRef.current) { faceAuthVideoRef.current.srcObject = stream; await faceAuthVideoRef.current.play(); }
+      } catch (e) {
+        if (!aborted) setFaceAuthStatus(getCameraErrorMsg(e));
+        return;
+      }
+      if (!aborted) setFaceAuthStatus('Carregando modelos de IA...');
+      try { await ensureFaceModelsLoaded(); } catch { if (!aborted) setFaceAuthStatus('Falha ao carregar modelos.'); return; }
+      if (aborted) return;
+      setFaceAuthStatus('Posicione seu rosto na câmera...');
+      const itemId = authEditModal.itemId;
+      faceAuthIntervalRef.current = setInterval(async () => {
+        if (!faceAuthVideoRef.current || aborted) return;
+        const toDesc = (raw: any): Float32Array | null => {
+          if (!raw) return null;
+          const vals: number[] = Array.isArray(raw) ? raw : Object.values(raw);
+          if (vals.length !== 128) return null;
+          return new Float32Array(vals);
+        };
+        const autorizados = funcionariosRef.current
+          .filter(f => { const c: string[] = Array.isArray(f.cargo) ? f.cargo : [f.cargo || '']; return c.some(x => CARGOS_EDIT_AUTORIZADO.includes(x)); })
+          .map(f => ({ f, desc: toDesc((f as any).faceDescriptor) }))
+          .filter((x): x is { f: any; desc: Float32Array } => x.desc !== null);
+        if (autorizados.length === 0) { setFaceAuthStatus('Nenhum rosto autorizado cadastrado. Use PIN via gerência.'); return; }
+        try {
+          const det = await faceapi.detectSingleFace(faceAuthVideoRef.current!, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
+          if (!det) { setFaceAuthStatus('Posicione seu rosto na câmera...'); return; }
+          setFaceAuthStatus('Reconhecendo...');
+          const labeled = autorizados.map(({ f, desc }) => new faceapi.LabeledFaceDescriptors(f.id, [desc]));
+          const matcher = new faceapi.FaceMatcher(labeled, 0.6);
+          const match = matcher.findBestMatch(det.descriptor);
+          if (match.label !== 'unknown' && !aborted) {
+            const user = funcionariosRef.current.find(f => f.id === match.label);
+            if (user) {
+              aborted = true;
+              if (faceAuthIntervalRef.current) clearInterval(faceAuthIntervalRef.current);
+              if (faceAuthStreamRef.current) faceAuthStreamRef.current.getTracks().forEach(t => t.stop());
+              setEditAuthSession(Date.now());
+              updateCartItemQtd(itemId, -1);
+              setAuthEditModal(null);
+              showToast(`Autorizado por ${user.nome}`, 'success');
+            }
+          }
+        } catch { /* frame error, ignore */ }
+      }, 1500);
+    };
+    run();
+    return () => { aborted = true; };
+  }, [authEditModal]);
+
+  // Kitchen completion alert
+  useEffect(() => {
+    const concluidos = pedidosCozinha.filter(p => p.status === 'Concluído');
+    if (primeiraLeituraPedidosRef.current) {
+      concluidos.forEach(p => pedidosConcluidosRef.current.add(p.id));
+      primeiraLeituraPedidosRef.current = false;
+      return;
+    }
+    const novos = concluidos.filter(p => !pedidosConcluidosRef.current.has(p.id));
+    novos.forEach(p => pedidosConcluidosRef.current.add(p.id));
+    if (novos.length > 0) {
+      const pedido = novos[novos.length - 1];
+      if (!confirmacoesX9Ref.current.has(pedido.id)) {
+        setAlertPedidoConcluido(pedido);
+        tocarSomConclusao();
+      }
+      const temLevar = (pedido.itens || []).some((item: any) => {
+        const m = item.opcoes?.montagem;
+        if (!m) return false;
+        const vals = Array.isArray(m) ? m : Object.values(m);
+        return (vals as any[]).some((v: any) => typeof v === 'string' && v.toLowerCase().includes('levar com pedido'));
+      });
+      if (temLevar && nomesImpressoras.balcao) {
+        const bebidasItens: any[] = [];
+        (pedido.itens || []).forEach((item: any) => {
+          const b = item.opcoes?.bebidas;
+          if (!b) return;
+          const arr = Array.isArray(b) ? b : Object.values(b);
+          (arr as any[]).forEach((bv: any) => { if (bv?.nome) bebidasItens.push({ nome: bv.nome, qtd: bv.qtd || 1, preco: 0 }); });
+        });
+        if (bebidasItens.length > 0) {
+          imprimirTicketInterno(bebidasItens, 'BEBIDAS', pedido.identificador, nomesImpressoras.balcao);
+        }
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pedidosCozinha]);
+
+  const tocarSomConclusao = () => {
+    try {
+      const ctx = new AudioContext();
+      [[880, 0, 0.15], [1100, 0.18, 0.15], [1320, 0.36, 0.25]].forEach(([freq, start, dur]) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.type = 'sine';
+        osc.frequency.value = freq as number;
+        gain.gain.setValueAtTime(0.4, ctx.currentTime + (start as number));
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + (start as number) + (dur as number));
+        osc.start(ctx.currentTime + (start as number));
+        osc.stop(ctx.currentTime + (start as number) + (dur as number));
+      });
+    } catch { /* AudioContext unavailable */ }
+  };
 
   const taxasComPadroes = [
     { id: 'pix', nome: 'Pix', percentual: 0 },
@@ -247,22 +389,10 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const handleMinusClick = (id: string, item: { qtd: number; enviadoCozinha?: number }) => {
     const enviado = item.enviadoCozinha || 0;
     if (enviado > 0 && item.qtd <= enviado && !isEditAuthValid()) {
-      setAuthEditModal({ itemId: id, pin: '' });
+      setAuthEditModal({ itemId: id });
       return;
     }
     updateCartItemQtd(id, -1);
-  };
-
-  const handleConfirmAuthEdit = () => {
-    if (!authEditModal) return;
-    const func = funcionarios.find(f => String(f.pin) === authEditModal.pin);
-    if (!func) return showToast('PIN inválido.', 'error');
-    const cargos: string[] = Array.isArray(func.cargo) ? func.cargo : [func.cargo || ''];
-    const autorizado = cargos.some(c => CARGOS_EDIT_AUTORIZADO.includes(c));
-    if (!autorizado) return showToast('Permissão negada. Precisa ser Caixa, Gerente ou superior.', 'error');
-    setEditAuthSession(Date.now());
-    updateCartItemQtd(authEditModal.itemId, -1);
-    setAuthEditModal(null);
   };
 
   const updateCartItemQtd = (cartItemId: string, delta: number) => {
@@ -355,7 +485,7 @@ ${itensHtml}
     // Electron sem impressora configurada: ignora silenciosamente
   };
 
-  const dispararImpressaoSeparada = (identificador: string, carrinhoSnapshot: Record<string, any>) => {
+  const dispararImpressaoSeparada = async (identificador: string, carrinhoSnapshot: Record<string, any>) => {
     if (Object.keys(configImpressoras).length === 0) return;
 
     const itensNovos = Object.values(carrinhoSnapshot).filter(
@@ -378,11 +508,18 @@ ${itensHtml}
       if (destino === 'balcao' || destino === 'ambos') itensBalcao.push(item);
     });
 
-    imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, nomesImpressoras.cozinha);
-    imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, nomesImpressoras.balcao);
+    // Aguarda cada impressão terminar antes de iniciar a próxima (evita conflito no Electron)
+    if (itensCozinha.length > 0) {
+      if (!nomesImpressoras.cozinha) showToast('Impressora da cozinha não configurada!', 'error');
+      else await imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, nomesImpressoras.cozinha);
+    }
+    if (itensBalcao.length > 0) {
+      if (!nomesImpressoras.balcao) showToast('Impressora do balcão não configurada!', 'error');
+      else await imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, nomesImpressoras.balcao);
+    }
   };
 
-  const dispararParaCozinha = async (identificador: string, tipo: string, referenciaId?: string) => {
+  const dispararParaCozinha = async (identificador: string, tipo: string, referenciaId?: string, meta?: Record<string, any>) => {
     const itensParaEnviar = Object.entries(pdvCarrinho)
       .filter(([id, item]) => item.qtd > (item.enviadoCozinha || 0))
       .map(([id, item]) => ({
@@ -402,7 +539,8 @@ ${itensHtml}
       await set(push(ref(db, 'pedidos_cozinha')), {
         identificador, tipo,
         referenciaId: referenciaId || null,
-        itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now()
+        itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now(),
+        ...(meta || {})
       });
 
       // Abate do estoque rotativo no momento em que o pedido cai no KDS
@@ -471,8 +609,10 @@ ${itensHtml}
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvCarrinho(mesaData.carrinho || {});
+      setMesaNomeCliente(mesaData.nomeCliente || '');
     } else {
       setPdvCarrinho({});
+      setMesaNomeCliente('');
     }
     setPdvView('caixa');
   };
@@ -493,9 +633,13 @@ ${itensHtml}
       showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
     } else {
         dispararImpressaoSeparada(`Mesa ${mesaSelecionada}`, pdvCarrinho);
-        const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa', `mesa_${mesaSelecionada}`);
+        const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa', `mesa_${mesaSelecionada}`, {
+          atendenteId: currentUser?.id || null,
+          atendenteNome: currentUser?.nome || null
+        });
       await set(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`), {
         carrinho: novoCarrinho,
+        nomeCliente: mesaNomeCliente.trim() || null,
         timestamp: Date.now()
       });
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
@@ -556,6 +700,20 @@ ${itensHtml}
     setPdvSearchCliente('');
     setIsCartExpanded(false);
     setPdvView('mapa');
+  };
+
+  const handleReimprimirEntrega = (e: React.MouseEvent, id: string, entrega: any) => {
+    e.stopPropagation();
+    if (!entrega) return;
+    const total = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
+    setViewComanda({
+      timestamp: entrega.timestamp || Date.now(),
+      descricao: `Delivery: ${entrega.clienteNome}`,
+      itens: Object.values(entrega.carrinho || {}),
+      valor: total,
+      desconto: 0,
+      pagamentos: []
+    });
   };
 
   const handleReimprimirMesa = (e: React.MouseEvent, num: number, isAberta: any) => {
@@ -733,6 +891,7 @@ ${itensHtml}
       adicionais: {},
       restricoes: [],
       observacao: '',
+      bebidas: {},
       quantidade: 1
     });
   };
@@ -750,8 +909,9 @@ ${itensHtml}
     const unitPrice = basePrice + adicionaisPrice;
     const cartItemId = `${pdvItemModal.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
-    const hasOptions = pdvItemOptions.montagem.length > 0 || pdvItemOptions.pontoCarne || Object.keys(pdvItemOptions.adicionais).length > 0 || pdvItemOptions.restricoes.length > 0 || pdvItemOptions.observacao;
-  
+    const bebidasSelecionadas = Object.entries(pdvItemOptions.bebidas || {}).filter(([, qtd]: [string, any]) => qtd > 0);
+    const hasOptions = pdvItemOptions.montagem.length > 0 || pdvItemOptions.pontoCarne || Object.keys(pdvItemOptions.adicionais).length > 0 || pdvItemOptions.restricoes.length > 0 || pdvItemOptions.observacao || bebidasSelecionadas.length > 0;
+
     const opcoesObj = hasOptions ? {
       montagem: pdvItemOptions.montagem,
       pontoCarne: pdvItemOptions.pontoCarne,
@@ -760,7 +920,11 @@ ${itensHtml}
         return { id: add?.id, nome: add?.nome, qtd, preco: Number(add?.preco || 0), insumoId: add?.insumoId, quantidadeInsumo: add?.quantidade || 1 };
       }),
       restricoes: pdvItemOptions.restricoes,
-      observacao: pdvItemOptions.observacao
+      observacao: pdvItemOptions.observacao,
+      bebidas: bebidasSelecionadas.map(([prodId, qtd]: [string, any]) => {
+        const prod = produtos.find((p: any) => p.id === prodId);
+        return { id: prodId, nome: prod?.nome || prodId, qtd, preco: Number(prod?.precoVenda || 0) };
+      })
     } : null;
   
     setPdvCarrinho(prev => ({
@@ -1293,13 +1457,18 @@ Formato esperado:
                   {Object.entries(entregasAbertas).map(([id, entrega]: any) => {
                     const total = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
                     return (
-                      <button key={id} onClick={() => handleAbrirEntrega(id)} className="p-3 sm:p-4 rounded-xl border-2 border-orange-500 bg-orange-50 text-orange-700 shadow-sm flex flex-col justify-center items-start transition-all hover:bg-orange-100">
-                        <span className="font-bold text-sm truncate w-full text-left">{entrega.clienteNome}</span>
-                        <span className="text-[10px] text-orange-600 mt-1">{entrega.clienteTelefone}</span>
-                        <span className="text-sm font-black mt-2">R$ {total.toFixed(2)}</span>
-                        {entrega.statusEntrega === 'Em Rota' && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Em Rota</span>}
-                        {entrega.statusEntrega === 'Concluída' && <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Entregue (Aguardando Pgto)</span>}
-                      </button>
+                      <div key={id} className="relative">
+                        <button onClick={() => handleAbrirEntrega(id)} className="w-full p-3 sm:p-4 rounded-xl border-2 border-orange-500 bg-orange-50 text-orange-700 shadow-sm flex flex-col justify-center items-start transition-all hover:bg-orange-100">
+                          <span className="font-bold text-sm truncate w-full text-left pr-8">{entrega.clienteNome}</span>
+                          <span className="text-[10px] text-orange-600 mt-1">{entrega.clienteTelefone}</span>
+                          <span className="text-sm font-black mt-2">R$ {total.toFixed(2)}</span>
+                          {entrega.statusEntrega === 'Em Rota' && <span className="text-[10px] bg-green-100 text-green-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Em Rota</span>}
+                          {entrega.statusEntrega === 'Concluída' && <span className="text-[10px] bg-gray-200 text-gray-700 px-2 py-0.5 rounded font-bold mt-2 inline-block">Entregue (Aguardando Pgto)</span>}
+                        </button>
+                        <button onClick={(e) => handleReimprimirEntrega(e, id, entrega)} className="absolute top-1 sm:top-2 right-1 sm:right-2 p-1 sm:p-1.5 bg-orange-200 hover:bg-orange-300 text-orange-800 rounded-md transition-colors shadow-sm" title="Reimprimir Comanda">
+                          <Printer size={12} />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -1319,7 +1488,10 @@ Formato esperado:
                   return (
                     <div key={num} onClick={() => handleAbrirMesa(num)} className={`relative p-2 sm:p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-20 sm:h-24 cursor-pointer ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm hover:bg-orange-100' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
                       <span className="text-xl sm:text-2xl font-black leading-none pointer-events-none">{num}</span>
-                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold mt-1 sm:mt-2 pointer-events-none">{isAberta ? `R$ ${total.toFixed(2)}` : 'Livre'}</span>
+                      {isAberta?.nomeCliente && (
+                        <span className="text-[8px] sm:text-[9px] font-bold text-orange-600 truncate max-w-full px-1 pointer-events-none leading-none">{isAberta.nomeCliente}</span>
+                      )}
+                      <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold mt-0.5 sm:mt-1 pointer-events-none">{isAberta ? `R$ ${total.toFixed(2)}` : 'Livre'}</span>
                       {isAberta && (
                         <button onClick={(e) => handleReimprimirMesa(e, num, isAberta)} className="absolute top-1 sm:top-2 right-1 sm:right-2 p-1 sm:p-1.5 bg-orange-200 hover:bg-orange-300 text-orange-800 rounded-md transition-colors shadow-sm" title="Imprimir Pedido Parcial">
                           <Printer size={12} />
@@ -1350,7 +1522,16 @@ Formato esperado:
                 <ArrowLeft size={18}/>
               </button>
               {pdvTipoPedido === 'Mesa' ? (
-                <div className="flex-1 text-center font-bold text-gray-700">Mesa {mesaSelecionada}</div>
+                <div className="flex flex-1 items-center gap-2">
+                  <span className="font-bold text-gray-700 whitespace-nowrap">Mesa {mesaSelecionada}</span>
+                  <input
+                    type="text"
+                    value={mesaNomeCliente}
+                    onChange={e => setMesaNomeCliente(e.target.value)}
+                    placeholder="Nome do cliente..."
+                    className="flex-1 text-sm p-1.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 min-w-0"
+                  />
+                </div>
               ) : entregaSelecionada ? (
                 <div className="flex-1 text-center font-bold text-green-700">Edição de Delivery</div>
               ) : (
@@ -1716,6 +1897,34 @@ Formato esperado:
                  <textarea value={pdvItemOptions.observacao} onChange={e=>setPdvItemOptions({...pdvItemOptions, observacao: e.target.value})} className="w-full p-3 border rounded-lg outline-none focus:ring-2 focus:ring-green-500 resize-none text-sm bg-gray-50 focus:bg-white" rows={2} placeholder="Ex: Embalar separado..."></textarea>
                </div>
 
+               {pdvItemOptions.montagem.some((m: string) => m.toLowerCase().includes('levar com pedido')) && (() => {
+                 const bebidaProdutos = produtos.filter((p: any) => (p.categoria || '').toLowerCase() === 'bebidas');
+                 if (bebidaProdutos.length === 0) return null;
+                 return (
+                   <div className="space-y-2">
+                     <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs flex items-center gap-1.5">Bebidas</h4>
+                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                       {bebidaProdutos.map((bev: any) => {
+                         const qtd = pdvItemOptions.bebidas?.[bev.id] || 0;
+                         return (
+                           <div key={bev.id} className="flex justify-between items-center p-2 border rounded-lg bg-blue-50 border-blue-200">
+                             <div>
+                               <span className="font-medium text-sm text-gray-800">{bev.nome}</span>
+                               {Number(bev.precoVenda) > 0 && <span className="block text-xs text-green-600 font-bold">+ R$ {Number(bev.precoVenda).toFixed(2)}</span>}
+                             </div>
+                             <div className="flex items-center space-x-3 bg-white p-1 rounded-lg border shadow-sm">
+                               <button onClick={() => setPdvItemOptions((prev: any) => { const n = {...(prev.bebidas||{})}; if (qtd <= 1) delete n[bev.id]; else n[bev.id] = qtd - 1; return {...prev, bebidas: n}; })} className="text-gray-500 hover:text-red-500 px-2">-</button>
+                               <span className="text-sm font-bold w-4 text-center">{qtd}</span>
+                               <button onClick={() => setPdvItemOptions((prev: any) => ({...prev, bebidas: {...(prev.bebidas||{}), [bev.id]: qtd + 1}}))} className="text-gray-500 hover:text-green-500 px-2">+</button>
+                             </div>
+                           </div>
+                         );
+                       })}
+                     </div>
+                   </div>
+                 );
+               })()}
+
             </div>
             
             <div className="p-4 border-t bg-gray-100 rounded-b-xl flex flex-col sm:flex-row items-center justify-between gap-4 shrink-0">
@@ -1764,40 +1973,75 @@ Formato esperado:
         </div>
       )}
 
+      {alertPedidoConcluido && (
+        <div className="fixed top-4 right-4 z-[210] bg-green-600 text-white rounded-2xl shadow-2xl p-5 max-w-sm w-full animate-in slide-in-from-right-4 duration-300">
+          <div className="flex justify-between items-start mb-3">
+            <h3 className="font-black text-lg flex items-center gap-2">
+              <Bell size={20}/>
+              {alertPedidoConcluido.tipo === 'Mesa' ? 'Levar para a Mesa!' : 'Pedido Finalizado!'}
+            </h3>
+            {alertPedidoConcluido.tipo !== 'Mesa' && (
+              <button onClick={() => setAlertPedidoConcluido(null)} className="text-white/80 hover:text-white ml-2 shrink-0"><X size={20}/></button>
+            )}
+          </div>
+          <p className="font-bold text-sm mb-2 text-green-100">{alertPedidoConcluido.identificador}</p>
+          <div className="text-sm text-green-100 space-y-0.5 max-h-32 overflow-y-auto">
+            {(alertPedidoConcluido.itens || []).map((item: any, i: number) => (
+              <p key={i}><span className="font-bold">{item.qtd}x</span> {item.nome}</p>
+            ))}
+          </div>
+          {(alertPedidoConcluido.itens || []).some((item: any) => {
+            const b = item.opcoes?.bebidas;
+            if (!b) return false;
+            const arr = Array.isArray(b) ? b : Object.values(b);
+            return arr.length > 0;
+          }) && (
+            <div className="mt-3 pt-3 border-t border-green-500">
+              <p className="text-xs font-bold text-green-200 mb-1">Bebidas Solicitadas:</p>
+              {(alertPedidoConcluido.itens || []).flatMap((item: any) => {
+                const b = item.opcoes?.bebidas;
+                if (!b) return [];
+                return Array.isArray(b) ? b : Object.values(b);
+              }).map((b: any, i: number) => (
+                <p key={i} className="text-sm text-green-100">{b.qtd}x {b.nome}</p>
+              ))}
+            </div>
+          )}
+          {alertPedidoConcluido.tipo === 'Mesa' && (
+            <button
+              onClick={async () => {
+                const pedidoId = alertPedidoConcluido.id;
+                await set(ref(db, `confirmacoes_x9/${pedidoId}`), {
+                  atendenteId: currentUser?.id || null,
+                  atendenteNome: currentUser?.nome || null,
+                  identificador: alertPedidoConcluido.identificador,
+                  timestamp: Date.now()
+                });
+                setAlertPedidoConcluido(null);
+              }}
+              className="w-full mt-4 py-3 bg-white text-green-700 rounded-xl font-black hover:bg-green-50 transition-colors flex items-center justify-center gap-2"
+            >
+              <CheckCircle size={18}/> OK, Vou Levar!
+            </button>
+          )}
+        </div>
+      )}
+
       {authEditModal && (
         <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-xs p-6 flex flex-col gap-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6 flex flex-col gap-4">
             <div className="flex items-center justify-between">
               <h3 className="font-black text-gray-800 flex items-center gap-2"><Lock size={18} className="text-orange-500"/> Edição Bloqueada</h3>
               <button onClick={() => setAuthEditModal(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            <p className="text-sm text-gray-500">Este item já foi enviado à cozinha. Digite o PIN de um <strong>Caixa, Gerente ou superior</strong> para autorizar a edição.</p>
-            <div className="flex justify-center gap-3">
-              {[1,2,3,4,5,6,7,8,9,'',0,'←'].map((k, i) => (
-                <button
-                  key={i}
-                  onClick={() => {
-                    if (k === '←') setAuthEditModal(m => m ? { ...m, pin: m.pin.slice(0, -1) } : null);
-                    else if (k !== '') setAuthEditModal(m => m ? { ...m, pin: m.pin + k } : null);
-                  }}
-                  className={`w-14 h-14 rounded-xl font-black text-xl ${k === '' ? 'invisible' : 'bg-gray-100 hover:bg-gray-200 active:bg-gray-300 text-gray-800'} transition-colors`}
-                >
-                  {k}
-                </button>
-              ))}
+            <p className="text-sm text-gray-500">Este item já foi enviado à cozinha. Olhe para a câmera — reconhecimento facial de <strong>Caixa, Gerente ou superior</strong> é necessário.</p>
+            <div className="relative rounded-xl overflow-hidden bg-gray-900 h-56">
+              <video ref={faceAuthVideoRef} className="w-full h-full object-cover" muted playsInline />
+              {faceAuthStatus && (
+                <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm text-white text-xs text-center py-2 px-3">{faceAuthStatus}</div>
+              )}
             </div>
-            <div className="flex justify-center gap-2">
-              {[1,2,3,4].map(i => (
-                <div key={i} className={`w-4 h-4 rounded-full border-2 ${(authEditModal.pin?.length || 0) >= i ? 'bg-orange-500 border-orange-500' : 'border-gray-300'}`}/>
-              ))}
-            </div>
-            <button
-              onClick={handleConfirmAuthEdit}
-              disabled={!authEditModal.pin}
-              className="w-full py-3 bg-orange-500 text-white rounded-xl font-black text-base hover:bg-orange-600 disabled:opacity-40 transition-colors"
-            >
-              Autorizar Edição
-            </button>
+            <button onClick={() => setAuthEditModal(null)} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
           </div>
         </div>
       )}
