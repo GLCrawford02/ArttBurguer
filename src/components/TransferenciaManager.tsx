@@ -775,7 +775,16 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
                       min="0"
                       step="1"
                       value={quantities[insumo.id] || ''}
-                      onChange={e => setQuantities(prev => ({ ...prev, [insumo.id]: e.target.value }))}
+                      onChange={e => {
+                        const val = e.target.value;
+                        const q = parseFloat(val || '0');
+                        setQuantities(prev => ({ ...prev, [insumo.id]: val }));
+                        if (q > 0 && q <= displayStock) {
+                          setSelecionados(prev => ({ ...prev, [insumo.id]: 'variavel' }));
+                        } else {
+                          setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
+                        }
+                      }}
                       placeholder={`Qtd (${displayUnit}) de ${displayNome}`}
                       className={`flex-1 border rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 text-center transition-colors ${excede ? 'border-red-300 focus:ring-red-300' : 'border-gray-200 focus:ring-purple-400'}`}
                     />
