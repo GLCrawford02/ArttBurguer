@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">ArttBurger Entregas</string>
-    <string name="title_activity_main">ArttBurger Entregas</string>
+    <string name="app_name">ArttBurger</string>
+    <string name="title_activity_main">ArttBurger</string>
     <string name="package_name">com.arttburger.app</string>
     <string name="custom_url_scheme">com.arttburger.app</string>
 </resources>

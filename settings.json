@@ -1,0 +1,18 @@
+{
+  "files.exclude": {
+    "**/dist-electron": true
+  },
+  "search.exclude": {
+    "**/dist-electron": true
+  },
+  "files.watcherExclude": {
+    "**/dist-electron/**": true
+  },
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-17",
+      "path": "C:\\Program Files\\Eclipse Adoptium\\jdk-17.0.8.101-hotspot",
+      "default": true
+    }
+  ]
+}

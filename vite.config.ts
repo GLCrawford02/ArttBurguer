@@ -49,7 +49,6 @@ export default defineConfig(({mode}) => {
             if (id.includes('node_modules')) {
               if (id.includes('firebase')) return 'firebase';
               if (id.includes('lucide-react')) return 'icons';
-              if (id.includes('react') || id.includes('react-dom')) return 'react-vendor';
               return 'vendor';
             }
           }

@@ -145,7 +145,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         const watcherId = await BackgroundGeolocation.addWatcher(
           {
             backgroundMessage: 'GPS ativo — rota em andamento. Toque para abrir o app.',
-            backgroundTitle: 'ArttBurger Entregas',
+            backgroundTitle: 'ArttBurger',
             requestPermissions: true,
             stale: false,
             distanceFilter: 10,
