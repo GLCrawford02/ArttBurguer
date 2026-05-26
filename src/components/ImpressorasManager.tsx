@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Printer, Save, CheckCircle, AlertTriangle, RefreshCw } from 'lucide-react';
+import { Printer, Save, CheckCircle, AlertTriangle } from 'lucide-react';
 
 const DESTINOS = [
   { value: 'cozinha', label: 'Cozinha' },
@@ -16,8 +16,6 @@ export default function ImpressorasManager() {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [nomes, setNomes] = useState({ cozinha: '', balcao: '' });
-  const [impressorasDisponiveis, setImpressorasDisponiveis] = useState<{ nome: string; padrao: boolean }[]>([]);
-  const [carregandoImpressoras, setCarregandoImpressoras] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -44,19 +42,6 @@ export default function ImpressorasManager() {
 
     return () => { unsubProd(); unsubConfig(); unsubNomes(); };
   }, []);
-
-  const handleListarImpressoras = async () => {
-    if (!isElectron) return;
-    setCarregandoImpressoras(true);
-    try {
-      const lista = await (window as any).electronAPI.listarImpressoras();
-      setImpressorasDisponiveis(lista);
-    } catch {
-      showToast('Erro ao listar impressoras.', 'error');
-    } finally {
-      setCarregandoImpressoras(false);
-    }
-  };
 
   const handleSalvar = async () => {
     try {
@@ -85,63 +70,34 @@ export default function ImpressorasManager() {
         </button>
       </div>
 
-      {/* Nomes das impressoras */}
+      {/* IP das impressoras */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
-          <h4 className="font-bold text-gray-700">Nome das Impressoras</h4>
-          {isElectron ? (
-            <button
-              onClick={handleListarImpressoras}
-              disabled={carregandoImpressoras}
-              className="flex items-center gap-2 text-sm bg-gray-100 hover:bg-gray-200 text-gray-700 px-3 py-1.5 rounded-lg font-bold transition-colors disabled:opacity-50"
-            >
-              <RefreshCw size={14} className={carregandoImpressoras ? 'animate-spin' : ''} />
-              Detectar impressoras
-            </button>
-          ) : (
-            <span className="text-xs text-gray-400 bg-gray-50 px-3 py-1.5 rounded-lg border border-gray-200">
-              Detecção automática disponível somente no .exe
-            </span>
-          )}
+          <div>
+            <h4 className="font-bold text-gray-700">Identificação USB das Impressoras (VID e PID)</h4>
+            <p className="text-xs text-gray-400 mt-0.5">Informe o VID e PID em hexadecimal separados por vírgula (Ex: 0x04b8,0x0202).</p>
+          </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
           {(['cozinha', 'balcao'] as const).map(dest => (
             <div key={dest}>
-              <label className="block text-sm font-bold text-gray-600 mb-1 capitalize">
-                Impressora — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
+              <label className="block text-sm font-bold text-gray-600 mb-1">
+                VID/PID — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
               </label>
-              {impressorasDisponiveis.length > 0 ? (
-                <select
-                  value={nomes[dest]}
-                  onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
-                  className="w-full p-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                >
-                  <option value="">Selecione uma impressora...</option>
-                  {impressorasDisponiveis.map(imp => (
-                    <option key={imp.nome} value={imp.nome}>
-                      {imp.nome}{imp.padrao ? ' (padrão)' : ''}
-                    </option>
-                  ))}
-                </select>
-              ) : (
-                <input
-                  type="text"
-                  value={nomes[dest]}
-                  onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
-                  placeholder={`Ex: EPSON TM-T20 ${dest === 'cozinha' ? 'Cozinha' : 'Balcão'}`}
-                  className="w-full p-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500"
-                />
-              )}
+              <input
+                type="text"
+                value={nomes[dest]}
+                onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
+                placeholder="Ex: 0x04b8,0x0202"
+                className="w-full p-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+              />
             </div>
           ))}
         </div>
-
-        {impressorasDisponiveis.length > 0 && (
-          <p className="text-xs text-green-600 font-bold mt-3">
-            {impressorasDisponiveis.length} impressora(s) detectada(s) no sistema.
-          </p>
-        )}
+        <p className="text-xs text-gray-400 mt-3">
+          Encontre o VID e PID da impressora no Gerenciador de Dispositivos do Windows (Propriedades &gt; Detalhes &gt; IDs de Hardware).
+        </p>
       </div>
 
       {/* Roteamento por categoria */}

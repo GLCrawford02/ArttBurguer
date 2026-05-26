@@ -1,14 +1,20 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-// Expõe para o React apenas o que é necessário, de forma segura
 contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
-  // Imprime silenciosamente na impressora especificada
+  // Ticket cozinha/balcão — RAW ESC/POS via IP:9100
+  imprimirTicketIP: (ip, items, destLabel, identificador, lancadoPor) =>
+    ipcRenderer.invoke('imprimir-ip-ticket', { ip, items, destLabel, identificador, lancadoPor }),
+
+  // Recibo do cliente — RAW ESC/POS via IP:9100
+  imprimirReciboIP: (ip, payload) =>
+    ipcRenderer.invoke('imprimir-ip-recibo', { ip, ...payload }),
+
+  // Legado: impressão via driver Windows (mantido para fallback)
   imprimir: (printerName, html) =>
     ipcRenderer.invoke('imprimir-ticket', { printerName, html }),
 
-  // Retorna lista de impressoras instaladas no Windows
   listarImpressoras: () =>
     ipcRenderer.invoke('listar-impressoras'),
 });

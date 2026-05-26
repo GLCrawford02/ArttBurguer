@@ -9,10 +9,11 @@ interface EmbalagemItem {
   quantidade: number;
 }
 
-interface GrupoData {
+export interface GrupoData {
   nome: string;
   produtos: string[];
-  insumos: EmbalagemItem[];
+  delivery: EmbalagemItem[];
+  salao: EmbalagemItem[];
 }
 
 // ─── Seletor de insumo reutilizável ───────────────────────────────────────────
@@ -120,52 +121,7 @@ function ProdutoSelector({
   );
 }
 
-// ─── Card de seção fixa (Delivery / Salão) ────────────────────────────────────
-function SectionCard({
-  label, icon, items, insumos, onAdd, onRemove, onChangeQtd,
-}: {
-  label: string;
-  icon: React.ReactNode;
-  items: EmbalagemItem[];
-  insumos: Insumo[];
-  onAdd: (id: string, qtd: number) => void;
-  onRemove: (id: string) => void;
-  onChangeQtd: (id: string, qtd: number) => void;
-}) {
-  return (
-    <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-3">
-      <h4 className="text-sm font-bold text-gray-700 flex items-center border-b border-gray-100 pb-2">
-        {icon}{label}
-      </h4>
-      <InsumoSelector insumos={insumos} excludeIds={items.map(i => i.insumoId)} onAdd={onAdd} />
-      {items.length === 0 ? (
-        <p className="text-xs text-gray-400 text-center py-3">Nenhum insumo configurado</p>
-      ) : (
-        <ul className="space-y-1.5">
-          {items.map(item => {
-            const insumo = insumos.find(i => i.id === item.insumoId);
-            return (
-              <li key={item.insumoId} className="flex items-center gap-2 bg-gray-50 px-3 py-2 rounded-lg">
-                <span className="flex-1 text-sm font-medium text-gray-700 truncate">
-                  {insumo?.nome || <span className="text-red-400 italic">Insumo removido</span>}
-                </span>
-                <input type="number" min={0.01} step={0.01} value={item.quantidade}
-                  onChange={e => onChangeQtd(item.insumoId, Number(e.target.value))}
-                  className="w-16 p-1 border border-gray-200 rounded text-xs text-center bg-white" />
-                <span className="text-xs text-gray-400 w-8 shrink-0">{insumo?.unidade || ''}</span>
-                <button onClick={() => onRemove(item.insumoId)} className="text-red-400 hover:text-red-600 transition-colors shrink-0">
-                  <Trash2 size={14} />
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-// ─── Card de grupo customizado ─────────────────────────────────────────────────
+// ─── Card de grupo com Delivery / Mesa separados ───────────────────────────────
 function GrupoCard({
   grupo, insumos, produtos, onChange, onDelete,
 }: {
@@ -184,20 +140,46 @@ function GrupoCard({
     else setNameInput(grupo.nome);
   };
 
-  const addInsumo = (insumoId: string, qtd: number) =>
-    onChange({ ...grupo, insumos: [...grupo.insumos, { insumoId, quantidade: qtd }] });
+  const addProduto = (id: string) => onChange({ ...grupo, produtos: [...grupo.produtos, id] });
+  const removeProduto = (id: string) => onChange({ ...grupo, produtos: grupo.produtos.filter(p => p !== id) });
 
-  const removeInsumo = (id: string) =>
-    onChange({ ...grupo, insumos: grupo.insumos.filter(i => i.insumoId !== id) });
+  const addD = (id: string, qtd: number) => onChange({ ...grupo, delivery: [...grupo.delivery, { insumoId: id, quantidade: qtd }] });
+  const removeD = (id: string) => onChange({ ...grupo, delivery: grupo.delivery.filter(i => i.insumoId !== id) });
+  const changeQtdD = (id: string, qtd: number) => onChange({ ...grupo, delivery: grupo.delivery.map(i => i.insumoId === id ? { ...i, quantidade: qtd } : i) });
 
-  const changeQtdInsumo = (id: string, qtd: number) =>
-    onChange({ ...grupo, insumos: grupo.insumos.map(i => i.insumoId === id ? { ...i, quantidade: qtd } : i) });
+  const addS = (id: string, qtd: number) => onChange({ ...grupo, salao: [...grupo.salao, { insumoId: id, quantidade: qtd }] });
+  const removeS = (id: string) => onChange({ ...grupo, salao: grupo.salao.filter(i => i.insumoId !== id) });
+  const changeQtdS = (id: string, qtd: number) => onChange({ ...grupo, salao: grupo.salao.map(i => i.insumoId === id ? { ...i, quantidade: qtd } : i) });
 
-  const addProduto = (produtoId: string) =>
-    onChange({ ...grupo, produtos: [...grupo.produtos, produtoId] });
-
-  const removeProduto = (produtoId: string) =>
-    onChange({ ...grupo, produtos: grupo.produtos.filter(id => id !== produtoId) });
+  const renderInsumos = (
+    items: EmbalagemItem[],
+    onRemove: (id: string) => void,
+    onChangeQtd: (id: string, qtd: number) => void,
+    bgClass: string
+  ) =>
+    items.length === 0 ? (
+      <p className="text-xs text-gray-400 text-center py-2">Nenhum insumo configurado</p>
+    ) : (
+      <ul className="space-y-1">
+        {items.map(item => {
+          const ins = insumos.find(i => i.id === item.insumoId);
+          return (
+            <li key={item.insumoId} className={`flex items-center gap-2 ${bgClass} px-2.5 py-1.5 rounded-lg`}>
+              <span className="flex-1 text-sm font-medium text-gray-700 truncate">
+                {ins?.nome || <span className="text-red-400 italic">Insumo removido</span>}
+              </span>
+              <input type="number" min={0.01} step={0.01} value={item.quantidade}
+                onChange={e => onChangeQtd(item.insumoId, Number(e.target.value))}
+                className="w-14 p-1 border border-gray-200 rounded text-xs text-center bg-white" />
+              <span className="text-xs text-gray-400 w-8 shrink-0">{ins?.unidade || ''}</span>
+              <button onClick={() => onRemove(item.insumoId)} className="text-red-400 hover:text-red-600 shrink-0">
+                <Trash2 size={13} />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    );
 
   return (
     <div className="bg-white rounded-xl border border-orange-200 shadow-sm p-4 space-y-4">
@@ -223,60 +205,44 @@ function GrupoCard({
         </button>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Produtos */}
-        <div className="space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Produtos deste grupo</p>
-          <ProdutoSelector produtos={produtos} excludeIds={grupo.produtos} onAdd={addProduto} />
-          {grupo.produtos.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-2">Nenhum produto vinculado</p>
-          ) : (
-            <ul className="space-y-1">
-              {grupo.produtos.map(pid => {
-                const p = produtos.find(pr => pr.id === pid);
-                return (
-                  <li key={pid} className="flex items-center gap-2 bg-orange-50 px-2.5 py-1.5 rounded-lg">
-                    <span className="flex-1 text-sm font-medium text-gray-700 truncate">
-                      {p?.nome || <span className="text-red-400 italic">Produto removido</span>}
-                    </span>
-                    {p?.categoria && <span className="text-xs text-gray-400">{p.categoria}</span>}
-                    <button onClick={() => removeProduto(pid)} className="text-red-400 hover:text-red-600 transition-colors shrink-0">
-                      <X size={13} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </div>
+      {/* Produtos */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Produtos deste grupo</p>
+        <ProdutoSelector produtos={produtos} excludeIds={grupo.produtos} onAdd={addProduto} />
+        {grupo.produtos.length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-2">Nenhum produto vinculado</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {grupo.produtos.map(pid => {
+              const p = produtos.find(pr => pr.id === pid);
+              return (
+                <span key={pid} className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 text-xs font-medium px-2.5 py-1 rounded-full">
+                  {p?.nome || <span className="text-red-400 italic">Removido</span>}
+                  <button onClick={() => removeProduto(pid)} className="text-orange-400 hover:text-red-500 transition-colors">
+                    <X size={11} />
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
 
-        {/* Insumos / Embalagens */}
+      {/* Insumos split */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1 border-t border-gray-100">
         <div className="space-y-2">
-          <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Insumos descontados no estoque</p>
-          <InsumoSelector insumos={insumos} excludeIds={grupo.insumos.map(i => i.insumoId)} onAdd={addInsumo} />
-          {grupo.insumos.length === 0 ? (
-            <p className="text-xs text-gray-400 text-center py-2">Nenhum insumo configurado</p>
-          ) : (
-            <ul className="space-y-1">
-              {grupo.insumos.map(item => {
-                const insumo = insumos.find(i => i.id === item.insumoId);
-                return (
-                  <li key={item.insumoId} className="flex items-center gap-2 bg-gray-50 px-2.5 py-1.5 rounded-lg">
-                    <span className="flex-1 text-sm font-medium text-gray-700 truncate">
-                      {insumo?.nome || <span className="text-red-400 italic">Insumo removido</span>}
-                    </span>
-                    <input type="number" min={0.01} step={0.01} value={item.quantidade}
-                      onChange={e => changeQtdInsumo(item.insumoId, Number(e.target.value))}
-                      className="w-14 p-1 border border-gray-200 rounded text-xs text-center bg-white" />
-                    <span className="text-xs text-gray-400 w-8 shrink-0">{insumo?.unidade || ''}</span>
-                    <button onClick={() => removeInsumo(item.insumoId)} className="text-red-400 hover:text-red-600 transition-colors shrink-0">
-                      <Trash2 size={13} />
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
+          <p className="text-xs font-bold text-blue-600 uppercase tracking-wide flex items-center gap-1">
+            <Truck size={12} /> Delivery
+          </p>
+          <InsumoSelector insumos={insumos} excludeIds={grupo.delivery.map(i => i.insumoId)} onAdd={addD} />
+          {renderInsumos(grupo.delivery, removeD, changeQtdD, 'bg-blue-50')}
+        </div>
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-green-600 uppercase tracking-wide flex items-center gap-1">
+            <Store size={12} /> Mesa / Salão
+          </p>
+          <InsumoSelector insumos={insumos} excludeIds={grupo.salao.map(i => i.insumoId)} onAdd={addS} />
+          {renderInsumos(grupo.salao, removeS, changeQtdS, 'bg-green-50')}
         </div>
       </div>
     </div>
@@ -287,8 +253,6 @@ function GrupoCard({
 export default function EmbalagensPadraoManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
-  const [delivery, setDelivery] = useState<EmbalagemItem[]>([]);
-  const [salao, setSalao] = useState<EmbalagemItem[]>([]);
   const [grupos, setGrupos] = useState<Record<string, GrupoData>>({});
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -319,22 +283,21 @@ export default function EmbalagensPadraoManager() {
           setProdutos(list);
         }
       }),
-      onValue(ref(db, 'configuracoes/embalagens_padrao'), snap => {
+      onValue(ref(db, 'configuracoes/embalagens_padrao/grupos'), snap => {
         const data = snap.val();
-        if (data) {
-          setDelivery(toArr(data.delivery));
-          setSalao(toArr(data.salao));
-          if (data.grupos && typeof data.grupos === 'object') {
-            const parsed: Record<string, GrupoData> = {};
-            for (const [id, g] of Object.entries(data.grupos) as [string, any][]) {
-              parsed[id] = {
-                nome: g.nome || 'Grupo',
-                produtos: Array.isArray(g.produtos) ? g.produtos : g.produtos ? Object.values(g.produtos) : [],
-                insumos: toArr(g.insumos),
-              };
-            }
-            setGrupos(parsed);
+        if (data && typeof data === 'object') {
+          const parsed: Record<string, GrupoData> = {};
+          for (const [id, g] of Object.entries(data) as [string, any][]) {
+            parsed[id] = {
+              nome: g.nome || 'Grupo',
+              produtos: Array.isArray(g.produtos) ? g.produtos : g.produtos ? Object.values(g.produtos) : [],
+              delivery: toArr(g.delivery),
+              salao: toArr(g.salao),
+            };
           }
+          setGrupos(parsed);
+        } else {
+          setGrupos({});
         }
       }),
     ];
@@ -344,7 +307,7 @@ export default function EmbalagensPadraoManager() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      await set(ref(db, 'configuracoes/embalagens_padrao'), { delivery, salao, grupos });
+      await set(ref(db, 'configuracoes/embalagens_padrao/grupos'), grupos);
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } finally {
@@ -356,7 +319,7 @@ export default function EmbalagensPadraoManager() {
     const nome = novoGrupoNome.trim();
     if (!nome) return;
     const id = `grupo_${Date.now()}`;
-    setGrupos(prev => ({ ...prev, [id]: { nome, produtos: [], insumos: [] } }));
+    setGrupos(prev => ({ ...prev, [id]: { nome, produtos: [], delivery: [], salao: [] } }));
     setNovoGrupoNome('');
     setAddingGrupo(false);
   };
@@ -371,7 +334,7 @@ export default function EmbalagensPadraoManager() {
         <div>
           <h3 className="text-xl font-black text-gray-800">Embalagens Padrão</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Insumos adicionados automaticamente por canal de venda e por grupo de produto.
+            Agrupe produtos e defina quais insumos de embalagem são descontados — separados por Delivery e Mesa/Salão.
           </p>
         </div>
         <button
@@ -384,26 +347,7 @@ export default function EmbalagensPadraoManager() {
         </button>
       </div>
 
-      {/* Delivery / Salão */}
-      <div>
-        <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Por canal de venda</p>
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <SectionCard label="Delivery (/)" icon={<Truck size={16} className="mr-2 text-blue-500" />}
-            items={delivery} insumos={insumos}
-            onAdd={(id, qtd) => setDelivery(prev => [...prev, { insumoId: id, quantidade: qtd }])}
-            onRemove={id => setDelivery(prev => prev.filter(i => i.insumoId !== id))}
-            onChangeQtd={(id, qtd) => setDelivery(prev => prev.map(i => i.insumoId === id ? { ...i, quantidade: qtd } : i))}
-          />
-          <SectionCard label="Salão (%)" icon={<Store size={16} className="mr-2 text-green-500" />}
-            items={salao} insumos={insumos}
-            onAdd={(id, qtd) => setSalao(prev => [...prev, { insumoId: id, quantidade: qtd }])}
-            onRemove={id => setSalao(prev => prev.filter(i => i.insumoId !== id))}
-            onChangeQtd={(id, qtd) => setSalao(prev => prev.map(i => i.insumoId === id ? { ...i, quantidade: qtd } : i))}
-          />
-        </div>
-      </div>
-
-      {/* Grupos de produto */}
+      {/* Grupos */}
       <div>
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Grupos de produto</p>
@@ -425,7 +369,7 @@ export default function EmbalagensPadraoManager() {
               value={novoGrupoNome}
               onChange={e => setNovoGrupoNome(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') criarGrupo(); if (e.key === 'Escape') { setAddingGrupo(false); setNovoGrupoNome(''); } }}
-              placeholder="Nome do grupo (ex: Sanduíche, Porção, Bebidas...)"
+              placeholder="Nome do grupo (ex: Hamburguer, Fritas, Bebidas...)"
               className="flex-1 border border-orange-300 rounded-lg px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-400"
             />
             <button onClick={criarGrupo} disabled={!novoGrupoNome.trim()}
@@ -443,7 +387,7 @@ export default function EmbalagensPadraoManager() {
           <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl">
             <Package size={32} className="mx-auto mb-2 text-gray-300" />
             <p className="text-sm font-medium text-gray-400">Nenhum grupo cadastrado</p>
-            <p className="text-xs text-gray-400 mt-1">Crie grupos para definir quais insumos são descontados por tipo de produto</p>
+            <p className="text-xs text-gray-400 mt-1">Crie um grupo, adicione os produtos e configure as embalagens para Delivery e Mesa</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -464,8 +408,7 @@ export default function EmbalagensPadraoManager() {
       <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-start gap-3">
         <AlertTriangle size={16} className="text-blue-500 mt-0.5 shrink-0" />
         <p className="text-xs text-blue-700">
-          Os grupos de produto definem quais insumos são descontados do estoque ao vender produtos de cada categoria.
-          Os canais Delivery e Salão adicionam insumos de embalagem automaticamente ao criar SKUs.
+          Ao enviar um pedido para a cozinha, o sistema identifica o grupo de cada produto e desconta automaticamente os insumos de embalagem do estoque rotativo — usando a coluna <strong>Delivery</strong> para pedidos de entrega e <strong>Mesa/Salão</strong> para os demais.
         </p>
       </div>
     </div>

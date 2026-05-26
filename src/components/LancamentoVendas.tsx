@@ -76,6 +76,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
   const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; valorPorCarimbo: number; carimbosParaPremio: number } | null>(null);
+  const [embalagensGrupos, setEmbalagensGrupos] = useState<Record<string, { produtos: string[]; delivery: { insumoId: string; quantidade: number }[]; salao: { insumoId: string; quantidade: number }[] }>>({});
 
   const [mesaNomeCliente, setMesaNomeCliente] = useState('');
   const [alertPedidoConcluido, setAlertPedidoConcluido] = useState<any | null>(null);
@@ -209,6 +210,25 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       const ids = snap.val() ? new Set<string>(Object.keys(snap.val())) : new Set<string>();
       confirmacoesX9Ref.current = ids;
       setConfirmacoesX9Keys(new Set(ids));
+    });
+
+    const embalagensRef = ref(db, 'configuracoes/embalagens_padrao/grupos');
+    onValue(embalagensRef, snap => {
+      const data = snap.val();
+      if (data && typeof data === 'object') {
+        const toArr = (v: any) => v ? (Array.isArray(v) ? v : Object.values(v)).filter(Boolean) : [];
+        const parsed: typeof embalagensGrupos = {};
+        for (const [id, g] of Object.entries(data) as [string, any][]) {
+          parsed[id] = {
+            produtos: Array.isArray(g.produtos) ? g.produtos : g.produtos ? Object.values(g.produtos) : [],
+            delivery: toArr(g.delivery),
+            salao: toArr(g.salao),
+          };
+        }
+        setEmbalagensGrupos(parsed);
+      } else {
+        setEmbalagensGrupos({});
+      }
     });
   }, []);
 
@@ -427,9 +447,21 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     });
   };
 
-  const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerName?: string, lancadoPor?: string) => {
+  const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerIp?: string, lancadoPor?: string) => {
     if (itens.length === 0) return;
 
+    const electron = (window as any).electronAPI;
+    if (electron && printerIp) {
+      try {
+        await electron.imprimirTicketIP(printerIp, itens, destLabel, identificador, lancadoPor);
+      } catch (e: any) {
+        console.error('Erro ao imprimir via IP:', e);
+        showToast(`Erro ao imprimir em ${printerIp}: verifique a conexão.`, 'error');
+      }
+      return;
+    }
+
+    // Fallback HTML para ambientes não-Electron (web/APK)
     const dt = new Date();
     const dataStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const horaStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
@@ -486,10 +518,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 <div class="footer">Data ${dataStr}  Hora: ${horaStr}</div>
 </body></html>`;
 
-    const electron = (window as any).electronAPI;
-    if (electron && printerName) {
-      try { await electron.imprimir(printerName, html); } catch (e) { console.error('Erro ao imprimir via Electron:', e); }
-    } else if (!electron) {
+    if (!electron) {
       const win = window.open('', '_blank');
       if (!win) return;
       win.document.write(html);
@@ -602,6 +631,22 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
               return data;
             });
           }
+        }
+      }
+
+      // Dedução de embalagens por grupo (Delivery vs Mesa/Salão)
+      for (const item of itensParaEnviar) {
+        const grupo = Object.values(embalagensGrupos).find(g => g.produtos.includes(item.produtoId));
+        if (!grupo) continue;
+        const embItens = tipo === 'Entrega' ? grupo.delivery : grupo.salao;
+        for (const emb of embItens) {
+          const qtdAbater = Number((emb.quantidade * item.qtd).toFixed(4));
+          await runTransaction(ref(db, `insumos/${emb.insumoId}`), (data) => {
+            if (data) {
+              data.estoqueRotativo = Number(Math.max(0, (data.estoqueRotativo ?? 0) - qtdAbater).toFixed(4));
+            }
+            return data;
+          });
         }
       }
     }
@@ -763,11 +808,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     }
   };
 
-  const handleImprimirCupom = () => {
+  const handleImprimirCupom = async () => {
     if (!viewComanda) return;
-
-    const win = window.open('', '_blank');
-    if (!win) return;
 
     const subtotalBruto = viewComanda.itens
       ? (viewComanda.itens as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0)
@@ -808,6 +850,31 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         }
       });
     }
+
+    // Electron + IP configurado: imprime ESC/POS direto na impressora do balcão
+    const electron = (window as any).electronAPI;
+    if (electron && nomesImpressoras.balcao) {
+      try {
+        await electron.imprimirReciboIP(nomesImpressoras.balcao, {
+          itens: viewComanda.itens || [],
+          identificador,
+          clienteNome,
+          subtotal: subtotalBruto,
+          desconto,
+          total,
+          cupom: viewComanda.cupom || null,
+          timestamp: viewComanda.timestamp,
+        });
+      } catch (e: any) {
+        console.error('Erro ao imprimir recibo via IP:', e);
+        showToast(`Erro ao imprimir em ${nomesImpressoras.balcao}: verifique a conexão.`, 'error');
+      }
+      return;
+    }
+
+    // Fallback HTML para ambientes não-Electron (web/APK)
+    const win = window.open('', '_blank');
+    if (!win) return;
 
     const dt = new Date(viewComanda.timestamp);
     const dataStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
@@ -883,10 +950,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     win.document.write(html);
     win.document.close();
     win.focus();
-    setTimeout(() => {
-      win.onafterprint = () => win.close();
-      win.print();
-    }, 400);
+    setTimeout(() => { win.onafterprint = () => win.close(); win.print(); }, 400);
   };
 
   const handleOpenPdvItemModal = (item: any) => {
