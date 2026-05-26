@@ -231,6 +231,13 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       return;
     }
 
+    const telLimpo = telefone.replace(/\D/g, '');
+    const clienteExistente = clientes.find(c => (c.telefone || '').replace(/\D/g, '') === telLimpo && c.id !== editId);
+    if (clienteExistente) {
+      showToast(`Este telefone já está cadastrado para o cliente: ${clienteExistente.nome}`, 'error');
+      return;
+    }
+
     const cpfLimpo = cpf.replace(/\D/g, '');
     if (cpfLimpo && !validarCPF(cpfLimpo)) {
       showToast('O CPF digitado é inválido.', 'error');
@@ -299,6 +306,18 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     };
 
     try {
+      // Verifica duplicação de telefone ANTES de salvar (se não for edição e se tiver telefone)
+      if (!editId && telefone) {
+        const cleanPhone = telefone.replace(/\D/g, '');
+        if (cleanPhone) {
+          const existe = clientes.find((c: Cliente) => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
+          if (existe) {
+            showToast(`Telefone já cadastrado para o cliente: ${existe.nome}`, 'error');
+            return;
+          }
+        }
+      }
+
       if (editId) {
         await update(ref(db, `clientes/${editId}`), clienteData);
         showToast('Cliente atualizado com sucesso!', 'success');
@@ -308,6 +327,21 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
           ...clienteData,
           dataCadastro: Date.now()
         });
+        
+        // Enviar mensagem de boas vindas / fidelidade se tiver telefone
+        if (telefone) {
+          const cleanPhone = telefone.replace(/\D/g, '');
+          if (cleanPhone.length >= 10) {
+            const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Fidelidade*!\n\n*Como funciona?*\n✨ Cada ponto é adquirido com o consumo de R$ 50,00 (independente do produto).\n✨ Os pontos não são acumulativos nem transferíveis.\n✨ Nosso sistema irá avisar sempre que você receber uma pontuação.\n\n*Recompensa:*\nA cada 10 pontos, você pode trocar por qualquer um dos nossos *Artesanais Clássicos*:\n🍔 Artt Burger\n🍔 Artt Burger Pepper Jelly\n🍔 Artt Burger Barbecue\n🍔 Artt Burger Cheddar\n🍔 Artt Burger Bacon\n\nAgradecemos a preferência e bom apetite!`;
+            await set(push(ref(db, 'fila_mensagens')), {
+              telefone: cleanPhone,
+              mensagem: msgFidelidade,
+              status: 'pendente',
+              timestamp: Date.now()
+            });
+          }
+        }
+        
         showToast('Cliente cadastrado com sucesso!', 'success');
       }
 

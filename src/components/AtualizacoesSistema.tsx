@@ -29,6 +29,22 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.10',
+      titulo: 'Fidelidade Automática, Mesas por Cliente e Segurança no PDV',
+      descricao: 'Novas automações de relacionamento com clientes, resgate de recompensas com saldo preservado e travas para evitar alterações acidentais em pedidos já salvos.',
+      features: [
+        'Mesas vinculadas ao cliente: O nome da mesa agora aparece no formato "Mesa 1 - Nome do cliente", usando diretamente o cliente vinculado ao pedido. O campo manual duplicado foi removido.',
+        'Cliente obrigatório em mesas: Ao abrir/salvar mesa, o sistema usa a vinculação de cliente como identificação oficial da comanda.',
+        'Bloqueio de alteração em itens já salvos: Após salvar/enviar o pedido, aumentar ou diminuir a quantidade de um item existente exige autorização. Para adicionar sem senha, o atendente deve buscar o produto novamente e lançar como novo item.',
+        'Autorização por facial ou PIN: A edição bloqueada no PDV agora permite alternar entre reconhecimento facial e PIN de Caixa, Gerente ou superior.',
+        'Fidelidade com WhatsApp automático: Quando o cliente ganha carimbos, o sistema envia mensagem informando a nova pontuação e quantos faltam para o prêmio.',
+        'Resgate de recompensa com saldo: O botão "Resgatar recompensa" desconta apenas um cartão completo (10 carimbos ou a meta configurada), mantendo os carimbos excedentes no saldo do cliente.',
+        'Mensagem de resgate: Ao resgatar uma recompensa, o cliente recebe confirmação por WhatsApp com o prêmio resgatado, carimbos descontados e saldo restante.',
+        'Permissão dedicada para Fidelidade: A matriz de permissões ganhou o módulo "Programa de Fidelidade". Visualizar libera a aba, Editar libera ajustes/resgates/configurações e Apagar libera exclusão de recompensas.',
+      ],
+      icon: <Shield className="text-orange-500" size={20} />
+    },
+    {
       versao: '1.2.7',
       titulo: 'Reconhecimento Facial, Leitor de Código de Barras e HTTPS Mobile',
       descricao: 'Login e registro de ponto por reconhecimento facial, leitura automática de código de barras no estoque e conexão segura para acesso via celular.',

@@ -1,14 +1,14 @@
 import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer, Lock, ScanFace, Bell } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Loader2, Bot, Ticket, Map, Package, MapPin, Printer, Lock, ScanFace, Bell, Eye } from 'lucide-react';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 
 const CARGOS_EDIT_AUTORIZADO = ['Dono', 'TI', 'Admin', 'Administrador', 'Gerente', 'Caixa'];
 const AUTH_SESSION_MS = 30 * 1000;
 
 export default function LancamentoVendas({ currentUser, permissoes = {} }: { currentUser?: any, permissoes?: any }) {
-  const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia'>('pdv');
+  const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia' | 'x9'>('pdv');
   
   const [taxas, setTaxas] = useState<any[]>([]);
   const [lancamentos, setLancamentos] = useState<any[]>([]);
@@ -32,7 +32,9 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [descontoInput, setDescontoInput] = useState('');
   const [descontoPin, setDescontoPin] = useState('');
 
-  const [authEditModal, setAuthEditModal] = useState<{ itemId: string } | null>(null);
+  const [authEditModal, setAuthEditModal] = useState<{ itemId: string; delta: 1 | -1 } | null>(null);
+  const [authEditMethod, setAuthEditMethod] = useState<'face' | 'pin'>('face');
+  const [authEditPin, setAuthEditPin] = useState('');
   const [editAuthSession, setEditAuthSession] = useState<number | null>(null);
   const [faceAuthStatus, setFaceAuthStatus] = useState('');
   const faceAuthVideoRef = useRef<HTMLVideoElement>(null);
@@ -74,21 +76,155 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
-  const [nomesImpressoras, setNomesImpressoras] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
+  const [impressorasIPs, setImpressorasIPs] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
   const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; valorPorCarimbo: number; carimbosParaPremio: number } | null>(null);
   const [embalagensGrupos, setEmbalagensGrupos] = useState<Record<string, { produtos: string[]; delivery: { insumoId: string; quantidade: number }[]; salao: { insumoId: string; quantidade: number }[] }>>({});
 
-  const [mesaNomeCliente, setMesaNomeCliente] = useState('');
   const [alertPedidoConcluido, setAlertPedidoConcluido] = useState<any | null>(null);
   const pedidosConcluidosRef = useRef<Set<string>>(new Set());
+  const dedupPedidosCozinhaRef = useRef<Record<string, number>>({});
+  const dedupImpressaoRef = useRef<Record<string, number>>({});
   const primeiraLeituraPedidosRef = useRef(true);
   const funcionariosRef = useRef<any[]>([]);
   const confirmacoesX9Ref = useRef<Set<string>>(new Set());
   const [confirmacoesX9Keys, setConfirmacoesX9Keys] = useState<Set<string>>(new Set());
+  const [logsX9, setLogsX9] = useState<any[]>([]);
+
+  const [showQuickClientModal, setShowQuickClientModal] = useState(false);
+  const [quickClientName, setQuickClientName] = useState('');
+  const [quickClientPhone, setQuickClientPhone] = useState('');
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
     setTimeout(() => setToast(null), 3000);
+  };
+
+  const getStableHash = (value: string) => {
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+      hash = ((hash << 5) - hash + value.charCodeAt(i)) | 0;
+    }
+    return (hash >>> 0).toString(36);
+  };
+
+  const isRecentDuplicate = (store: Record<string, number>, key: string, windowMs = 15000) => {
+    const now = Date.now();
+    const prev = store[key];
+    if (prev && now - prev < windowMs) return true;
+    store[key] = now;
+    return false;
+  };
+
+  const buildOrderDedupKey = (identificador: string, tipo: string, referenciaId: string | undefined, itens: any[]) => {
+    const normalized = JSON.stringify({
+      identificador,
+      tipo,
+      referenciaId: referenciaId || '',
+      itens: itens.map((item: any) => ({
+        produtoId: item.produtoId,
+        nome: item.nome,
+        qtd: item.qtd,
+        opcoes: item.opcoes || null
+      }))
+    });
+    return `pedido_${getStableHash(normalized)}`;
+  };
+
+  const buildPrintJobDedupKey = (job: any) => {
+    const normalized = JSON.stringify({
+      type: job.type,
+      printerIp: job.printerIp,
+      identificador: job.identificador,
+      destLabel: job.destLabel || null,
+      clienteNome: job.clienteNome || null,
+      total: job.total || null,
+      itens: (job.itens || []).map((item: any) => ({
+        produtoId: item.produtoId,
+        nome: item.nome,
+        qtd: item.qtd,
+        opcoes: item.opcoes || null
+      }))
+    });
+    return `print_${getStableHash(normalized)}`;
+  };
+
+  const formatPhone = (val: string) => val.replace(/\D/g, '').replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4,5})(\d{4})$/, '$1-$2').substring(0, 15);
+
+  const getMesaIdentificador = (numero?: number | null, clienteNome?: string | null) => {
+    const mesa = `Mesa ${numero || ''}`.trim();
+    const nome = (clienteNome || '').trim();
+    return nome ? `${mesa} - ${nome}` : mesa;
+  };
+
+  const normalizarTelefoneMensagem = (telefone?: string) => {
+    let tel = (telefone || '').replace(/\D/g, '');
+    if (tel.length < 10) return '';
+    if (!tel.startsWith('55')) tel = `55${tel}`;
+    return tel;
+  };
+
+  const montarMensagemFidelidade = (clienteNome: string, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+    const primeiroNome = (clienteNome || 'cliente').split(' ')[0];
+    const premiosDisponiveis = Math.floor(totalCarimbos / meta);
+    const resto = totalCarimbos % meta;
+    const carimbosNoCartao = premiosDisponiveis > 0 && resto === 0 ? meta : resto;
+    const statusCartao = premiosDisponiveis > 0
+      ? `\n\n🎁 Você já tem *${premiosDisponiveis} prêmio(s) disponível(is)* para resgatar!`
+      : `\n\nFaltam *${meta - carimbosNoCartao} carimbo(s)* para o seu próximo prêmio.`;
+
+    return `🍔 *ArttBurger Fidelidade*\n\nOlá, *${primeiroNome}*! Você ganhou *${carimbosGanhos} carimbo(s)* na sua compra.\n\nSua nova pontuação é: *${totalCarimbos} carimbo(s)*.\nCartão atual: *${carimbosNoCartao}/${meta}*.${statusCartao}\n\nObrigado pela preferência!`;
+  };
+
+  const enfileirarMensagemFidelidade = async (cliente: any, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+    const telefone = normalizarTelefoneMensagem(cliente?.telefone);
+    if (!telefone) return;
+
+    await set(push(ref(db, 'fila_mensagens')), {
+      telefone,
+      mensagem: montarMensagemFidelidade(cliente.nome, carimbosGanhos, totalCarimbos, meta),
+      status: 'pendente',
+      origem: 'fidelidade',
+      timestamp: Date.now(),
+    });
+  };
+
+  const handleCriarClienteVinculado = async () => {
+    const nomeForm = quickClientName.trim();
+    const telForm = quickClientPhone.trim();
+    const cleanPhone = telForm.replace(/\D/g, '');
+    
+    if (!nomeForm || !telForm) return showToast('Nome e Telefone são obrigatórios.', 'error');
+    
+    const existe = clientes.find((c: any) => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
+    if (existe) {
+      showToast(`Telefone já cadastrado para o cliente: ${existe.nome}`, 'error');
+      return;
+    }
+    
+    const newRef = push(ref(db, 'clientes'));
+    const novoCliente = { id: newRef.key, nome: nomeForm, telefone: telForm, timestamp: Date.now() };
+    await set(newRef, novoCliente);
+    
+    // Enviar mensagem de boas vindas / fidelidade se tiver telefone
+    if (telForm) {
+      const cleanPhone2 = telForm.replace(/\D/g, '');
+      if (cleanPhone2.length >= 10) {
+        const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Fidelidade*!\n\n*Como funciona?*\n✨ Cada ponto é adquirido com o consumo de R$ 50,00 (independente do produto).\n✨ Os pontos não são acumulativos nem transferíveis.\n✨ Nosso sistema irá avisar sempre que você receber uma pontuação.\n\n*Recompensa:*\nA cada 10 pontos, você pode trocar por qualquer um dos nossos *Artesanais Clássicos*:\n🍔 Artt Burger\n🍔 Artt Burger Pepper Jelly\n🍔 Artt Burger Barbecue\n🍔 Artt Burger Cheddar\n🍔 Artt Burger Bacon\n\nAgradecemos a preferência e bom apetite!`;
+        await set(push(ref(db, 'fila_mensagens')), {
+          telefone: cleanPhone2,
+          mensagem: msgFidelidade,
+          status: 'pendente',
+          timestamp: Date.now()
+        });
+      }
+    }
+    
+    setPdvCliente(novoCliente);
+    setShowQuickClientModal(false);
+    setQuickClientName('');
+    setQuickClientPhone('');
+    setPdvSearchCliente('');
+    showToast('Cliente cadastrado e vinculado!', 'success');
   };
 
   const temPermissao = (modulo: string, abaId?: string) => {
@@ -186,7 +322,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
     const nomesRef = ref(db, 'configuracoes/impressoras_nomes');
     onValue(nomesRef, snap => {
-      setNomesImpressoras(snap.val() || { cozinha: '', balcao: '' });
+      setImpressorasIPs(snap.val() || { cozinha: '', balcao: '' });
     });
 
     const fidelidadeRef = ref(db, 'fidelidade_config');
@@ -207,9 +343,19 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
     const confX9DbRef = ref(db, 'confirmacoes_x9');
     onValue(confX9DbRef, snap => {
-      const ids = snap.val() ? new Set<string>(Object.keys(snap.val())) : new Set<string>();
-      confirmacoesX9Ref.current = ids;
-      setConfirmacoesX9Keys(new Set(ids));
+      if (snap.val()) {
+        const data = snap.val();
+        const logs = Object.entries(data).map(([id, val]: any) => ({ id, ...val }));
+        logs.sort((a, b) => b.timestamp - a.timestamp);
+        setLogsX9(logs);
+        const ids = new Set<string>(Object.keys(data));
+        confirmacoesX9Ref.current = ids;
+        setConfirmacoesX9Keys(new Set(ids));
+      } else {
+        setLogsX9([]);
+        confirmacoesX9Ref.current = new Set();
+        setConfirmacoesX9Keys(new Set());
+      }
     });
 
     const embalagensRef = ref(db, 'configuracoes/embalagens_padrao/grupos');
@@ -247,6 +393,14 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       if (faceAuthIntervalRef.current) { clearInterval(faceAuthIntervalRef.current); faceAuthIntervalRef.current = null; }
       if (faceAuthStreamRef.current) { faceAuthStreamRef.current.getTracks().forEach(t => t.stop()); faceAuthStreamRef.current = null; }
       setFaceAuthStatus('');
+      setAuthEditPin('');
+      setAuthEditMethod('face');
+      return;
+    }
+    if (authEditMethod !== 'face') {
+      if (faceAuthIntervalRef.current) { clearInterval(faceAuthIntervalRef.current); faceAuthIntervalRef.current = null; }
+      if (faceAuthStreamRef.current) { faceAuthStreamRef.current.getTracks().forEach(t => t.stop()); faceAuthStreamRef.current = null; }
+      setFaceAuthStatus('');
       return;
     }
     let aborted = false;
@@ -266,7 +420,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       try { await ensureFaceModelsLoaded(); } catch { if (!aborted) setFaceAuthStatus('Falha ao carregar modelos.'); return; }
       if (aborted) return;
       setFaceAuthStatus('Posicione seu rosto na câmera...');
-      const itemId = authEditModal.itemId;
+      const { itemId, delta } = authEditModal;
       faceAuthIntervalRef.current = setInterval(async () => {
         if (!faceAuthVideoRef.current || aborted) return;
         const toDesc = (raw: any): Float32Array | null => {
@@ -293,10 +447,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
               aborted = true;
               if (faceAuthIntervalRef.current) clearInterval(faceAuthIntervalRef.current);
               if (faceAuthStreamRef.current) faceAuthStreamRef.current.getTracks().forEach(t => t.stop());
-              setEditAuthSession(Date.now());
-              updateCartItemQtd(itemId, -1);
-              setAuthEditModal(null);
-              showToast(`Autorizado por ${user.nome}`, 'success');
+              aplicarEdicaoAutorizada(itemId, delta, user.nome);
             }
           }
         } catch { /* frame error, ignore */ }
@@ -304,7 +455,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     };
     run();
     return () => { aborted = true; };
-  }, [authEditModal]);
+  }, [authEditModal, authEditMethod]);
 
   // Kitchen completion alert
   useEffect(() => {
@@ -318,7 +469,16 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     novos.forEach(p => pedidosConcluidosRef.current.add(p.id));
     if (novos.length > 0) {
       const pedido = novos[novos.length - 1];
-      if (!confirmacoesX9Ref.current.has(pedido.id)) {
+      
+      const cargosStr = (Array.isArray(currentUser?.cargo) ? currentUser?.cargo.join(' ') : (currentUser?.cargo || '')).toLowerCase();
+      const isCaixa = cargosStr.includes('caixa') || cargosStr.includes('gerente') || cargosStr.includes('administrador');
+      const isAtendente = cargosStr.includes('garçom') || cargosStr.includes('atendente');
+
+      const shouldAlert = 
+        (pedido.tipo === 'Entrega' && isCaixa) || 
+        (pedido.tipo === 'Mesa' && isAtendente);
+
+      if (!confirmacoesX9Ref.current.has(pedido.id) && shouldAlert) {
         setAlertPedidoConcluido(pedido);
         tocarSomConclusao();
       }
@@ -328,7 +488,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
         const vals = Array.isArray(m) ? m : Object.values(m);
         return (vals as any[]).some((v: any) => typeof v === 'string' && v.toLowerCase().includes('levar com pedido'));
       });
-      if (temLevar && nomesImpressoras.balcao) {
+      if (temLevar && impressorasIPs.balcao) {
         const bebidasItens: any[] = [];
         (pedido.itens || []).forEach((item: any) => {
           const b = item.opcoes?.bebidas;
@@ -337,7 +497,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
           (arr as any[]).forEach((bv: any) => { if (bv?.nome) bebidasItens.push({ nome: bv.nome, qtd: bv.qtd || 1, preco: 0 }); });
         });
         if (bebidasItens.length > 0) {
-          imprimirTicketInterno(bebidasItens, 'BEBIDAS', pedido.identificador, nomesImpressoras.balcao);
+          imprimirTicketInterno(bebidasItens, 'BEBIDAS', pedido.identificador, impressorasIPs.balcao);
         }
       }
     }
@@ -413,13 +573,40 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const isEditAuthValid = () =>
     editAuthSession !== null && Date.now() - editAuthSession < AUTH_SESSION_MS;
 
+  const aplicarEdicaoAutorizada = (itemId: string, delta: 1 | -1, autorizadoPor: string) => {
+    setEditAuthSession(Date.now());
+    updateCartItemQtd(itemId, delta);
+    setAuthEditModal(null);
+    setAuthEditPin('');
+    showToast(`Autorizado por ${autorizadoPor}`, 'success');
+  };
+
+  const handleAutorizarEdicaoPorPin = () => {
+    if (!authEditModal) return;
+    const func = funcionarios.find(f => String(f.pin) === authEditPin);
+    if (!func) return showToast('PIN inválido.', 'error');
+    const cargos = Array.isArray(func.cargo) ? func.cargo : [func.cargo || ''];
+    const isAuthorized = cargos.some((cargo: string) => CARGOS_EDIT_AUTORIZADO.includes(cargo));
+    if (!isAuthorized) return showToast('Autorização negada! Requer Caixa, Gerente ou superior.', 'error');
+    aplicarEdicaoAutorizada(authEditModal.itemId, authEditModal.delta, func.nome);
+  };
+
   const handleMinusClick = (id: string, item: { qtd: number; enviadoCozinha?: number }) => {
     const enviado = item.enviadoCozinha || 0;
     if (enviado > 0 && item.qtd <= enviado && !isEditAuthValid()) {
-      setAuthEditModal({ itemId: id });
+      setAuthEditModal({ itemId: id, delta: -1 });
       return;
     }
     updateCartItemQtd(id, -1);
+  };
+
+  const handlePlusClick = (id: string, item: { enviadoCozinha?: number }) => {
+    const enviado = item.enviadoCozinha || 0;
+    if (enviado > 0 && !isEditAuthValid()) {
+      setAuthEditModal({ itemId: id, delta: 1 });
+      return;
+    }
+    updateCartItemQtd(id, 1);
   };
 
   const updateCartItemQtd = (cartItemId: string, delta: number) => {
@@ -447,6 +634,31 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     });
   };
 
+  const queueImpressao = async (job: any) => {
+    const dedupKey = buildPrintJobDedupKey(job);
+    if (isRecentDuplicate(dedupImpressaoRef.current, dedupKey, 15000)) {
+      console.log('Impressão duplicada detectada localmente, ignorando:', dedupKey);
+      return false;
+    }
+
+    try {
+      const jobRef = ref(db, `impressoras/jobs/${dedupKey}`);
+      await set(jobRef, {
+        ...job,
+        status: 'pendente',
+        attempts: 0,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      });
+      showToast('Impressão agendada e será processada assim que possível.', 'success');
+      return true;
+    } catch (e: any) {
+      console.error('Erro ao agendar impressão:', e);
+      showToast('Falha ao agendar impressão. Verifique a conexão.', 'error');
+      return false;
+    }
+  };
+
   const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerIp?: string, lancadoPor?: string) => {
     if (itens.length === 0) return;
 
@@ -454,10 +666,23 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     if (electron && printerIp) {
       try {
         await electron.imprimirTicketIP(printerIp, itens, destLabel, identificador, lancadoPor);
+        return;
       } catch (e: any) {
         console.error('Erro ao imprimir via IP:', e);
-        showToast(`Erro ao imprimir em ${printerIp}: verifique a conexão.`, 'error');
+        showToast('Erro na impressão direta. Impressão será agendada.', 'error');
       }
+    }
+
+    if (printerIp) {
+      await queueImpressao({
+        type: 'ticket',
+        printerIp,
+        itens,
+        destLabel,
+        identificador,
+        lancadoPor: lancadoPor || null,
+        origin: 'web',
+      });
       return;
     }
 
@@ -553,12 +778,12 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
     // Aguarda cada impressão terminar antes de iniciar a próxima (evita conflito no Electron)
     if (itensCozinha.length > 0) {
-      if (!nomesImpressoras.cozinha) showToast('Impressora da cozinha não configurada!', 'error');
-      else await imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, nomesImpressoras.cozinha, lancadoPor);
+      if (!impressorasIPs.cozinha) showToast('Impressora da cozinha não configurada!', 'error');
+      else await imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, impressorasIPs.cozinha, lancadoPor);
     }
     if (itensBalcao.length > 0) {
-      if (!nomesImpressoras.balcao) showToast('Impressora do balcão não configurada!', 'error');
-      else await imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, nomesImpressoras.balcao, lancadoPor);
+      if (!impressorasIPs.balcao) showToast('Impressora do balcão não configurada!', 'error');
+      else await imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, impressorasIPs.balcao, lancadoPor);
     }
   };
 
@@ -579,15 +804,34 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     });
 
     if (itensParaEnviar.length > 0) {
-      await set(push(ref(db, 'pedidos_cozinha')), {
+      const dedupKey = buildOrderDedupKey(identificador, tipo, referenciaId, itensParaEnviar);
+      if (isRecentDuplicate(dedupPedidosCozinhaRef.current, dedupKey, 15000)) {
+        console.log('KDS duplicado detectado localmente, ignorando:', dedupKey);
+        return novoCarrinho;
+      }
+
+      const pedidoRef = ref(db, `pedidos_cozinha/${dedupKey}`);
+      const pedidoPayload = {
         identificador, tipo,
         referenciaId: referenciaId || null,
-        itens: itensParaEnviar, status: 'Pendente', timestamp: Date.now(),
+        itens: itensParaEnviar,
+        status: 'Pendente',
+        timestamp: Date.now(),
+        dedupKey,
         ...(meta || {})
+      };
+
+      const transactionResult = await runTransaction(pedidoRef, (current) => {
+        if (current) return current;
+        return pedidoPayload;
       });
 
-      // Abate do estoque rotativo no momento em que o pedido cai no KDS
-      for (const item of itensParaEnviar) {
+      const pedidoCriado = transactionResult.committed && transactionResult.snapshot.exists();
+      if (!pedidoCriado) {
+        console.log('Pedido duplicado detectado no KDS, ignorando novo envio:', dedupKey);
+      } else {
+        // Abate do estoque rotativo no momento em que o pedido cai no KDS
+        for (const item of itensParaEnviar) {
         const prod = [...produtos, ...promocoes].find(p => p.id === item.produtoId);
         if (!prod) continue;
 
@@ -650,6 +894,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         }
       }
     }
+  }
 
     return novoCarrinho;
   };
@@ -668,10 +913,13 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvCarrinho(mesaData.carrinho || {});
-      setMesaNomeCliente(mesaData.nomeCliente || '');
+      const c = clientes.find((client: any) => client.id === mesaData.clienteId);
+      if (c) setPdvCliente(c);
+      else if (mesaData.nomeCliente) setPdvCliente({ id: mesaData.clienteId || `temp_${Date.now()}`, nome: mesaData.nomeCliente, telefone: mesaData.clienteTelefone || '' });
+      else setPdvCliente(null);
     } else {
       setPdvCarrinho({});
-      setMesaNomeCliente('');
+      setPdvCliente(null);
     }
     setPdvView('caixa');
   };
@@ -685,20 +933,33 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   };
 
   const handleSalvarMesa = async () => {
+    if (!pdvCliente) return showToast('É obrigatório vincular um cliente à mesa.', 'error');
+    
+    // Se o carrinho tá vazio mas tem cliente vinculado, a gente salva a mesa aberta (reserva)
     if (Object.keys(pdvCarrinho).length === 0) {
-      if (mesaSelecionada) await cancelarKdsMesa(mesaSelecionada);
-      await remove(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`));
-      await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
-      showToast(`Mesa ${mesaSelecionada} liberada!`, 'success');
+      if (mesaSelecionada) {
+        await set(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`), {
+          carrinho: {},
+          clienteId: pdvCliente.id,
+          nomeCliente: pdvCliente.nome,
+          clienteTelefone: pdvCliente.telefone || null,
+          timestamp: Date.now()
+        });
+        await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
+        showToast(`Mesa ${mesaSelecionada} vinculada a ${pdvCliente.nome}!`, 'success');
+      }
     } else {
-        dispararImpressaoSeparada(`Mesa ${mesaSelecionada}`, pdvCarrinho, currentUser?.nome);
-        const novoCarrinho = await dispararParaCozinha(`Mesa ${mesaSelecionada}`, 'Mesa', `mesa_${mesaSelecionada}`, {
+        const mesaIdentificador = getMesaIdentificador(mesaSelecionada, pdvCliente?.nome);
+        dispararImpressaoSeparada(mesaIdentificador, pdvCarrinho, currentUser?.nome);
+        const novoCarrinho = await dispararParaCozinha(mesaIdentificador, 'Mesa', `mesa_${mesaSelecionada}`, {
           atendenteId: currentUser?.id || null,
           atendenteNome: currentUser?.nome || null
         });
       await set(ref(db, `mesas_abertas/mesa_${mesaSelecionada}`), {
         carrinho: novoCarrinho,
-        nomeCliente: mesaNomeCliente.trim() || null,
+        clienteId: pdvCliente?.id || null,
+        nomeCliente: pdvCliente?.nome || null,
+        clienteTelefone: pdvCliente?.telefone || null,
         timestamp: Date.now()
       });
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
@@ -783,7 +1044,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const total = Object.values(isAberta.carrinho || {}).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
     setViewComanda({
       timestamp: isAberta.timestamp || Date.now(),
-      descricao: `Mesa ${num}`,
+      descricao: getMesaIdentificador(num, isAberta.nomeCliente),
       tipoPedido: 'Mesa',
       mesa: num,
       clienteNome: isAberta.nomeCliente || '',
@@ -819,7 +1080,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
     const tipoPedido = viewComanda.tipoPedido || '';
     let identificador = 'Balcão';
-    if (tipoPedido === 'Mesa') identificador = `Mesa ${viewComanda.mesa || ''}`;
+    if (tipoPedido === 'Mesa') identificador = getMesaIdentificador(viewComanda.mesa, viewComanda.clienteNome);
     else if (tipoPedido === 'Entrega') identificador = 'Delivery';
 
     const clienteNome = viewComanda.clienteNome || '';
@@ -853,9 +1114,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
     // Electron + IP configurado: imprime ESC/POS direto na impressora do balcão
     const electron = (window as any).electronAPI;
-    if (electron && nomesImpressoras.balcao) {
+    if (electron && impressorasIPs.balcao) {
       try {
-        await electron.imprimirReciboIP(nomesImpressoras.balcao, {
+        await electron.imprimirReciboIP(impressorasIPs.balcao, {
           itens: viewComanda.itens || [],
           identificador,
           clienteNome,
@@ -865,10 +1126,27 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
           cupom: viewComanda.cupom || null,
           timestamp: viewComanda.timestamp,
         });
+        return;
       } catch (e: any) {
         console.error('Erro ao imprimir recibo via IP:', e);
-        showToast(`Erro ao imprimir em ${nomesImpressoras.balcao}: verifique a conexão.`, 'error');
+        showToast('Erro na impressão direta. Impressão será agendada.', 'error');
       }
+    }
+
+    if (impressorasIPs.balcao) {
+      await queueImpressao({
+        type: 'recibo',
+        printerIp: impressorasIPs.balcao,
+        itens: viewComanda.itens || [],
+        identificador,
+        clienteNome,
+        subtotal: subtotalBruto,
+        desconto,
+        total,
+        cupom: viewComanda.cupom || null,
+        timestamp: viewComanda.timestamp,
+        origin: 'web',
+      });
       return;
     }
 
@@ -976,10 +1254,16 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
        if (add) adicionaisPrice += Number(add.preco || 0) * qtd;
     });
     
-    const unitPrice = basePrice + adicionaisPrice;
+    let bebidasPrice = 0;
+    const bebidasSelecionadas = Object.entries(pdvItemOptions.bebidas || {}).filter(([, qtd]: [string, any]) => qtd > 0);
+    bebidasSelecionadas.forEach(([prodId, qtd]: [string, any]) => {
+      const prod = produtos.find((p: any) => p.id === prodId);
+      if (prod) bebidasPrice += Number(prod.precoVenda || 0) * qtd;
+    });
+    
+    const unitPrice = basePrice + adicionaisPrice + bebidasPrice;
     const cartItemId = `${pdvItemModal.id}_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
     
-    const bebidasSelecionadas = Object.entries(pdvItemOptions.bebidas || {}).filter(([, qtd]: [string, any]) => qtd > 0);
     const hasOptions = pdvItemOptions.montagem.length > 0 || pdvItemOptions.pontoCarne || Object.keys(pdvItemOptions.adicionais).length > 0 || pdvItemOptions.restricoes.length > 0 || pdvItemOptions.observacao || bebidasSelecionadas.length > 0;
 
     const opcoesObj = hasOptions ? {
@@ -1077,7 +1361,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   
       let ident = 'Balcão';
       if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
-      else if (pdvTipoPedido === 'Mesa') ident = `Mesa ${mesaSelecionada}`;
+      else if (pdvTipoPedido === 'Mesa') ident = getMesaIdentificador(mesaSelecionada, pdvCliente?.nome);
       else if (pdvCliente) ident = `Balcão: ${pdvCliente.nome}`;
       dispararImpressaoSeparada(ident, pdvCarrinho, currentUser?.nome);
       await dispararParaCozinha(ident, pdvTipoPedido);
@@ -1088,7 +1372,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
       const numDiario = pdvTipoPedido === 'Entrega' ? getNumeroDiario('Entrega', entregaSelecionada) : getNumeroDiario('Balcão/Mesa', null);
 
-      await set(push(ref(db, 'vendas_pdv')), {
+      const novaVendaId = (pdvTipoPedido === 'Entrega' && entregaSelecionada) ? entregaSelecionada : push(ref(db, 'vendas_pdv')).key;
+
+      await set(ref(db, `vendas_pdv/${novaVendaId}`), {
         valor: totalPdv,
         valorLiquido: valorLiquidoTotal,
         pagamentos: pagamentosProcessados,
@@ -1114,12 +1400,12 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         const atualizados = [novoPedido, ...ultimos].slice(0, 5);
         await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
 
-        if (configFidelidade?.ativo && totalPdv > 0) {
+        if (configFidelidade?.ativo && totalPdv > 0 && pdvTipoPedido !== 'Entrega') {
           const valorPorCarimbo = configFidelidade.valorPorCarimbo || 50;
           const carimbosGanhos = Math.floor(totalPdv / valorPorCarimbo);
           if (carimbosGanhos > 0) {
             const pontosRef = ref(db, `fidelidade_pontos/${pdvCliente.id}`);
-            await runTransaction(pontosRef, (dados) => {
+            const resultadoPontos = await runTransaction(pontosRef, (dados) => {
               const atual = dados || { clienteId: pdvCliente.id, clienteNome: pdvCliente.nome, pontos: 0, totalGasto: 0 };
               atual.pontos = (atual.pontos || 0) + carimbosGanhos;
               atual.totalGasto = (atual.totalGasto || 0) + totalPdv;
@@ -1135,6 +1421,13 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
               operadorId: currentUser?.id || '',
               operadorNome: currentUser?.nome || 'PDV',
             });
+            const totalCarimbosAtualizado = Number(resultadoPontos.snapshot.val()?.pontos || carimbosGanhos);
+            await enfileirarMensagemFidelidade(
+              pdvCliente,
+              carimbosGanhos,
+              totalCarimbosAtualizado,
+              configFidelidade.carimbosParaPremio || 10
+            );
           }
         }
       }
@@ -1489,7 +1782,10 @@ Formato esperado:
               <button onClick={() => setActiveView('comandas')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'comandas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Receipt size={16} className="mr-1"/> Comandas</button>
             )}
             {isAdminOrGerente && (
-              <button onClick={() => setActiveView('conferencia')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'conferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Calculator size={16} className="mr-1"/> Conferência (Admin)</button>
+              <>
+                <button onClick={() => setActiveView('conferencia')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'conferencia' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Calculator size={16} className="mr-1"/> Conferência (Admin)</button>
+                <button onClick={() => setActiveView('x9')} className={`px-4 py-2 rounded-md font-bold text-sm transition-colors flex items-center ${activeView === 'x9' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Eye size={16} className="mr-1"/> Registros X9</button>
+              </>
             )}
           </div>
         )}
@@ -1556,10 +1852,13 @@ Formato esperado:
                   const isAberta = mesasAbertas[`mesa_${num}`] || mesasAbertas[num];
                   const total = isAberta ? ((Object.values(isAberta.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number) : 0;
                   return (
-                    <div key={num} onClick={() => handleAbrirMesa(num)} className={`relative p-2 sm:p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-20 sm:h-24 cursor-pointer ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm hover:bg-orange-100' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
-                      <span className="text-xl sm:text-2xl font-black leading-none pointer-events-none">{num}</span>
-                      {isAberta?.nomeCliente && (
-                        <span className="text-[8px] sm:text-[9px] font-bold text-orange-600 truncate max-w-full px-1 pointer-events-none leading-none">{isAberta.nomeCliente}</span>
+                    <div key={num} onClick={() => handleAbrirMesa(num)} title={isAberta ? getMesaIdentificador(num, isAberta.nomeCliente) : `Mesa ${num}`} className={`relative p-2 sm:p-4 rounded-xl border-2 flex flex-col items-center justify-center transition-all h-20 sm:h-24 cursor-pointer ${isAberta ? 'bg-orange-50 border-orange-500 text-orange-700 shadow-sm hover:bg-orange-100' : 'bg-white border-gray-200 text-gray-400 hover:border-green-500 hover:text-green-600 hover:bg-green-50'}`}>
+                      {isAberta ? (
+                        <span className="text-xs sm:text-sm font-black leading-tight pointer-events-none text-center line-clamp-2 px-1">
+                          {getMesaIdentificador(num, isAberta.nomeCliente)}
+                        </span>
+                      ) : (
+                        <span className="text-xl sm:text-2xl font-black leading-none pointer-events-none">{num}</span>
                       )}
                       <span className="text-[9px] sm:text-[10px] uppercase tracking-wider font-bold mt-0.5 sm:mt-1 pointer-events-none">{isAberta ? `R$ ${total.toFixed(2)}` : 'Livre'}</span>
                       {isAberta && (
@@ -1593,14 +1892,7 @@ Formato esperado:
               </button>
               {pdvTipoPedido === 'Mesa' ? (
                 <div className="flex flex-1 items-center gap-2">
-                  <span className="font-bold text-gray-700 whitespace-nowrap">Mesa {mesaSelecionada}</span>
-                  <input
-                    type="text"
-                    value={mesaNomeCliente}
-                    onChange={e => setMesaNomeCliente(e.target.value)}
-                    placeholder="Nome do cliente..."
-                    className="flex-1 text-sm p-1.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-400 min-w-0"
-                  />
+                  <span className="font-bold text-gray-700 truncate">{getMesaIdentificador(mesaSelecionada, pdvCliente?.nome)}</span>
                 </div>
               ) : entregaSelecionada ? (
                 <div className="flex-1 text-center font-bold text-green-700">Edição de Delivery</div>
@@ -1614,7 +1906,7 @@ Formato esperado:
             </div>
             
             <div className="mb-4 relative">
-              <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cliente {pdvTipoPedido === 'Entrega' ? '(Obrigatório)' : '(Opcional)'}</label>
+              <label className="text-xs font-bold text-gray-500 uppercase mb-2 block">Cliente {(pdvTipoPedido === 'Entrega' || pdvTipoPedido === 'Mesa') ? '(Obrigatório)' : '(Opcional)'}</label>
               {pdvCliente ? (
                 <div className="flex items-center justify-between bg-indigo-50 p-3 rounded-lg border border-indigo-100">
                   <div className="flex items-center gap-2 min-w-0 flex-wrap">
@@ -1637,29 +1929,32 @@ Formato esperado:
                   <button onClick={() => setPdvCliente(null)} className="text-indigo-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-100 shrink-0"><X size={18}/></button>
                 </div>
               ) : (
-                <div className="relative">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
-                  <input type="text" placeholder="Vincular a um cliente..." value={pdvSearchCliente} onChange={e => setPdvSearchCliente(e.target.value)} className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
-                  {pdvSearchCliente && pdvFilteredClientes.length > 0 && (
-                    <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                      {pdvFilteredClientes.map(c => (
-                        <button key={c.id} onClick={() => { setPdvCliente(c); setPdvSearchCliente(''); }} className="w-full text-left p-3 hover:bg-indigo-50 border-b border-gray-50 text-sm flex justify-between items-center transition-colors">
-                          <div>
-                            <p className="font-bold text-gray-800">{c.nome}</p>
-                            <p className="text-xs text-gray-500">{c.telefone}</p>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            {configFidelidade?.ativo && pontosPorCliente[c.id] > 0 && (
-                              <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                {pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? '🎁' : '★'} {pontosPorCliente[c.id]}/{configFidelidade.carimbosParaPremio || 10}
-                              </span>
-                            )}
-                            <Plus size={16} className="text-indigo-500"/>
-                          </div>
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                <div className="relative flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={16} />
+                    <input type="text" placeholder="Vincular a um cliente..." value={pdvSearchCliente} onChange={e => setPdvSearchCliente(e.target.value)} className="w-full pl-9 pr-3 py-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm" />
+                    {pdvSearchCliente && pdvFilteredClientes.length > 0 && (
+                      <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
+                        {pdvFilteredClientes.map(c => (
+                          <button key={c.id} onClick={() => { setPdvCliente(c); setPdvSearchCliente(''); }} className="w-full text-left p-3 hover:bg-indigo-50 border-b border-gray-50 text-sm flex justify-between items-center transition-colors">
+                            <div>
+                              <p className="font-bold text-gray-800">{c.nome}</p>
+                              <p className="text-xs text-gray-500">{c.telefone}</p>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              {configFidelidade?.ativo && pontosPorCliente[c.id] > 0 && (
+                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                                  {pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? '🎁' : '★'} {pontosPorCliente[c.id]}/{configFidelidade.carimbosParaPremio || 10}
+                                </span>
+                              )}
+                              <Plus size={16} className="text-indigo-500"/>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                  <button onClick={() => { setShowQuickClientModal(true); setQuickClientPhone(pdvSearchCliente.replace(/\D/g, '').length >= 10 ? formatPhone(pdvSearchCliente) : ''); }} className="bg-indigo-100 text-indigo-700 p-2.5 rounded-lg font-bold hover:bg-indigo-200 transition-colors shrink-0" title="Cadastro Rápido"><Plus size={20}/></button>
                 </div>
               )}
             </div>
@@ -1689,7 +1984,19 @@ Formato esperado:
                                 );
                               })()}
                               <span className="font-black w-6 text-center text-base">{item.qtd}</span>
-                              <button onClick={() => updateCartItemQtd(id, 1)} className="text-gray-500 hover:text-green-500 hover:bg-white rounded px-2 py-1 transition-colors"><Plus size={18}/></button>
+                              {(() => {
+                                const enviado = item.enviadoCozinha || 0;
+                                const bloqueado = enviado > 0 && !isEditAuthValid();
+                                return (
+                                  <button
+                                    onClick={() => handlePlusClick(id, item)}
+                                    title={bloqueado ? 'Requer autorização do Caixa/Gerente. Para adicionar sem autorização, busque o produto novamente.' : ''}
+                                    className={`rounded px-2 py-1 transition-colors ${bloqueado ? 'text-orange-500 hover:text-orange-700 hover:bg-white' : 'text-gray-500 hover:text-green-500 hover:bg-white'}`}
+                                  >
+                                    {bloqueado ? <Lock size={16}/> : <Plus size={18}/>}
+                                  </button>
+                                );
+                              })()}
                             </div>
                             <p className="font-bold text-gray-800 break-words text-lg">{item.nome}</p>
                             {item.enviadoCozinha && item.enviadoCozinha > 0 ? (
@@ -1894,6 +2201,36 @@ Formato esperado:
                 </div>
               ))}
               {vendasHoje.length === 0 && <p className="p-8 text-center text-gray-400">Nenhuma venda registrada no período comercial atual.</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {activeView === 'x9' && (
+        <div className="space-y-6 animate-in slide-in-from-right-4 duration-300">
+          <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-x-auto flex flex-col h-fit max-h-[700px]">
+            <div className="p-4 border-b border-gray-100 flex justify-between items-center">
+              <h4 className="font-bold text-gray-800 flex items-center"><Eye className="mr-2 text-indigo-500" size={18}/> Registros de Entregas às Mesas (X9)</h4>
+              {logsX9.length > 0 && (
+                <button onClick={() => { if(confirm('Limpar todos os registros X9?')) remove(ref(db, 'confirmacoes_x9')); }} className="text-xs bg-red-100 text-red-600 px-3 py-1.5 rounded-lg font-bold hover:bg-red-200 transition-colors flex items-center">
+                  <Trash2 size={14} className="mr-1" /> Limpar Registros
+                </button>
+              )}
+            </div>
+            <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto p-4 space-y-3">
+              {logsX9.map((log: any) => (
+                <div key={log.id} className="p-4 rounded-xl border border-gray-100 bg-gray-50 flex items-center justify-between shadow-sm">
+                  <div>
+                    <p className="font-bold text-gray-800 text-lg mb-1">{log.identificador}</p>
+                    <p className="text-sm text-gray-600 flex items-center"><User size={14} className="mr-1"/> Entregue por: <strong className="ml-1 text-indigo-700">{log.atendenteNome || 'Desconhecido'}</strong></p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs font-bold text-gray-400">{new Date(log.timestamp).toLocaleDateString('pt-BR')} às</p>
+                    <p className="text-sm font-black text-gray-700">{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</p>
+                  </div>
+                </div>
+              ))}
+              {logsX9.length === 0 && <p className="text-center text-gray-400 italic py-8">Nenhum registro de entrega por atendente no momento.</p>}
             </div>
           </div>
         </div>
@@ -2104,13 +2441,36 @@ Formato esperado:
               <h3 className="font-black text-gray-800 flex items-center gap-2"><Lock size={18} className="text-orange-500"/> Edição Bloqueada</h3>
               <button onClick={() => setAuthEditModal(null)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
             </div>
-            <p className="text-sm text-gray-500">Este item já foi enviado à cozinha. Olhe para a câmera — reconhecimento facial de <strong>Caixa, Gerente ou superior</strong> é necessário.</p>
-            <div className="relative rounded-xl overflow-hidden bg-gray-900 h-56">
-              <video ref={faceAuthVideoRef} className="w-full h-full object-cover" muted playsInline />
-              {faceAuthStatus && (
-                <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm text-white text-xs text-center py-2 px-3">{faceAuthStatus}</div>
-              )}
+            <p className="text-sm text-gray-500">Este item já foi salvo/enviado à cozinha. Para alterar a quantidade dele, use reconhecimento facial ou PIN de <strong>Caixa, Gerente ou superior</strong>. Para adicionar sem autorização, busque o produto novamente e lance como novo item.</p>
+            <div className="grid grid-cols-2 gap-1 bg-gray-100 p-1 rounded-xl">
+              <button onClick={() => setAuthEditMethod('face')} className={`py-2 rounded-lg text-sm font-bold transition-colors ${authEditMethod === 'face' ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Facial</button>
+              <button onClick={() => setAuthEditMethod('pin')} className={`py-2 rounded-lg text-sm font-bold transition-colors ${authEditMethod === 'pin' ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>PIN</button>
             </div>
+            {authEditMethod === 'face' ? (
+              <div className="relative rounded-xl overflow-hidden bg-gray-900 h-56">
+                <video ref={faceAuthVideoRef} className="w-full h-full object-cover" muted playsInline />
+                {faceAuthStatus && (
+                  <div className="absolute bottom-0 left-0 right-0 bg-black/60 backdrop-blur-sm text-white text-xs text-center py-2 px-3">{faceAuthStatus}</div>
+                )}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                <div>
+                  <label className="text-xs font-bold text-gray-500 uppercase">PIN Autorizador</label>
+                  <input
+                    type="tel"
+                    maxLength={4}
+                    value={authEditPin}
+                    onChange={e => setAuthEditPin(e.target.value.replace(/\D/g, ''))}
+                    onKeyDown={e => { if (e.key === 'Enter' && authEditPin.length === 4) handleAutorizarEdicaoPorPin(); }}
+                    className="w-full text-center tracking-[1em] font-mono p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 mt-1 text-xl"
+                    placeholder="****"
+                    style={{ WebkitTextSecurity: 'disc' } as any}
+                  />
+                </div>
+                <button onClick={handleAutorizarEdicaoPorPin} disabled={authEditPin.length !== 4} className="w-full py-3 bg-orange-600 text-white rounded-xl font-bold hover:bg-orange-700 transition-colors disabled:opacity-50">Autorizar com PIN</button>
+              </div>
+            )}
             <button onClick={() => setAuthEditModal(null)} className="w-full py-3 bg-gray-100 text-gray-700 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
           </div>
         </div>
@@ -2418,6 +2778,31 @@ Formato esperado:
               <button onClick={() => { setShowDescontoModal(false); setDescontoInput(''); setDescontoPin(''); }} className="flex-1 p-3 bg-gray-100 text-gray-700 rounded-lg font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
               <button onClick={handleAplicarDesconto} disabled={!descontoInput || descontoPin.length !== 4} className="flex-1 p-3 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors">Autorizar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {showQuickClientModal && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-[220] p-4">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
+            <div className="flex justify-between items-center mb-2">
+              <h3 className="text-xl font-bold text-gray-800 flex items-center"><User className="mr-2 text-indigo-500"/> Cadastro Rápido</h3>
+              <button onClick={() => setShowQuickClientModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">Nome do Cliente</label>
+              <input type="text" value={quickClientName} onChange={e => setQuickClientName(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 mt-1" placeholder="Ex: João Silva" />
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">WhatsApp / Telefone</label>
+              <input type="tel" value={quickClientPhone} onChange={e => setQuickClientPhone(formatPhone(e.target.value))} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 mt-1" placeholder="(00) 00000-0000" />
+            </div>
+
+            <button onClick={handleCriarClienteVinculado} disabled={!quickClientName || quickClientPhone.replace(/\D/g, '').length < 10} className="w-full mt-2 bg-indigo-600 text-white p-3 rounded-lg font-bold hover:bg-indigo-700 transition-colors disabled:opacity-50">
+              Salvar e Vincular
+            </button>
           </div>
         </div>
       )}

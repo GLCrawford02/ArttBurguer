@@ -74,8 +74,8 @@ export default function ImpressorasManager() {
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
         <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
           <div>
-            <h4 className="font-bold text-gray-700">Identificação USB das Impressoras (VID e PID)</h4>
-            <p className="text-xs text-gray-400 mt-0.5">Informe o VID e PID em hexadecimal separados por vírgula (Ex: 0x04b8,0x0202).</p>
+            <h4 className="font-bold text-gray-700">Endereço IP das Impressoras</h4>
+            <p className="text-xs text-gray-400 mt-0.5">Informe o IP da impressora térmica de cada destino. Ex: 192.168.0.55.</p>
           </div>
         </div>
 
@@ -83,13 +83,13 @@ export default function ImpressorasManager() {
           {(['cozinha', 'balcao'] as const).map(dest => (
             <div key={dest}>
               <label className="block text-sm font-bold text-gray-600 mb-1">
-                VID/PID — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
+                IP — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
               </label>
               <input
                 type="text"
                 value={nomes[dest]}
                 onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
-                placeholder="Ex: 0x04b8,0x0202"
+                placeholder="Ex: 192.168.0.55"
                 className="w-full p-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
               />
             </div>

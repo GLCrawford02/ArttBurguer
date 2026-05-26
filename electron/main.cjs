@@ -1,7 +1,50 @@
 const { app, BrowserWindow, ipcMain } = require('electron');
 const path = require('path');
 
+const firebaseConfig = {
+  apiKey: "AIzaSyAtwIhdoooZ7AAzFdshRJzArVBKhqEhfFI",
+  authDomain: "arttburgercvo.firebaseapp.com",
+  databaseURL: "https://arttburgercvo-default-rtdb.firebaseio.com/",
+  projectId: "arttburger",
+  storageBucket: "arttburger.firebasestorage.app",
+  messagingSenderId: "452751207382",
+  appId: "1:452751207382:web:ccbfeac50f0fb4e6299277"
+};
+
 let mainWindow;
+let firebaseDb;
+let fbRef;
+let fbOnChildAdded;
+let fbUpdate;
+let fbSet;
+
+async function initFirebasePrintQueue() {
+  try {
+    const firebaseAppModule = await import('firebase/app');
+    const databaseModule = await import('firebase/database');
+    const { initializeApp } = firebaseAppModule;
+    const { getDatabase, ref, onChildAdded, update, set } = databaseModule;
+
+    initializeApp(firebaseConfig);
+    firebaseDb = getDatabase();
+    fbRef = ref;
+    fbOnChildAdded = onChildAdded;
+    fbUpdate = update;
+    fbSet = set;
+
+    const jobsRef = fbRef(firebaseDb, 'impressoras/jobs');
+    fbOnChildAdded(jobsRef, async (snap) => {
+      const job = snap.val();
+      const jobId = snap.key;
+      if (!jobId || !job || job.status !== 'pendente') return;
+      await processPrintJob(jobId, job);
+    });
+
+    console.log('Firebase print queue initialized.');
+  } catch (e) {
+    console.error('Falha ao iniciar fila de impressão do Firebase:', e);
+  }
+}
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -29,8 +72,9 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   createWindow();
+  await initFirebasePrintQueue();
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -178,6 +222,40 @@ function enviarParaImpressora(ip, data) {
     socket.on('error', err => { socket.destroy(); reject(err); });
     socket.on('timeout', () => { socket.destroy(); reject(new Error(`Timeout ao conectar em ${ip}:9100`)); });
   });
+}
+
+async function processPrintJob(jobId, job) {
+  if (!firebaseDb || !fbRef || !fbUpdate) return;
+  const jobRef = fbRef(firebaseDb, `impressoras/jobs/${jobId}`);
+
+  try {
+    await fbUpdate(jobRef, { status: 'imprimindo', startedAt: Date.now() });
+
+    const ip = job.printerIp;
+    if (!ip) throw new Error('Printer IP não definido no job.');
+
+    if (job.type === 'ticket') {
+      const data = buildEscPosTicket(job);
+      await enviarParaImpressora(ip, data);
+    } else if (job.type === 'recibo') {
+      const data = buildEscPosRecibo(job);
+      await enviarParaImpressora(ip, data);
+    } else {
+      throw new Error(`Tipo de job desconhecido: ${job.type}`);
+    }
+
+    await fbUpdate(jobRef, { status: 'concluido', completedAt: Date.now(), lastError: null });
+    console.log(`Job de impressão ${jobId} concluído em ${ip}.`);
+  } catch (error) {
+    const message = error?.message || String(error);
+    console.error(`Falha no job de impressão ${jobId}:`, message);
+    await fbUpdate(jobRef, {
+      status: 'erro',
+      lastError: message,
+      attempts: (job.attempts || 0) + 1,
+      updatedAt: Date.now(),
+    });
+  }
 }
 
 // ─── IPC: Ticket cozinha/balcão via IP (ESC/POS RAW porta 9100) ─────────────

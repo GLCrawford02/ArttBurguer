@@ -39,6 +39,7 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
       id: 'aba_logistica', nome: 'Clientes e Entregas',
       modulos: [
         { id: 'clientes', nome: 'Base de Clientes', admin: false },
+        { id: 'fidelidade', nome: 'Programa de Fidelidade', admin: false },
         { id: 'despacho', nome: 'Despacho e Rotas', admin: false },
         { id: 'minhas_entregas', nome: 'Minhas Entregas (App Motoboy)', admin: false },
         { id: 'gerenciar_tags', nome: 'Gerenciamento de Tags (Clientes)', admin: true }

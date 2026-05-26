@@ -310,7 +310,7 @@ export default function App() {
 
     if (hasPerm('dashboard_geral', 'aba_dashboard')) allowed.push('dashboard');
     if (hasPerm('vendas', 'aba_pdv') || hasPerm('pdv_comandas', 'aba_pdv') || hasPerm('pdv_conferencia', 'aba_pdv')) allowed.push('pdv');
-    if (hasPerm('clientes', 'aba_logistica') || hasPerm('despacho', 'aba_logistica') || hasPerm('minhas_entregas', 'aba_logistica') || hasPerm('gerenciar_tags', 'aba_logistica') || cargos.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'))) allowed.push('logistica');
+    if (hasPerm('clientes', 'aba_logistica') || hasPerm('fidelidade', 'aba_logistica') || hasPerm('despacho', 'aba_logistica') || hasPerm('minhas_entregas', 'aba_logistica') || hasPerm('gerenciar_tags', 'aba_logistica') || cargos.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'))) allowed.push('logistica');
     if (hasPerm('insumos', 'aba_cadastros') || hasPerm('fornecedores', 'aba_cadastros')) allowed.push('cadastros');
     if (hasPerm('produtos', 'aba_cardapio') || hasPerm('promocoes', 'aba_cardapio')) allowed.push('cardapio');
     if (hasPerm('compras', 'aba_movimentacoes') || hasPerm('transferencias', 'aba_movimentacoes') || hasPerm('descartes', 'aba_movimentacoes') || hasPerm('visibilidade_estoque', 'aba_movimentacoes') || hasPerm('balanco', 'aba_movimentacoes')) allowed.push('movimentacoes');
@@ -358,7 +358,7 @@ export default function App() {
 
       const allowedLogisticaSubTabs: ('clientes' | 'fidelidade' | 'despacho' | 'minhas_entregas')[] = [];
       if (temPermissao('clientes', 'aba_logistica')) allowedLogisticaSubTabs.push('clientes');
-      if (temPermissao('clientes', 'aba_logistica')) allowedLogisticaSubTabs.push('fidelidade');
+      if (temPermissao('fidelidade', 'aba_logistica')) allowedLogisticaSubTabs.push('fidelidade');
       if (temPermissao('despacho', 'aba_logistica')) allowedLogisticaSubTabs.push('despacho');
       const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
       if (cargosArr.some((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy') || c === 'Dono' || c === 'TI') || temPermissao('minhas_entregas', 'aba_logistica')) allowedLogisticaSubTabs.push('minhas_entregas');
@@ -1125,7 +1125,7 @@ export default function App() {
               {!isEntregadorOnly && (
                 <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('clientes', 'aba_logistica') && <button onClick={() => setSubTabLogistica('clientes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'clientes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Clientes</button>}
-                {temPermissao('clientes', 'aba_logistica') && <button onClick={() => setSubTabLogistica('fidelidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'fidelidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>}
+                {temPermissao('fidelidade', 'aba_logistica') && <button onClick={() => setSubTabLogistica('fidelidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'fidelidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>}
                 {temPermissao('despacho', 'aba_logistica') && <button onClick={() => setSubTabLogistica('despacho')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'despacho' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despachos e Rotas</button>}
                 {(() => {
                   const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];
@@ -1138,7 +1138,7 @@ export default function App() {
               </div>
               )}
               {subTabLogistica === 'clientes' && <ClientesManager currentUser={currentUser} temPermissao={temPermissao} />}
-              {subTabLogistica === 'fidelidade' && <FidelidadeManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabLogistica === 'fidelidade' && temPermissao('fidelidade', 'aba_logistica') && <FidelidadeManager currentUser={currentUser} temPermissao={temPermissao} />}
               {subTabLogistica === 'despacho' && <DespachoManager currentUser={currentUser} temPermissao={temPermissao} />}
                             {/* MinhasEntregas fica sempre montado (só escondido) para o GPS não parar ao trocar de sub-aba */}
               {(() => {

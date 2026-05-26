@@ -362,11 +362,19 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       const despacho = despachos.find(d => d.id === id);
       if (despacho) {
         for (const p of despacho.paradas) {
-          if (p.isAberta) {
-            await update(ref(db, `entregas_abertas/${p.pedidoId}`), { statusEntrega: 'Concluída' });
-          } else if (p.pedidoId) {
-            await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluída' });
-          }
+          if (!p.pedidoId) continue;
+          
+          import('firebase/database').then(async ({ get }) => {
+            const vendaSnap = await get(ref(db, `vendas_pdv/${p.pedidoId}`));
+            if (vendaSnap.exists()) {
+              await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+            } else {
+              const entregaSnap = await get(ref(db, `entregas_abertas/${p.pedidoId}`));
+              if (entregaSnap.exists()) {
+                await update(ref(db, `entregas_abertas/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+              }
+            }
+          });
         }
       }
 

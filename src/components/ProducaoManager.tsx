@@ -8,6 +8,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [promocoes, setPromocoes] = useState<Promocao[]>([]);
   const [pedidosCozinha, setPedidosCozinha] = useState<any[]>([]);
+  const [categoriasDb, setCategoriasDb] = useState<any[]>([]);
   const [pedidosLoaded, setPedidosLoaded] = useState(false);
   const [kdsFiltroCategorias, setKdsFiltroCategorias] = useState<string[]>([]);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -25,7 +26,11 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
     ? kdsRoles.map((r: string) => r.replace(/KDS\s+/i, '').trim())
     : ['Chapa', 'Char Broiler', 'Montagem', 'Porção', 'Balcão', 'Expedição'];
 
-  const [activeKds, setActiveKds] = useState<any>(allowedStations[0] || 'Montagem');
+  const [activeKds, setActiveKds] = useState<any>(() => {
+    const saved = localStorage.getItem('arttburger_activeKds');
+    if (saved && allowedStations.includes(saved)) return saved;
+    return allowedStations[0] || 'Montagem';
+  });
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -120,10 +125,21 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
       setPedidosLoaded(true);
     });
 
+    const catRef = ref(db, 'categorias_produtos');
+    const unsubCat = onValue(catRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data) {
+        setCategoriasDb(Object.entries(data).map(([id, val]: [string, any]) => ({ id, ...val })));
+      } else {
+        setCategoriasDb([]);
+      }
+    });
+
     return () => {
       unsubProdutos();
       unsubPromocoes();
       unsubPedidos();
+      unsubCat();
     };
   }, []);
 
@@ -196,7 +212,12 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
     ...promocoes.filter(checkPromocaoValida).map(p => ({ ...p, categoria: 'Promoção / Combo' }))
   ];
 
-  const categoriasExistentes = Array.from(new Set(allItems.map(p => p.categoria || 'Outros'))).sort();
+  // Agora a lista de filtros do KDS inclui todas as categorias do banco, mesmo vazias,
+  // e também as categorias antigas/existentes nos produtos atuais.
+  const categoriasExistentes = Array.from(new Set([
+    ...categoriasDb.map(c => c.nome),
+    ...allItems.map(p => p.categoria || 'Outros')
+  ])).sort();
 
   // Mapeia categorias para seus respectivos setores do KDS
   const filterItemsForKDS = (itens: any[], kds: string) => {
@@ -336,6 +357,40 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                       <span className="text-xs font-bold text-gray-500">{ped.kdsAceito?.[activeKds] ? 'Em Produção' : 'Aguardando'}</span>
                       <span className={`text-xs font-bold px-2 py-1 rounded-full flex items-center shadow-sm ${timeColor}`}><Clock size={12} className="mr-1"/> {timeDiff} min</span>
                     </div>
+                    {activeKds === 'Expedição' && (
+                      <div className="flex gap-2 mt-1 pt-2 border-t border-gray-200/60">
+                        {['Chapa', 'Montagem'].map(praca => {
+                          const hasItems = ped.itens.some((item: any) => {
+                            const prod = allItems.find(p => p.id === item.produtoId);
+                            const cat = prod ? (prod.categoria || 'Outros') : 'Outros';
+                            return ['Hambúrguer', 'Promoção / Combo'].includes(cat);
+                          });
+                          
+                          if (!hasItems && !ped.kdsAceito?.[praca] && !ped.kdsFinalizado?.[praca]) return null;
+
+                          const isFinalizado = ped.kdsFinalizado?.[praca];
+                          const isAceito = ped.kdsAceito?.[praca];
+
+                          let statusText = 'Pendente';
+                          let statusColor = 'bg-gray-100 text-gray-500 border border-gray-200';
+                          
+                          if (isFinalizado) {
+                            statusText = 'Pronto';
+                            statusColor = 'bg-green-50 text-green-700 border border-green-200';
+                          } else if (isAceito) {
+                            statusText = 'Fazendo';
+                            statusColor = 'bg-blue-50 text-blue-700 border border-blue-200';
+                          }
+
+                          return (
+                            <div key={praca} className={`flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${statusColor}`}>
+                              {isFinalizado ? <CheckCircle size={10} className="mr-1"/> : isAceito ? <ChefHat size={10} className="mr-1"/> : <Clock size={10} className="mr-1"/>}
+                              {praca}: {statusText}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                   <div className="relative flex-1 bg-white flex flex-col">
                     <div className="p-4 space-y-3 overflow-hidden max-h-[180px]">

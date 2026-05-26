@@ -101,6 +101,8 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
   const [ajusteMotivo, setAjusteMotivo] = useState('');
   const [novaRecompensa, setNovaRecompensa] = useState<Partial<Recompensa>>({ nome: '', descricao: '', ativo: true });
   const [salvando, setSalvando] = useState(false);
+  const canEdit = temPermissao ? temPermissao('fidelidade', 'aba_logistica', 'editar') : true;
+  const canDelete = temPermissao ? temPermissao('fidelidade', 'aba_logistica', 'apagar') : true;
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
@@ -122,7 +124,12 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
     return () => { unsubConfig(); unsubClientes(); unsubDados(); };
   }, []);
 
+  useEffect(() => {
+    if (!canEdit && activeView === 'config') setActiveView('clientes');
+  }, [canEdit, activeView]);
+
   const salvarConfig = async () => {
+    if (!canEdit) { showToast('Você não tem permissão para editar a fidelidade.', 'error'); return; }
     setSalvando(true);
     try {
       await set(ref(db, 'fidelidade_config'), config);
@@ -135,6 +142,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
   };
 
   const adicionarRecompensa = async () => {
+    if (!canEdit) { showToast('Você não tem permissão para editar recompensas.', 'error'); return; }
     if (!novaRecompensa.nome?.trim()) { showToast('Informe o nome da recompensa.', 'error'); return; }
     const id = push(ref(db, 'fidelidade_config/recompensas')).key!;
     const updated = { ...config, recompensas: { ...(config.recompensas || {}), [id]: { nome: novaRecompensa.nome, descricao: novaRecompensa.descricao || '', ativo: true } } };
@@ -145,6 +153,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
   };
 
   const removerRecompensa = async (id: string) => {
+    if (!canDelete) { showToast('Você não tem permissão para apagar recompensas.', 'error'); return; }
     const updated = { ...config, recompensas: { ...config.recompensas } };
     delete updated.recompensas[id];
     setConfig(updated);
@@ -152,13 +161,62 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
     showToast('Recompensa removida.');
   };
 
+  const normalizarTelefoneMensagem = (telefone?: string) => {
+    let tel = (telefone || '').replace(/\D/g, '');
+    if (tel.length < 10) return '';
+    if (!tel.startsWith('55')) tel = `55${tel}`;
+    return tel;
+  };
+
+  const montarMensagemFidelidade = (clienteNome: string, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+    const primeiroNome = (clienteNome || 'cliente').split(' ')[0];
+    const premiosDisponiveis = Math.floor(totalCarimbos / meta);
+    const resto = totalCarimbos % meta;
+    const carimbosNoCartao = premiosDisponiveis > 0 && resto === 0 ? meta : resto;
+    const statusCartao = premiosDisponiveis > 0
+      ? `\n\n🎁 Você já tem *${premiosDisponiveis} prêmio(s) disponível(is)* para resgatar!`
+      : `\n\nFaltam *${meta - carimbosNoCartao} carimbo(s)* para o seu próximo prêmio.`;
+
+    return `🍔 *ArttBurger Fidelidade*\n\nOlá, *${primeiroNome}*! Você ganhou *${carimbosGanhos} carimbo(s)* no seu cartão fidelidade.\n\nSua nova pontuação é: *${totalCarimbos} carimbo(s)*.\nCartão atual: *${carimbosNoCartao}/${meta}*.${statusCartao}\n\nObrigado pela preferência!`;
+  };
+
+  const enfileirarMensagemFidelidade = async (clienteId: string, clienteNome: string, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+    const cliente = clientes.find(c => c.id === clienteId);
+    const telefone = normalizarTelefoneMensagem(cliente?.telefone);
+    if (!telefone) return;
+
+    await set(push(ref(db, 'fila_mensagens')), {
+      telefone,
+      mensagem: montarMensagemFidelidade(clienteNome, carimbosGanhos, totalCarimbos, meta),
+      status: 'pendente',
+      origem: 'fidelidade',
+      timestamp: Date.now(),
+    });
+  };
+
+  const enfileirarMensagemResgate = async (clienteId: string, clienteNome: string, recompensaNome: string, saldoCarimbos: number, meta: number) => {
+    const cliente = clientes.find(c => c.id === clienteId);
+    const telefone = normalizarTelefoneMensagem(cliente?.telefone);
+    if (!telefone) return;
+
+    const primeiroNome = (clienteNome || 'cliente').split(' ')[0];
+    await set(push(ref(db, 'fila_mensagens')), {
+      telefone,
+      mensagem: `🍔 *ArttBurger Fidelidade*\n\nOlá, *${primeiroNome}*! Sua recompensa *${recompensaNome}* foi resgatada com sucesso.\n\nEsperamos que goste! Foram descontados *${meta} carimbo(s)* do seu cartão, e seu saldo agora é de *${saldoCarimbos} carimbo(s)*.\n\nAguardamos você para continuar pontuando no seu cartão fidelidade.\n\nObrigado pela preferência!`,
+      status: 'pendente',
+      origem: 'fidelidade_resgate',
+      timestamp: Date.now(),
+    });
+  };
+
   const realizarResgate = async (clienteId: string, recompensaId: string) => {
+    if (!canEdit) { showToast('Você não tem permissão para resgatar recompensas.', 'error'); return; }
     const recomp = config.recompensas[recompensaId];
     const dados = dadosClientes[clienteId];
     const meta = config.carimbosParaPremio || TOTAL_CARIMBOS;
     const carimbosAtuais = dados?.pontos || 0;
     if (carimbosAtuais < meta) { showToast('Carimbos insuficientes.', 'error'); return; }
-    const novosCarimbos = carimbosAtuais - meta;
+    const novosCarimbos = Math.max(0, carimbosAtuais - meta);
     await update(ref(db, `fidelidade_pontos/${clienteId}`), { pontos: novosCarimbos });
     await set(push(ref(db, `fidelidade_pontos/${clienteId}/historico`)), {
       tipo: 'resgate', pontos: -meta,
@@ -166,11 +224,13 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       timestamp: Date.now(),
       operadorNome: currentUser?.nome || 'Sistema',
     });
+    await enfileirarMensagemResgate(clienteId, dados?.clienteNome || modalResgate?.clienteNome || 'Cliente', recomp.nome, novosCarimbos, meta);
     showToast(`Prêmio "${recomp.nome}" resgatado! -${meta} carimbos.`);
     setModalResgate(null);
   };
 
   const realizarAjuste = async () => {
+    if (!canEdit) { showToast('Você não tem permissão para ajustar carimbos.', 'error'); return; }
     if (!modalAjuste || !ajusteValor || !ajusteMotivo.trim()) { showToast('Preencha valor e motivo.', 'error'); return; }
     const delta = Number(ajusteValor);
     if (isNaN(delta)) { showToast('Valor inválido.', 'error'); return; }
@@ -184,6 +244,15 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       descricao: `Ajuste manual: ${ajusteMotivo}`,
       timestamp: Date.now(), operadorNome: currentUser?.nome || 'Sistema',
     });
+    if (delta > 0) {
+      await enfileirarMensagemFidelidade(
+        modalAjuste.clienteId,
+        modalAjuste.clienteNome,
+        delta,
+        novo,
+        config.carimbosParaPremio || TOTAL_CARIMBOS
+      );
+    }
     showToast(`Ajuste de ${delta > 0 ? '+' : ''}${delta} carimbo(s) aplicado!`);
     setModalAjuste(null); setAjusteValor(''); setAjusteMotivo('');
   };
@@ -221,7 +290,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
           </div>
           <div className="flex bg-gray-100 p-1 rounded-xl">
             <button onClick={() => setActiveView('clientes')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${activeView === 'clientes' ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Clientes</button>
-            <button onClick={() => setActiveView('config')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${activeView === 'config' ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações</button>
+            {canEdit && <button onClick={() => setActiveView('config')} className={`px-4 py-1.5 rounded-lg text-sm font-bold transition-colors ${activeView === 'config' ? 'bg-white text-orange-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações</button>}
           </div>
         </div>
       </div>
@@ -289,13 +358,13 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                             <p className={`font-black text-lg ${carimbos > 0 ? 'text-orange-600' : 'text-gray-300'}`}>{carimbos % meta}<span className="text-xs font-bold text-gray-400">/{meta}</span></p>
                             <p className="text-[10px] text-gray-400">carimbos</p>
                           </div>
-                          <div className="flex gap-1">
-                            <button onClick={() => setModalAjuste({ clienteId: c.id, clienteNome: c.nome, carimbos })} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Ajustar carimbos">
+                          <div className="flex items-center gap-1">
+                            {canEdit && <button onClick={() => setModalAjuste({ clienteId: c.id, clienteNome: c.nome, carimbos })} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors" title="Ajustar carimbos">
                               <Settings size={15} />
-                            </button>
-                            {temPremio && (
-                              <button onClick={() => setModalResgate({ clienteId: c.id, clienteNome: c.nome, carimbos })} className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors" title="Resgatar prêmio">
-                                <Gift size={15} />
+                            </button>}
+                            {canEdit && temPremio && (
+                              <button onClick={() => setModalResgate({ clienteId: c.id, clienteNome: c.nome, carimbos })} className="px-3 py-1.5 bg-green-600 text-white hover:bg-green-700 rounded-lg transition-colors text-xs font-black flex items-center gap-1.5 shadow-sm" title="Resgatar recompensa">
+                                <Gift size={14} /> Resgatar recompensa
                               </button>
                             )}
                             <button onClick={() => setExpandido(expandido === c.id ? null : c.id)} className="p-1.5 text-gray-400 hover:bg-gray-100 rounded-lg transition-colors">
@@ -417,7 +486,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                   </div>
                   <div className="flex items-center gap-2 ml-3">
                     <button onClick={() => { const u = { ...config, recompensas: { ...config.recompensas, [r.id!]: { nome: r.nome, descricao: r.descricao || '', ativo: !r.ativo } } }; setConfig(u); set(ref(db, 'fidelidade_config'), u); }} className={`text-xs font-bold px-2 py-0.5 rounded-full ${r.ativo ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'}`}>{r.ativo ? 'Ativo' : 'Inativo'}</button>
-                    <button onClick={() => removerRecompensa(r.id!)} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>
+                    {canDelete && <button onClick={() => removerRecompensa(r.id!)} className="p-1 text-gray-400 hover:text-red-500 transition-colors"><Trash2 size={13} /></button>}
                   </div>
                 </div>
               ))}
