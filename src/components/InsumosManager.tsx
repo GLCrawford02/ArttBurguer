@@ -3,6 +3,7 @@ import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
 import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon, ChevronUp, ChevronDown } from 'lucide-react';
+import TiposUsoModal from './modals/TiposUsoModal';
 
 export default function InsumosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -12,7 +13,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
 
   const [nome, setNome] = useState('');
   const [sku, setSku] = useState('');
-  const [unidade, setUnidade] = useState('g');
+  const [unidade, setUnidade] = useState('un');
   const [isVariavel, setIsVariavel] = useState(false);
   const [transferivel, setTransferivel] = useState(false);
   const [precoPacote, setPrecoPacote] = useState('0');
@@ -299,7 +300,7 @@ Formato esperado para cada objeto:
 [{
   "nome": "Nome do Insumo",
   "sku": "SKU (se omitido ou em branco, deixe vazio)",
-  "unidade": "g" | "kg" | "ml" | "L" | "un" | "cx" | "fd" | "pc",
+  "unidade": "un" | "cx" | "pct",
   "precoPacote": numero (preço de compra em reais da caixa/unidade),
   "qtdPacote": numero (quantidade na embalagem),
   "alertaMinimo": numero (estoque mínimo),
@@ -344,7 +345,7 @@ Formato esperado para cada objeto:
         const finalSku = (item.sku ? String(item.sku).substring(0, 20) : null) || (existingInsumo ? (existingInsumo as any).sku : generateSku(item.nome || 'INSUMO'));
 
         if (existingInsumo) {
-          const isBulk = ['pc', 'fd', 'kg', 'L', 'cx'].includes(item.unidade || existingInsumo.unidade);
+          const isBulk = ['pct', 'kg', 'L', 'cx'].includes(item.unidade || existingInsumo.unidade);
           const updateData: any = {
             nome: item.nome || existingInsumo.nome,
             sku: finalSku,
@@ -362,7 +363,7 @@ Formato esperado para cada objeto:
           await update(ref(db, `insumos/${existingInsumo.id}`), updateData);
           atualizados++;
         } else {
-          const isBulk = ['pc', 'fd', 'kg', 'L', 'cx'].includes(item.unidade || 'un');
+          const isBulk = ['pct', 'kg', 'L', 'cx'].includes(item.unidade || 'un');
           await set(push(ref(db, 'insumos')), {
             nome: item.nome || 'Sem Nome',
             sku: finalSku,
@@ -425,7 +426,7 @@ Formato esperado para cada objeto:
     setEditId(null);
     setNome('');
     setSku('');
-    setUnidade('g');
+    setUnidade('un');
     setPrecoPacote('0');
     setQtdPacote('1');
     setDiasAvisoValidade('7');
@@ -574,7 +575,7 @@ Formato esperado para cada objeto:
                   <label className="text-xs font-bold text-gray-500 uppercase">Unidade de Medida</label>
                   <select value={unidade} onChange={e => setUnidade(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-white">
                     <option value="un">Unidade (un)</option>
-                    <option value="fd">Pacote (fd)</option>
+                    <option value="pct">Pacote (pct)</option>
                     <option value="cx">Caixa (cx)</option>
                   </select>
                 </div>
@@ -832,31 +833,17 @@ Formato esperado para cada objeto:
         </div>
       )}
 
-      {showTiposModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full space-y-4">
-            <div className="flex justify-between items-center mb-2">
-              <h3 className="text-lg font-bold text-gray-800">Tipos de Uso</h3>
-              <button onClick={() => setShowTiposModal(false)} className="text-gray-400 hover:text-gray-600"><X size={20}/></button>
-            </div>
-            {canEdit && (
-              <div className="flex space-x-2">
-                <input type="text" value={novoTipoForm} onChange={e => setNovoTipoForm(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleAddTipo()} placeholder="Novo tipo (ex: Embalagem)" className="flex-1 p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm" />
-                <button onClick={handleAddTipo} className="bg-green-600 text-white px-4 py-2 rounded-lg font-bold hover:bg-green-700 transition-colors text-sm">Adicionar</button>
-              </div>
-            )}
-            <div className="max-h-60 overflow-y-auto border border-gray-100 rounded-lg divide-y divide-gray-100">
-              {tiposUsoDb.map(t => (
-                <div key={t.id} className="flex justify-between items-center p-3 hover:bg-gray-50">
-                  <span className="text-sm font-medium text-gray-700">{t.nome}</span>
-                  {canDelete && <button onClick={() => handleDeleteTipo(t.id)} className="text-red-500 hover:bg-red-50 p-1.5 rounded"><Trash2 size={16}/></button>}
-                </div>
-              ))}
-              {tiposUsoDb.length === 0 && <p className="p-4 text-center text-sm text-gray-400">Nenhum tipo cadastrado.</p>}
-            </div>
-          </div>
-        </div>
-      )}
+      <TiposUsoModal
+        show={showTiposModal}
+        onClose={() => setShowTiposModal(false)}
+        tiposUsoDb={tiposUsoDb}
+        novoTipoForm={novoTipoForm}
+        setNovoTipoForm={setNovoTipoForm}
+        onAddTipo={handleAddTipo}
+        onDeleteTipo={handleDeleteTipo}
+        canEdit={canEdit}
+        canDelete={canDelete}
+      />
     </div>
   );
 }

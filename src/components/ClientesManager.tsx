@@ -323,8 +323,11 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
         showToast('Cliente atualizado com sucesso!', 'success');
         setEditId(null);
       } else {
+        const pinAleatorio = Math.floor(100000 + Math.random() * 900000).toString();
+        
         await set(push(ref(db, 'clientes')), {
           ...clienteData,
+          pin: pinAleatorio,
           dataCadastro: Date.now()
         });
         
@@ -332,7 +335,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
         if (telefone) {
           const cleanPhone = telefone.replace(/\D/g, '');
           if (cleanPhone.length >= 10) {
-            const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Fidelidade*!\n\n*Como funciona?*\n✨ Cada ponto é adquirido com o consumo de R$ 50,00 (independente do produto).\n✨ Os pontos não são acumulativos nem transferíveis.\n✨ Nosso sistema irá avisar sempre que você receber uma pontuação.\n\n*Recompensa:*\nA cada 10 pontos, você pode trocar por qualquer um dos nossos *Artesanais Clássicos*:\n🍔 Artt Burger\n🍔 Artt Burger Pepper Jelly\n🍔 Artt Burger Barbecue\n🍔 Artt Burger Cheddar\n🍔 Artt Burger Bacon\n\nAgradecemos a preferência e bom apetite!`;
+            const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Fidelidade*!\n\n*Sua senha de acesso ao aplicativo:* ${pinAleatorio}\n\n*Como funciona?*\n✨ Cada ponto é adquirido com o consumo de R$ 50,00 (independente do produto).\n✨ Os pontos não são acumulativos nem transferíveis.\n✨ Nosso sistema irá avisar sempre que você receber uma pontuação.\n\n*Recompensa:*\nA cada 10 pontos, você pode trocar por qualquer um dos nossos *Artesanais Clássicos*:\n🍔 Artt Burger\n🍔 Artt Burger Pepper Jelly\n🍔 Artt Burger Barbecue\n🍔 Artt Burger Cheddar\n🍔 Artt Burger Bacon\n\nAgradecemos a preferência e bom apetite!`;
             await set(push(ref(db, 'fila_mensagens')), {
               telefone: cleanPhone,
               mensagem: msgFidelidade,

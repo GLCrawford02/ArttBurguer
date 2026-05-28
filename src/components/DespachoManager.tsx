@@ -88,6 +88,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
   const [modalResumoMotoboy, setModalResumoMotoboy] = useState<string | null>(null);
   const [geocodedStops, setGeocodedStops] = useState<Record<string, {lat: number, lng: number} | null>>({});
   const geocodingQueue = useRef<Set<string>>(new Set());
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [lojaCoords, setLojaCoords] = useState<{ lat: number | null; lng: number | null }>({ lat: null, lng: null });
 
   const [mapaMiniAtivo, setMapaMiniAtivo] = useState(false);
@@ -305,10 +306,12 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
   const handleRegistrarSaida = async () => {
     if (!selectedMotoboy) return showToast('Selecione um Motoboy / Entregador.', 'error');
     if (rotaAtual.length === 0) return showToast('Adicione pelo menos um cliente à rota.', 'error');
+    if (isSubmitting) return;
 
     const motoboy = funcionarios.find(f => f.id === selectedMotoboy);
     if (!motoboy) return;
 
+    setIsSubmitting(true);
     try {
       await set(push(ref(db, 'despachos')), {
         motoboyId: motoboy.id,
@@ -348,6 +351,8 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     } catch (error: any) {
       console.error(error);
       showToast('Erro ao registrar despacho: ' + error.message, 'error');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -673,8 +678,8 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                   <ExternalLink size={16} className="mr-2"/> Abrir Rota no GPS
                 </button>
                 {canEdit && (
-                  <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
-                    <Truck size={16} className="mr-2"/> Despachar Entregador
+                  <button onClick={handleRegistrarSaida} disabled={rotaAtual.length === 0 || !selectedMotoboy || isSubmitting} className="w-full bg-indigo-600 text-white py-2.5 rounded-lg font-bold text-sm hover:bg-indigo-700 transition-colors flex items-center justify-center disabled:opacity-50 shadow-md">
+                    <Truck size={16} className="mr-2"/> {isSubmitting ? 'Despachando...' : 'Despachar Entregador'}
                   </button>
                 )}
               </div>

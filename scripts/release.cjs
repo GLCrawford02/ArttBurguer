@@ -44,7 +44,7 @@ try {
 
 // ── 2. Build Electron (base: './') ──────────────────
 run(
-  `cross-env BUILD_TARGET=electron npx vite build`,
+  `cross-env NODE_OPTIONS="--max-old-space-size=4096" BUILD_TARGET=electron npx vite build`,
   { label: 'Build Electron (base: ./)' }
 );
 run(
@@ -53,7 +53,7 @@ run(
 );
 
 // ── 3. Build Web/APK (base: '/') ────────────────────
-run('npx vite build', { label: 'Build Web/APK (base: /)' });
+run('cross-env NODE_OPTIONS="--max-old-space-size=4096" npx vite build', { label: 'Build Web/APK (base: /)' });
 run('npx cap sync',   { label: 'Capacitor sync' });
 
 // ── 4. Git ──────────────────────────────────────────

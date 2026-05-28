@@ -46,6 +46,11 @@
     "fidelidade_config": { ".write": true },
     "fidelidade_pontos": { ".write": true },
     "historico_balancos": { ".write": true },
-    "escalas": { ".write": true }
+    "escalas": { ".write": true },
+    "confirmacoes_x9": { ".write": true },
+    "logs_x9": { 
+      ".write": true,
+      ".indexOn": "timestamp"
+    }
   }
 }

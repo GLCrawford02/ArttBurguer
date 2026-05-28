@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto } from '../types';
-import { Truck, Store, Plus, Trash2, Save, Search, CheckCircle, AlertTriangle, Package, X, Pencil } from 'lucide-react';
+import { Truck, Store, Plus, Trash2, Save, Search, CheckCircle, AlertTriangle, Package, X, Pencil, Tag } from 'lucide-react';
 
 interface EmbalagemItem {
   insumoId: string;
@@ -11,7 +11,7 @@ interface EmbalagemItem {
 
 export interface GrupoData {
   nome: string;
-  produtos: string[];
+  categorias: string[];
   delivery: EmbalagemItem[];
   salao: EmbalagemItem[];
 }
@@ -76,43 +76,42 @@ function InsumoSelector({
   );
 }
 
-// ─── Seletor de produto reutilizável ──────────────────────────────────────────
-function ProdutoSelector({
-  produtos,
-  excludeIds,
+// ─── Seletor de categoria reutilizável ────────────────────────────────────────
+function CategoriaSelector({
+  categorias,
+  excludeNomes,
   onAdd,
 }: {
-  produtos: Produto[];
-  excludeIds: string[];
-  onAdd: (produtoId: string) => void;
+  categorias: string[];
+  excludeNomes: string[];
+  onAdd: (categoria: string) => void;
 }) {
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
 
-  const filtered = produtos.filter(
-    p => (p.nome || '').toLowerCase().includes(search.toLowerCase()) && !excludeIds.includes(p.id)
+  const filtered = categorias.filter(
+    c => c.toLowerCase().includes(search.toLowerCase()) && !excludeNomes.includes(c)
   );
 
   return (
     <div className="relative">
       <div className="flex items-center border border-gray-200 rounded-lg bg-gray-50 focus-within:ring-2 focus-within:ring-orange-400">
-        <Search size={13} className="ml-2 text-gray-400 shrink-0" />
+        <Tag size={13} className="ml-2 text-gray-400 shrink-0" />
         <input
           type="text" value={search}
           onChange={e => { setSearch(e.target.value); setOpen(true); }}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 200)}
           className="w-full p-1.5 outline-none text-sm bg-transparent"
-          placeholder="Adicionar produto..."
+          placeholder="Adicionar categoria..."
         />
       </div>
       {open && filtered.length > 0 && (
         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-44 overflow-y-auto">
-          {filtered.slice(0, 20).map(p => (
-            <div key={p.id} onMouseDown={() => { onAdd(p.id); setSearch(''); setOpen(false); }}
+          {filtered.map(c => (
+            <div key={c} onMouseDown={() => { onAdd(c); setSearch(''); setOpen(false); }}
               className="p-2 text-sm hover:bg-orange-50 cursor-pointer border-b border-gray-50 last:border-0">
-              <span className="font-medium">{p.nome}</span>
-              {p.categoria && <span className="ml-2 text-xs text-gray-400">{p.categoria}</span>}
+              <span className="font-medium">{c}</span>
             </div>
           ))}
         </div>
@@ -123,11 +122,11 @@ function ProdutoSelector({
 
 // ─── Card de grupo com Delivery / Mesa separados ───────────────────────────────
 function GrupoCard({
-  grupo, insumos, produtos, onChange, onDelete,
+  grupo, insumos, categorias, onChange, onDelete,
 }: {
   grupo: GrupoData;
   insumos: Insumo[];
-  produtos: Produto[];
+  categorias: string[];
   onChange: (g: GrupoData) => void;
   onDelete: () => void;
 }) {
@@ -140,8 +139,8 @@ function GrupoCard({
     else setNameInput(grupo.nome);
   };
 
-  const addProduto = (id: string) => onChange({ ...grupo, produtos: [...grupo.produtos, id] });
-  const removeProduto = (id: string) => onChange({ ...grupo, produtos: grupo.produtos.filter(p => p !== id) });
+  const addCategoria = (nome: string) => onChange({ ...grupo, categorias: [...(grupo.categorias || []), nome] });
+  const removeCategoria = (nome: string) => onChange({ ...grupo, categorias: (grupo.categorias || []).filter(c => c !== nome) });
 
   const addD = (id: string, qtd: number) => onChange({ ...grupo, delivery: [...grupo.delivery, { insumoId: id, quantidade: qtd }] });
   const removeD = (id: string) => onChange({ ...grupo, delivery: grupo.delivery.filter(i => i.insumoId !== id) });
@@ -205,25 +204,22 @@ function GrupoCard({
         </button>
       </div>
 
-      {/* Produtos */}
+      {/* Categorias */}
       <div className="space-y-2">
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Produtos deste grupo</p>
-        <ProdutoSelector produtos={produtos} excludeIds={grupo.produtos} onAdd={addProduto} />
-        {grupo.produtos.length === 0 ? (
-          <p className="text-xs text-gray-400 text-center py-2">Nenhum produto vinculado</p>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wide">Categorias deste grupo</p>
+        <CategoriaSelector categorias={categorias} excludeNomes={grupo.categorias || []} onAdd={addCategoria} />
+        {(grupo.categorias || []).length === 0 ? (
+          <p className="text-xs text-gray-400 text-center py-2">Nenhuma categoria vinculada</p>
         ) : (
           <div className="flex flex-wrap gap-2">
-            {grupo.produtos.map(pid => {
-              const p = produtos.find(pr => pr.id === pid);
-              return (
-                <span key={pid} className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 text-xs font-medium px-2.5 py-1 rounded-full">
-                  {p?.nome || <span className="text-red-400 italic">Removido</span>}
-                  <button onClick={() => removeProduto(pid)} className="text-orange-400 hover:text-red-500 transition-colors">
-                    <X size={11} />
-                  </button>
-                </span>
-              );
-            })}
+            {(grupo.categorias || []).map(cat => (
+              <span key={cat} className="flex items-center gap-1.5 bg-orange-50 border border-orange-200 text-orange-800 text-xs font-medium px-2.5 py-1 rounded-full">
+                {cat}
+                <button onClick={() => removeCategoria(cat)} className="text-orange-400 hover:text-red-500 transition-colors">
+                  <X size={11} />
+                </button>
+              </span>
+            ))}
           </div>
         )}
       </div>
@@ -259,6 +255,10 @@ export default function EmbalagensPadraoManager() {
   const [novoGrupoNome, setNovoGrupoNome] = useState('');
   const [addingGrupo, setAddingGrupo] = useState(false);
 
+  const categoriasDisponiveis = Array.from(
+    new Set(produtos.map(p => (p as any).categoria).filter(Boolean))
+  ).sort() as string[];
+
   useEffect(() => {
     const toArr = (val: any): EmbalagemItem[] => {
       if (!val) return [];
@@ -290,7 +290,7 @@ export default function EmbalagensPadraoManager() {
           for (const [id, g] of Object.entries(data) as [string, any][]) {
             parsed[id] = {
               nome: g.nome || 'Grupo',
-              produtos: Array.isArray(g.produtos) ? g.produtos : g.produtos ? Object.values(g.produtos) : [],
+              categorias: Array.isArray(g.categorias) ? g.categorias : g.categorias ? Object.values(g.categorias) : [],
               delivery: toArr(g.delivery),
               salao: toArr(g.salao),
             };
@@ -319,7 +319,7 @@ export default function EmbalagensPadraoManager() {
     const nome = novoGrupoNome.trim();
     if (!nome) return;
     const id = `grupo_${Date.now()}`;
-    setGrupos(prev => ({ ...prev, [id]: { nome, produtos: [], delivery: [], salao: [] } }));
+    setGrupos(prev => ({ ...prev, [id]: { nome, categorias: [], delivery: [], salao: [] } }));
     setNovoGrupoNome('');
     setAddingGrupo(false);
   };
@@ -334,7 +334,7 @@ export default function EmbalagensPadraoManager() {
         <div>
           <h3 className="text-xl font-black text-gray-800">Embalagens Padrão</h3>
           <p className="text-sm text-gray-500 mt-1">
-            Agrupe produtos e defina quais insumos de embalagem são descontados — separados por Delivery e Mesa/Salão.
+            Agrupe categorias e defina quais insumos de embalagem são descontados — separados por Delivery e Mesa/Salão.
           </p>
         </div>
         <button
@@ -387,7 +387,7 @@ export default function EmbalagensPadraoManager() {
           <div className="text-center py-10 border-2 border-dashed border-gray-200 rounded-xl">
             <Package size={32} className="mx-auto mb-2 text-gray-300" />
             <p className="text-sm font-medium text-gray-400">Nenhum grupo cadastrado</p>
-            <p className="text-xs text-gray-400 mt-1">Crie um grupo, adicione os produtos e configure as embalagens para Delivery e Mesa</p>
+            <p className="text-xs text-gray-400 mt-1">Crie um grupo, adicione as categorias e configure as embalagens para Delivery e Mesa</p>
           </div>
         ) : (
           <div className="space-y-4">
@@ -396,7 +396,7 @@ export default function EmbalagensPadraoManager() {
                 key={id}
                 grupo={grupo}
                 insumos={insumos}
-                produtos={produtos}
+                categorias={categoriasDisponiveis}
                 onChange={g => updateGrupo(id, g)}
                 onDelete={() => deleteGrupo(id)}
               />
@@ -408,7 +408,7 @@ export default function EmbalagensPadraoManager() {
       <div className="bg-blue-50 border border-blue-200 p-4 rounded-xl flex items-start gap-3">
         <AlertTriangle size={16} className="text-blue-500 mt-0.5 shrink-0" />
         <p className="text-xs text-blue-700">
-          Ao enviar um pedido para a cozinha, o sistema identifica o grupo de cada produto e desconta automaticamente os insumos de embalagem do estoque rotativo — usando a coluna <strong>Delivery</strong> para pedidos de entrega e <strong>Mesa/Salão</strong> para os demais.
+          Ao enviar um pedido para a cozinha, o sistema identifica a categoria de cada produto, encontra o grupo correspondente e desconta automaticamente os insumos de embalagem do estoque rotativo — usando a coluna <strong>Delivery</strong> para pedidos de entrega e <strong>Mesa/Salão</strong> para os demais.
         </p>
       </div>
     </div>

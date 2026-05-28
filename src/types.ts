@@ -43,6 +43,7 @@ export interface Produto {
   categoria?: string;
   ingredientes: IngredienteReceita[];
   custoTotal: number;
+  oculto?: boolean;
 }
 
 export interface ItemCombo {

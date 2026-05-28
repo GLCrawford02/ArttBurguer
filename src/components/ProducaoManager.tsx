@@ -3,6 +3,7 @@ import { ref, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao } from '../types';
 import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2 } from 'lucide-react';
+import ExpandedOrderModal from './modals/ExpandedOrderModal';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
   const [produtos, setProdutos] = useState<Produto[]>([]);
@@ -209,22 +210,45 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const allItems: any[] = [
     ...produtos,
-    ...promocoes.filter(checkPromocaoValida).map(p => ({ ...p, categoria: 'Promoção / Combo' }))
+    ...promocoes.map(p => ({ ...p, categoria: 'Promoção / Combo' }))
   ];
 
   // Agora a lista de filtros do KDS inclui todas as categorias do banco, mesmo vazias,
   // e também as categorias antigas/existentes nos produtos atuais.
   const categoriasExistentes = Array.from(new Set([
-    ...categoriasDb.map(c => c.nome),
-    ...allItems.map(p => p.categoria || 'Outros')
+    ...categoriasDb.map(c => String(c.nome).trim()),
+    ...allItems.map(p => String(p.categoria || 'Outros').trim())
   ])).sort();
 
   // Mapeia categorias para seus respectivos setores do KDS
   const filterItemsForKDS = (itens: any[], kds: string) => {
+    const filtrosAtivos = kdsFiltroCategorias.length === 0 ? categoriasExistentes.map((c: any) => c as string) : kdsFiltroCategorias;
+
+    console.debug('[ProducaoManager] filtro KDS', {
+      activeKds: kds,
+      filtrosAtivos,
+      filtrosSelecionados: kdsFiltroCategorias,
+      categoriasExistentes,
+      itensCount: itens.length,
+      produtosCount: allItems.length,
+    });
+
     return itens.map((item, idx) => ({ ...item, originalIdx: idx })).filter(item => {
-      const prod = allItems.find(p => p.id === item.produtoId);
-      const cat = prod ? (prod.categoria || 'Outros') : 'Outros';
-      return kdsFiltroCategorias.includes(cat);
+      const prod = allItems.find(p => p.id === item.produtoId || (item.cartItemId && item.cartItemId.startsWith(p.id + '_')) || (item.produtoId && item.produtoId.startsWith(p.id + '_')) || p.nome === item.nome);
+      
+      const catNorm = String(prod ? (prod.categoria || 'Outros') : (item.categoria || 'Outros')).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+      
+      return filtrosAtivos.some(f => {
+        const fNorm = String(f).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+        
+        if (fNorm.includes('hamburguer') && ['hamburguer', 'lanche', 'sanduiche', 'burger'].some(alias => catNorm.includes(alias))) return true;
+        if (fNorm.includes('bebida') && ['bebida', 'suco', 'refrigerante'].some(alias => catNorm.includes(alias))) return true;
+        if (fNorm.includes('porcao') && ['porcao', 'batata', 'frita'].some(alias => catNorm.includes(alias))) return true;
+        if (fNorm.includes('sobremesa') && ['sobremesa', 'doce', 'sorvete'].some(alias => catNorm.includes(alias))) return true;
+        if (fNorm.includes('promocao') && ['promocao', 'combo'].some(alias => catNorm.includes(alias))) return true;
+
+        return catNorm === fNorm || catNorm.includes(fNorm) || fNorm.includes(catNorm);
+      });
     });
   };
 
@@ -341,8 +365,8 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               
               let timeColor = 'bg-green-500 text-white';
               let borderColor = 'border-gray-200';
-              if (timeDiff >= 15) { timeColor = 'bg-red-600 text-white animate-pulse'; borderColor = 'border-red-500 ring-2 ring-red-100'; }
-              else if (timeDiff >= 10) { timeColor = 'bg-yellow-400 text-yellow-900'; borderColor = 'border-yellow-400'; }
+              if (timeDiff >= 25) { timeColor = 'bg-red-600 text-white animate-pulse'; borderColor = 'border-red-500 ring-2 ring-red-100'; }
+              else if (timeDiff >= 20) { timeColor = 'bg-yellow-400 text-yellow-900'; borderColor = 'border-yellow-400'; }
 
               const allItemsDone = ped.itensKds.every((ik: any) => ik.concluidoNoKds);
 
@@ -361,9 +385,9 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                       <div className="flex gap-2 mt-1 pt-2 border-t border-gray-200/60">
                         {['Chapa', 'Montagem'].map(praca => {
                           const hasItems = ped.itens.some((item: any) => {
-                            const prod = allItems.find(p => p.id === item.produtoId);
-                            const cat = prod ? (prod.categoria || 'Outros') : 'Outros';
-                            return ['Hambúrguer', 'Promoção / Combo'].includes(cat);
+                            const prod = allItems.find(p => p.id === item.produtoId || p.nome === item.nome);
+                            const catNorm = String(prod ? (prod.categoria || 'Outros') : (item.categoria || 'Outros')).normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+                            return ['hamburguer', 'lanche', 'sanduiche', 'burger', 'promocao', 'combo'].some(alias => catNorm.includes(alias));
                           });
                           
                           if (!hasItems && !ped.kdsAceito?.[praca] && !ped.kdsFinalizado?.[praca]) return null;
@@ -460,69 +484,15 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
             )}
           </div>
 
-          {expandedOrder && (
-            <div className="fixed inset-0 z-[70] bg-black/90 flex items-center justify-center p-4 sm:p-8" onClick={() => setExpandedKdsOrderId(null)}>
-              <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-full max-h-[95vh] flex flex-col overflow-hidden" onClick={e => e.stopPropagation()}>
-                <div className="p-4 sm:p-6 bg-gray-100 border-b border-gray-200 flex justify-between items-center shrink-0">
-                  <div>
-                    <div className="flex items-center gap-3">
-                      <h2 className="text-2xl sm:text-4xl font-black text-gray-900 uppercase tracking-tight">{expandedOrder.identificador}</h2>
-                      <span className="text-sm sm:text-base font-bold px-3 py-1 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200">{expandedOrder.origem || 'PDV'}</span>
-                    </div>
-                    <p className="text-base font-bold text-gray-600 mt-2">Tela Ativa: {activeKds} • {Math.floor((currentTime - expandedOrder.timestamp) / 60000)} min atrás</p>
-                  </div>
-                  <button onClick={() => setExpandedKdsOrderId(null)} className="p-3 bg-white shadow-sm hover:bg-gray-50 text-gray-600 rounded-full transition-colors border border-gray-200">
-                    <X size={28} />
-                  </button>
-                </div>
-                
-                <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-white space-y-6">
-                  {expandedOrder.itensKds.map((item: any, idx: number) => (
-                    <div key={idx} className={`border-b border-gray-100 pb-6 last:border-0 last:pb-0 transition-colors ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
-                      <div className="flex items-start cursor-pointer group hover:bg-gray-50 p-2 rounded-lg" onClick={() => toggleItemConcluido(expandedOrder.id, item.originalIdx, !!item.concluidoNoKds)}>
-                        <button className={`mr-4 mt-1 flex-shrink-0 transition-colors ${item.concluidoNoKds ? 'text-green-500' : 'text-gray-300 group-hover:text-blue-400'}`}>
-                          {item.concluidoNoKds ? <CheckSquare size={36} /> : <Square size={36} />}
-                        </button>
-                        <span className={`font-black text-3xl sm:text-4xl w-16 shrink-0 ${item.concluidoNoKds ? 'text-gray-500' : 'text-gray-900'}`}>{item.qtd}x</span>
-                        <span className={`font-bold text-2xl sm:text-3xl pt-1 leading-tight ${item.concluidoNoKds ? 'text-gray-500 line-through' : 'text-gray-900'}`}>{item.nome}</span>
-                      </div>
-                      {item.opcoes && (
-                        <div className={`text-lg sm:text-xl mt-4 pl-20 space-y-3 ${item.concluidoNoKds ? 'opacity-50' : ''}`}>
-                          {item.opcoes.montagem && Object.values(item.opcoes.montagem).length > 0 && (
-                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Tipo de Montagem:</span><ul className="list-disc pl-6 text-gray-800 font-bold">{Object.values(item.opcoes.montagem).map((m:any, i:number)=><li key={i}>{m}</li>)}</ul></div>
-                          )}
-                          {item.opcoes.pontoCarne && (
-                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Ponto da carne:</span><ul className="list-disc pl-6 text-gray-800 font-bold"><li>{item.opcoes.pontoCarne}</li></ul></div>
-                          )}
-                          {item.opcoes.adicionais && Object.values(item.opcoes.adicionais).length > 0 && (
-                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Adicionais:</span><ul className="list-disc pl-6 text-blue-700 font-black">{Object.values(item.opcoes.adicionais).map((a:any, i:number)=><li key={i}>{a.qtd}x AD/ {a.nome}</li>)}</ul></div>
-                          )}
-                          {item.opcoes.restricoes && Object.values(item.opcoes.restricoes).length > 0 && (
-                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Restrições (Sem):</span><ul className="list-none pl-0 text-red-600 font-black">{Object.values(item.opcoes.restricoes).map((r:any, i:number)=><li key={i}>- {r}</li>)}</ul></div>
-                          )}
-                          {item.opcoes.observacao && (
-                            <div><span className="font-bold text-gray-500 text-sm sm:text-base uppercase tracking-wider block mb-1">Observação Especial:</span><p className="text-gray-900 font-bold italic bg-yellow-50 border border-yellow-300 p-4 rounded-xl">{item.opcoes.observacao}</p></div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                
-                <div className="p-4 sm:p-6 border-t border-gray-200 bg-gray-100 shrink-0">
-                  {!expandedOrder.kdsAceito?.[activeKds] ? (
-                    <button onClick={() => { handleAceitarComanda(expandedOrder.id); }} className="w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md bg-yellow-500 hover:bg-yellow-600 text-white">
-                      <AlertTriangle size={28} className="mr-3"/> Aceitar Comanda
-                    </button>
-                  ) : (
-                    <button onClick={() => { const allItemsDoneExpanded = expandedOrder.itensKds.every((ik: any) => ik.concluidoNoKds); handleProntoKds(expandedOrder); if (activeKds === 'Expedição' || allItemsDoneExpanded) setExpandedKdsOrderId(null); }} className={`w-full py-4 sm:py-5 font-black text-xl sm:text-2xl rounded-xl flex items-center justify-center transition-colors shadow-md ${activeKds === 'Expedição' ? 'bg-green-500 hover:bg-green-600 text-white' : 'bg-blue-600 hover:bg-blue-700 text-white'}`}>
-                      <CheckCircle size={28} className="mr-3"/> {activeKds === 'Expedição' ? 'Despachar Pedido' : 'Despachar Peça'}
-                    </button>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
+          <ExpandedOrderModal
+            expandedOrder={expandedOrder}
+            onClose={() => setExpandedKdsOrderId(null)}
+            activeKds={activeKds}
+            currentTime={currentTime}
+            toggleItemConcluido={toggleItemConcluido}
+            onAceitarComanda={handleAceitarComanda}
+            onPronto={handleProntoKds}
+          />
         </div>
 
       {toast && (

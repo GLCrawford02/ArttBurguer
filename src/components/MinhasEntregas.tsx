@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, update, set, push } from 'firebase/database';
 import { db } from '../firebase';
 import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X, ChevronDown, ChevronUp } from 'lucide-react';
+import ReportarProblemaModal from './modals/ReportarProblemaModal';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { Geolocation } from '@capacitor/geolocation';
 import { KeepAwake } from '@capacitor-community/keep-awake';
@@ -55,6 +56,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [despachos, setDespachos] = useState<any[]>([]);
   const [clientes, setClientes] = useState<any[]>([]);
   const [isTracking, setIsTracking] = useState(false);
+  const [bgDenied, setBgDenied] = useState(false);
   const [myLocation, setMyLocation] = useState<{lat: number, lng: number} | null>(null);
   const [mapaAberto, setMapaAberto] = useState(true);
   const wakeLockRef = useRef<any>(null);
@@ -113,23 +115,26 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const iniciarRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
       await KeepAwake.keepAwake();
+
+      const gpsCallback = (pos: any, err2: any) => {
+        if (err2 || !pos) return;
+        if (currentUser?.id) {
+          update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+            lat: pos.coords.latitude,
+            lng: pos.coords.longitude,
+            velocidade: pos.coords.speed || 0,
+            timestamp: Date.now(),
+          });
+        }
+      };
+
       const iniciarGPSFallback = async () => {
         try {
           const perm = await Geolocation.requestPermissions();
           if (perm.location === 'granted' || (perm as any).coarseLocation === 'granted') {
             capWatchIdRef.current = await Geolocation.watchPosition(
               { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
-              (pos, err2) => {
-                if (err2 || !pos) return;
-                if (currentUser?.id) {
-                  update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-                    lat: pos.coords.latitude,
-                    lng: pos.coords.longitude,
-                    velocidade: pos.coords.speed || 0,
-                    timestamp: Date.now(),
-                  });
-                }
-              }
+              gpsCallback
             );
             usingFallbackRef.current = true;
             setIsTracking(true);
@@ -141,47 +146,67 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         }
       };
 
-      try {
-        const watcherId = await BackgroundGeolocation.addWatcher(
-          {
-            backgroundMessage: 'GPS ativo — rota em andamento. Toque para abrir o app.',
-            backgroundTitle: 'ArttBurger',
-            requestPermissions: true,
-            stale: false,
-            distanceFilter: 10,
-          },
-          (location, error) => {
-            if (error) {
-              if ((error as any).code === 'NOT_AUTHORIZED') {
-                // Background negado: silenciosamente tenta fallback
-                if (capWatchIdRef.current && !usingFallbackRef.current) {
-                  BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current }).catch(() => {});
-                  capWatchIdRef.current = null;
-                  setIsTracking(false);
-                  iniciarGPSFallback();
+      // Retry helper: o bindService do plugin é assíncrono; se addWatcher for chamado
+      // antes do onServiceConnected disparar, ele rejeita com "Service not running."
+      // Tentamos até 5x com 600ms de intervalo antes de desistir.
+      const tentarBackgroundGeo = async (tentativas = 5): Promise<string> => {
+        try {
+          return await BackgroundGeolocation.addWatcher(
+            {
+              backgroundMessage: 'GPS ativo — rota em andamento. Toque para abrir o app.',
+              backgroundTitle: 'ArttBurger',
+              requestPermissions: true,
+              stale: false,
+              distanceFilter: 10,
+            },
+            (location, error) => {
+              if (error) {
+                if ((error as any).code === 'NOT_AUTHORIZED') {
+                  if (!usingFallbackRef.current) {
+                    usingFallbackRef.current = true;
+                    if (capWatchIdRef.current) {
+                      BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current }).catch(() => {});
+                      capWatchIdRef.current = null;
+                    }
+                    setBgDenied(true);
+                    showToast('GPS de fundo não autorizado. O rastreio pode parar com a tela bloqueada.', 'error');
+                    iniciarGPSFallback();
+                  }
                 }
+                return;
               }
-              return;
+              // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
+              if (!location || (location.accuracy !== null && location.accuracy > 100)) return;
+              if (currentUser?.id) {
+                update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
+                  lat: location.latitude,
+                  lng: location.longitude,
+                  velocidade: location.speed || 0,
+                  precisao: location.accuracy,
+                  timestamp: Date.now(),
+                });
+              }
             }
-            // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
-            if (!location || (location.accuracy !== null && location.accuracy > 100)) return;
-            if (currentUser?.id) {
-              update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-                lat: location.latitude,
-                lng: location.longitude,
-                velocidade: location.speed || 0,
-                precisao: location.accuracy,
-                timestamp: Date.now(),
-              });
-            }
+          );
+        } catch (err: any) {
+          const msg: string = err?.message || err?.toString() || '';
+          if (tentativas > 1 && msg.includes('Service not running')) {
+            await new Promise(r => setTimeout(r, 600));
+            return tentarBackgroundGeo(tentativas - 1);
           }
-        );
+          throw err;
+        }
+      };
+
+      try {
+        const watcherId = await tentarBackgroundGeo();
         capWatchIdRef.current = watcherId;
         usingFallbackRef.current = false;
         setIsTracking(true);
       } catch (err: any) {
-        console.error('BackgroundGeolocation error:', err);
-        // Fallback silencioso — GPS normal funciona, não precisa alertar o entregador
+        console.error('BackgroundGeolocation falhou definitivamente:', err?.message || err);
+        setBgDenied(true);
+        showToast('Serviço de GPS de fundo não disponível. Usando GPS simples — o rastreio pode parar com a tela bloqueada.', 'error');
         await iniciarGPSFallback();
       }
     } else {
@@ -210,6 +235,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   };
 
   const pararRastreamento = async () => {
+    setBgDenied(false);
     if (Capacitor.isNativePlatform()) {
       KeepAwake.allowSleep();
       if (capWatchIdRef.current !== null) {
@@ -263,6 +289,20 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
      await update(ref(db, `despachos/${activeRoute.id}`), {
        paradas: novasParadas
      });
+
+     // Verifica se todas as paradas da rota foram concluídas para voltar os pedidos para o PDV
+     const todasConcluidas = novasParadas.every((p: any) => p.status === 'Concluída');
+     if (todasConcluidas) {
+       for (const p of novasParadas) {
+         if (p.pedidoId) {
+           if (p.isAberta) {
+             await update(ref(db, `entregas_abertas/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+           } else {
+             await update(ref(db, `vendas_pdv/${p.pedidoId}`), { statusEntrega: 'Concluída' });
+           }
+         }
+       }
+     }
 
      // Dispara mensagem automática de feedback de entrega para o cliente recém-entregue
      const clienteAtualMsg = clientes.find(client => client.id === parada.clienteId);
@@ -359,7 +399,8 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   return (
     <div className="space-y-6 animate-in fade-in duration-300 pb-10">
       <div className="bg-indigo-900 p-6 rounded-xl shadow-lg border border-indigo-800 text-white flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 relative overflow-hidden">
-        {isTracking && <div className="absolute top-0 right-0 m-4 flex items-center text-xs font-bold text-green-400 animate-pulse"><Navigation size={12} className="mr-1"/> GPS Ativo</div>}
+        {isTracking && !bgDenied && <div className="absolute top-0 right-0 m-4 flex items-center text-xs font-bold text-green-400 animate-pulse"><Navigation size={12} className="mr-1"/> GPS Ativo</div>}
+        {isTracking && bgDenied && <div className="absolute top-0 right-0 m-4 flex items-center text-xs font-bold text-yellow-400"><Navigation size={12} className="mr-1"/> GPS Parcial</div>}
         <div>
           <h2 className="text-2xl font-black flex items-center"><Navigation className="mr-2 text-indigo-400" size={28}/> Rota Ativa</h2>
           <p className="text-indigo-200 text-sm mt-1">Saiu do estabelecimento às {new Date(activeRoute.timestampSaida).toLocaleTimeString('pt-BR')}</p>
@@ -368,6 +409,18 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
            <span className="font-bold text-lg">{activeRoute.paradas.filter((p:any)=>p.status === 'Concluída').length}</span> de <span className="font-bold text-lg">{activeRoute.paradas.length}</span> entregas
         </div>
       </div>
+
+      {bgDenied && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-yellow-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-yellow-800">GPS para com a tela bloqueada</p>
+            <p className="text-xs text-yellow-700 mt-1">
+              A permissão de localização em segundo plano não foi concedida. Para o rastreio continuar com a tela bloqueada, vá em <strong>Configurações → Aplicativos → ArttBurger → Permissões → Localização</strong> e selecione <strong>"Permitir sempre"</strong>.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Mapa do entregador */}
       {(() => {
@@ -510,35 +563,12 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         </div>
       )}
 
-      {reportModal !== null && activeRoute && (
-        <div className="fixed inset-0 bg-black/60 z-[150] flex items-center justify-center p-4" onClick={() => setReportModal(null)}>
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm flex flex-col overflow-hidden animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
-            <div className="p-5 border-b border-gray-100 flex justify-between items-center bg-red-50">
-              <h3 className="font-bold text-red-700 flex items-center"><AlertTriangle size={20} className="mr-2"/> Reportar Problema</h3>
-              <button onClick={() => setReportModal(null)} className="text-red-400 hover:text-red-600 bg-red-100 hover:bg-red-200 rounded-full p-1 transition-colors"><X size={20}/></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600 mb-4">Escolha o problema abaixo para que o robô envie um aviso automaticamente para o WhatsApp do cliente.</p>
-              
-              <button onClick={() => handleReportarProblema(reportModal, 'endereco')} className="w-full bg-white border border-gray-200 hover:border-red-300 hover:bg-red-50 p-4 rounded-xl flex items-center text-left transition-colors group shadow-sm">
-                <Map className="text-gray-400 group-hover:text-red-500 mr-4 shrink-0" size={28}/>
-                <div>
-                  <h4 className="font-bold text-gray-800 group-hover:text-red-700">Não encontro o endereço</h4>
-                  <p className="text-xs text-gray-500 mt-1">Avisa o cliente para mandar ponto de referência.</p>
-                </div>
-              </button>
-
-              <button onClick={() => handleReportarProblema(reportModal, 'telefone')} className="w-full bg-white border border-gray-200 hover:border-red-300 hover:bg-red-50 p-4 rounded-xl flex items-center text-left transition-colors group shadow-sm">
-                <PhoneOff className="text-gray-400 group-hover:text-red-500 mr-4 shrink-0" size={28}/>
-                <div>
-                  <h4 className="font-bold text-gray-800 group-hover:text-red-700">Cliente não atende</h4>
-                  <p className="text-xs text-gray-500 mt-1">Avisa o cliente para verificar o celular ou portão.</p>
-                </div>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ReportarProblemaModal
+        reportModal={reportModal}
+        activeRoute={activeRoute}
+        onClose={() => setReportModal(null)}
+        onReportarProblema={handleReportarProblema}
+      />
 
       {toast && (
         <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-auto p-4 rounded-xl shadow-2xl text-white font-bold flex items-center z-[100] transition-all animate-in slide-in-from-bottom-5 duration-300 ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
