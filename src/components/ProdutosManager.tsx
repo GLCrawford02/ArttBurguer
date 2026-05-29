@@ -20,7 +20,6 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
-  const [activeManagerTab, setActiveManagerTab] = useState<'lista' | 'organizacao'>('lista');
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -110,26 +109,6 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
     if (confirm('Deseja excluir este produto?')) {
       await remove(ref(db, `produtos/${id}`));
     }
-  };
-
-  const handleMoveCategoria = async (index: number, direction: 'up' | 'down') => {
-    const sorted = [...categoriasDb].sort((a, b) => ((a as any).ordem || 0) - ((b as any).ordem || 0) || a.nome.localeCompare(b.nome));
-    if (direction === 'up' && index > 0) [sorted[index], sorted[index - 1]] = [sorted[index - 1], sorted[index]];
-    else if (direction === 'down' && index < sorted.length - 1) [sorted[index], sorted[index + 1]] = [sorted[index + 1], sorted[index]];
-    else return;
-    const updates: any = {};
-    sorted.forEach((cat, i) => { updates[`categorias_produtos/${cat.id}/ordem`] = i; });
-    await update(ref(db), updates);
-  };
-
-  const handleMoveProduto = async (prodIndex: number, direction: 'up' | 'down', catNome: string) => {
-    const catProds = produtos.filter(p => ((p as any).categoria || 'Outros') === catNome).sort((a, b) => ((a as any).ordem || 0) - ((b as any).ordem || 0) || a.nome.localeCompare(b.nome));
-    if (direction === 'up' && prodIndex > 0) [catProds[prodIndex], catProds[prodIndex - 1]] = [catProds[prodIndex - 1], catProds[prodIndex]];
-    else if (direction === 'down' && prodIndex < catProds.length - 1) [catProds[prodIndex], catProds[prodIndex + 1]] = [catProds[prodIndex + 1], catProds[prodIndex]];
-    else return;
-    const updates: any = {};
-    catProds.forEach((prod, i) => { updates[`produtos/${prod.id}/ordem`] = i; });
-    await update(ref(db), updates);
   };
 
   const filteredProdutos = produtos.filter(p => {
@@ -340,12 +319,6 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
         embalagensPadrao={embalagensPadrao}
       />
 
-      <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-        <button onClick={() => setActiveManagerTab('lista')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeManagerTab === 'lista' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Lista de Produtos</button>
-        <button onClick={() => setActiveManagerTab('organizacao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeManagerTab === 'organizacao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Organização e Visibilidade</button>
-      </div>
-
-      {activeManagerTab === 'lista' && (
         <div className="space-y-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <h3 className="text-lg font-bold text-gray-800 flex items-center">
@@ -461,54 +434,6 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
             </table>
           </div>
         </div>
-      )}
-
-      {activeManagerTab === 'organizacao' && (
-        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6">
-          <h3 className="text-lg font-bold text-gray-800 flex items-center">
-            <Filter className="mr-2 text-blue-500" /> Organização do Cardápio
-          </h3>
-          <p className="text-sm text-gray-500">Arraste ou use as setas para reordenar. Oculte itens que não devem aparecer no PDV/Delivery.</p>
-          
-          <div className="space-y-4">
-            {categoriasDb.sort((a: any, b: any) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome)).map((cat: any, catIdx) => (
-               <div key={cat.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                 <div className="bg-gray-50 p-4 flex items-center justify-between border-b border-gray-200">
-                   <div className="flex items-center gap-4">
-                     <div className="flex flex-col gap-1">
-                       <button onClick={() => handleMoveCategoria(catIdx, 'up')} disabled={catIdx===0} className="text-gray-400 hover:text-blue-600 disabled:opacity-30"><ChevronUpIcon size={18}/></button>
-                       <button onClick={() => handleMoveCategoria(catIdx, 'down')} disabled={catIdx===categoriasDb.length-1} className="text-gray-400 hover:text-blue-600 disabled:opacity-30"><ChevronDownIcon size={18}/></button>
-                     </div>
-                     <span className={`font-black text-lg ${cat.oculto ? 'text-gray-400 line-through' : 'text-gray-800'}`}>{cat.nome}</span>
-                   </div>
-                   <button onClick={() => update(ref(db, `categorias_produtos/${cat.id}`), { oculto: !cat.oculto })} className={`px-3 py-1.5 rounded-lg text-xs font-bold flex items-center transition-colors ${cat.oculto ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'}`} title={cat.oculto ? 'Mostrar' : 'Ocultar'}>
-                     {cat.oculto ? <><EyeOff size={16} className="mr-1"/> Oculto</> : <><Eye size={16} className="mr-1"/> Visível</>}
-                   </button>
-                 </div>
-                 <div className="p-4 bg-white space-y-2">
-                   {produtos.filter(p => ((p as any).categoria || 'Outros') === cat.nome).sort((a, b) => ((a as any).ordem || 0) - ((b as any).ordem || 0) || a.nome.localeCompare(b.nome)).map((prod, prodIdx, arr) => (
-                     <div key={prod.id} className={`flex items-center justify-between p-3 border rounded-lg hover:bg-gray-50 transition-colors ${prod.oculto ? 'border-red-100 bg-red-50/30' : 'border-gray-100'}`}>
-                       <div className="flex items-center gap-3">
-                         <div className="flex flex-col gap-1 bg-gray-100 p-1 rounded">
-                           <button onClick={() => handleMoveProduto(prodIdx, 'up', cat.nome)} disabled={prodIdx===0} className="text-gray-500 hover:text-blue-600 disabled:opacity-30"><ChevronUpIcon size={14}/></button>
-                           <button onClick={() => handleMoveProduto(prodIdx, 'down', cat.nome)} disabled={prodIdx===arr.length-1} className="text-gray-500 hover:text-blue-600 disabled:opacity-30"><ChevronDownIcon size={14}/></button>
-                         </div>
-                         <span className={`font-medium ${prod.oculto ? 'text-gray-400 line-through' : 'text-gray-700'}`}>{prod.nome}</span>
-                       </div>
-                       <button onClick={() => update(ref(db, `produtos/${prod.id}`), { oculto: !prod.oculto })} className={`p-2 rounded-md transition-colors ${prod.oculto ? 'text-red-500 hover:bg-red-100' : 'text-green-600 hover:bg-green-100'}`} title={prod.oculto ? 'Mostrar' : 'Ocultar'}>
-                         {prod.oculto ? <EyeOff size={18} /> : <Eye size={18} />}
-                       </button>
-                     </div>
-                   ))}
-                   {produtos.filter(p => ((p as any).categoria || 'Outros') === cat.nome).length === 0 && (
-                     <p className="text-sm text-gray-400 italic text-center py-2">Nenhum produto nesta categoria.</p>
-                   )}
-                 </div>
-               </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {toast && (
         <div className={`fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 transition-all ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>

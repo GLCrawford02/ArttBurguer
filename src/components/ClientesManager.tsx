@@ -380,6 +380,17 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
+  useEffect(() => {
+    const editClienteId = sessionStorage.getItem('editClienteId');
+    if (editClienteId && clientes.length > 0) {
+      const cliente = clientes.find(c => c.id === editClienteId);
+      if (cliente) {
+        handleEdit(cliente);
+        sessionStorage.removeItem('editClienteId');
+      }
+    }
+  }, [clientes]);
+
   const handleExcluir = async (id: string) => {
     if (window.confirm('Tem certeza que deseja excluir este cliente?')) {
       await remove(ref(db, `clientes/${id}`));

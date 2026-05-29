@@ -112,7 +112,8 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
         { id: 'configuracoes', nome: 'Configurações Gerais', admin: true },
         { id: 'bancos_taxas', nome: 'Bancos e Taxas Fiscais', admin: true },
         { id: 'atualizacoes_sistema', nome: 'Histórico de Atualizações', admin: true },
-        { id: 'impressoras_config', nome: 'Roteamento de Impressoras', admin: true }
+        { id: 'impressoras_config', nome: 'Roteamento de Impressoras', admin: true },
+        { id: 'app_delivery', nome: 'APP Delivery (Carrossel e Visibilidade)', admin: true }
       ]
     }
   ];

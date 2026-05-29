@@ -34,6 +34,8 @@ import MinhasEntregas from './components/MinhasEntregas';
 import DREManager from './components/DREManager';
 import FidelidadeManager from './components/FidelidadeManager';
 import EscalaManager from './components/EscalaManager';
+import AppDeliveryConfig from './components/AppDeliveryConfig';
+import UltimosCadastros from './components/UltimosCadastros';
 import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -83,7 +85,7 @@ export default function App() {
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes' | 'balanco'>('compras');
   const [subTabFinanceiro, setSubTabFinanceiro] = useState<'calendario' | 'relatorios_gerais'>('calendario');
   const [subSubTabRelatorios, setSubSubTabRelatorios] = useState<'fechamento' | 'dashboard_fin' | 'movimentacoes' | 'dre'>('fechamento');
-  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes' | 'taxas_entrega' | 'licenca' | 'impressoras'>('gerais');
+  const [subSubTabConfiguracoes, setSubSubTabConfiguracoes] = useState<'bancos_cartoes' | 'gerais' | 'atualizacoes' | 'taxas_entrega' | 'licenca' | 'impressoras' | 'app_delivery' | 'ultimos_cadastros'>('gerais');
   const [subTabFuncionarios, setSubTabFuncionarios] = useState<'equipe' | 'gestao' | 'ia' | 'permissoes' | 'escala'>('equipe');
   const [subTabLogistica, setSubTabLogistica] = useState<'clientes'  | 'fidelidade' | 'despacho' | 'minhas_entregas'>('clientes');
   const [subTabTarefas, setSubTabTarefas] = useState<'gerenciamento' | 'notas'>('gerenciamento');
@@ -234,6 +236,15 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    const handleOpenEditCliente = () => {
+      window.location.hash = 'logistica';
+      setSubTabLogistica('clientes');
+    };
+    window.addEventListener('openEditCliente', handleOpenEditCliente);
+    return () => window.removeEventListener('openEditCliente', handleOpenEditCliente);
+  }, []);
+
+  useEffect(() => {
     const funcRef = ref(db, 'funcionarios');
     let isFirstLoad = true;
     return onValue(funcRef, (snapshot) => {
@@ -317,7 +328,7 @@ export default function App() {
     if (hasPerm('producao', 'aba_producao') || cargos.some((c: string) => c.toUpperCase().includes('KDS'))) allowed.push('producao');
     if (hasPerm('relatorios', 'aba_financeiro') || hasPerm('fechamento_caixa', 'aba_financeiro') || hasPerm('calendario_contas', 'aba_financeiro') || hasPerm('dashboard_financeiro', 'aba_financeiro')) allowed.push('financeiro');
     if (hasPerm('funcionarios', 'aba_funcionarios') || hasPerm('gestao_equipe', 'aba_funcionarios') || hasPerm('gestor_ia', 'aba_funcionarios') || hasPerm('permissoes_acesso', 'aba_funcionarios')) allowed.push('funcionarios');
-    if (hasPerm('configuracoes', 'aba_configuracoes') || hasPerm('bancos_taxas', 'aba_configuracoes') || hasPerm('atualizacoes_sistema', 'aba_configuracoes')) allowed.push('configuracoes');
+    if (hasPerm('configuracoes', 'aba_configuracoes') || hasPerm('bancos_taxas', 'aba_configuracoes') || hasPerm('atualizacoes_sistema', 'aba_configuracoes') || hasPerm('app_delivery', 'aba_configuracoes')) allowed.push('configuracoes');
     if (hasPerm('tarefas', 'aba_tarefas') || hasPerm('bloco_notas', 'aba_tarefas')) allowed.push('tarefas');
     if (hasPerm('marketing', 'aba_marketing')) allowed.push('marketing');
 
@@ -1209,15 +1220,19 @@ export default function App() {
             {temPermissao('configuracoes', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('gerais')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'gerais' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Configurações Gerais</button>}
             {temPermissao('bancos_taxas', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('bancos_cartoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'bancos_cartoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bancos e Taxas</button>}
             {temPermissao('configuracoes', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('taxas_entrega')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'taxas_entrega' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Taxas de Entrega</button>}
+            {temPermissao('app_delivery', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('app_delivery')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'app_delivery' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>APP Delivery</button>}
             {temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('atualizacoes')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'atualizacoes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Atualizações</button>}
             {temPermissao('impressoras_config', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('impressoras')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'impressoras' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Impressoras</button>}
+            {temPermissao('configuracoes', 'aba_configuracoes') && <button onClick={() => setSubSubTabConfiguracoes('ultimos_cadastros')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${subSubTabConfiguracoes === 'ultimos_cadastros' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Últimos Cadastros</button>}
             {isTI && <button onClick={() => setSubSubTabConfiguracoes('licenca')} style={{width:3,minWidth:3,padding:0,margin:0,border:'none',background:'transparent',opacity:0,cursor:'default'}} tabIndex={-1} aria-hidden="true" />}
           </div>
           {subSubTabConfiguracoes === 'gerais' && temPermissao('configuracoes', 'aba_configuracoes') && <ConfiguracoesGerais />}
           {subSubTabConfiguracoes === 'bancos_cartoes' && temPermissao('bancos_taxas', 'aba_configuracoes') && <BancosCartoes />}
           {subSubTabConfiguracoes === 'taxas_entrega' && temPermissao('configuracoes', 'aba_configuracoes') && <TaxasEntregaManager />}
+          {subSubTabConfiguracoes === 'app_delivery' && temPermissao('app_delivery', 'aba_configuracoes') && <AppDeliveryConfig />}
           {subSubTabConfiguracoes === 'atualizacoes' && temPermissao('atualizacoes_sistema', 'aba_configuracoes') && <AtualizacoesSistema temPermissao={temPermissao} />}
           {subSubTabConfiguracoes === 'impressoras' && temPermissao('impressoras_config', 'aba_configuracoes') && <ImpressorasManager />}
+          {subSubTabConfiguracoes === 'ultimos_cadastros' && temPermissao('configuracoes', 'aba_configuracoes') && <UltimosCadastros />}
           {subSubTabConfiguracoes === 'licenca' && isTI && <LicencaManager />}
         </div>
       )}

@@ -96,8 +96,11 @@ export default function DeliveryApp() {
   const [loading, setLoading] = useState(true);
 
   const [activeTab, setActiveTab] = useState<'cardapio' | 'pedidos' | 'perfil'>('cardapio');
-  const [perfilSubTab, setPerfilSubTab] = useState<'dados' | 'favoritos' | 'fidelidade'>('dados');
-  const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
+  const [perfilSubTab, setPerfilSubTab] = useState<'dados' | 'fidelidade'>('dados');
+  const [categoriaExpandida, setCategoriaExpandida] = useState<string | null>(null);
+  const [mostrarFavoritos, setMostrarFavoritos] = useState(false);
+  const [carrosselImagens, setCarrosselImagens] = useState<string[]>([]);
+  const [currentImgIndex, setCurrentImgIndex] = useState(0);
 
   // Carrinho e Checkout
   const [carrinho, setCarrinho] = useState<Record<string, any>>({});
@@ -173,8 +176,27 @@ export default function DeliveryApp() {
       }
     });
 
-    return () => { unsubClientes(); unsubProd(); unsubCat(); unsubConfig(); };
+    const carrosselRef = ref(db, 'configuracoes/app_delivery/carrossel');
+    const unsubCar = onValue(carrosselRef, snap => {
+      if (snap.val()) {
+        const list = Object.values(snap.val()).map((c: any) => c.url).filter(Boolean);
+        setCarrosselImagens(list);
+      } else {
+        setCarrosselImagens([]);
+      }
+    });
+
+    return () => { unsubClientes(); unsubProd(); unsubCat(); unsubConfig(); unsubCar(); };
   }, []);
+
+  useEffect(() => {
+    if (carrosselImagens.length > 1 && !categoriaExpandida) {
+      const interval = setInterval(() => {
+        setCurrentImgIndex(prev => (prev + 1) % carrosselImagens.length);
+      }, 4000);
+      return () => clearInterval(interval);
+    }
+  }, [carrosselImagens, categoriaExpandida]);
 
   useEffect(() => {
     if (cliente) {
@@ -685,11 +707,6 @@ export default function DeliveryApp() {
     window.open(`https://wa.me/553898119347?text=${text}`, '_blank');
   };
 
-  const toggleCategory = (cat: string) => {
-     if (expandedCategories.includes(cat)) setExpandedCategories(expandedCategories.filter(c => c !== cat));
-     else setExpandedCategories([...expandedCategories, cat]);
-  };
-
   const renderProdutoCard = (p: any, idx: number) => (
     <div 
       key={p.id} 
@@ -766,7 +783,7 @@ export default function DeliveryApp() {
               <input type="password" required maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value.replace(/\D/g, ''))} placeholder="Criar Senha (6 números) *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm tracking-widest text-center" />
               <input type="text" value={regCpf} onChange={e => setRegCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               <div>
-                <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe seu aniversário para receber promoções! 🎂</p>
+                <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe sua data de nascimento! 🎂</p>
                 <input type="date" value={regDataNascimento} onChange={e => setRegDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
               </div>
               
@@ -816,7 +833,7 @@ export default function DeliveryApp() {
           100% { background-position: 0% 50%; }
         }
         .bg-animated-gradient {
-          background: linear-gradient(-45deg, #fdfbfb, #fff7ed, #fffbeb, #fefce8);
+          background: linear-gradient(-45deg, #ffedd5, #fed7aa, #fde68a, #fef3c7);
           background-size: 400% 400%;
           animation: gradientMove 15s ease infinite;
         }
@@ -844,56 +861,85 @@ export default function DeliveryApp() {
       <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
         {activeTab === 'cardapio' && (
           <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-            <div className="flex flex-col items-center mb-8 mt-2">
+            <div className="flex justify-between items-center mb-6 mt-2 px-1">
               <h2 className="text-3xl font-black text-gray-800 flex items-center gap-2 drop-shadow-sm"><Utensils className="text-orange-500" size={28} /> Nosso Cardápio</h2>
-              <p className="text-gray-500 text-sm font-medium mt-1">O que você vai pedir hoje?</p>
+              <button 
+                onClick={() => setMostrarFavoritos(!mostrarFavoritos)} 
+                className="p-2.5 rounded-full bg-white border border-gray-100 shadow-sm hover:bg-red-50 transition-colors"
+                title="Meus Favoritos"
+              >
+                <Heart size={24} className={mostrarFavoritos ? "fill-red-500 text-red-500" : "text-red-400"} />
+              </button>
             </div>
             
-            <div className="flex overflow-x-auto gap-4 pb-4 mb-6 px-1 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            {mostrarFavoritos ? (
+              <div className="space-y-4 animate-in fade-in">
+                <div className="grid grid-cols-1 gap-4">
+                  {produtos.filter(p => cliente?.favoritos?.includes(p.id)).length > 0 ? (
+                    produtos.filter(p => cliente?.favoritos?.includes(p.id)).map((p, idx) => renderProdutoCard(p, idx))
+                  ) : (
+                    <div className="text-center py-10 bg-white rounded-3xl shadow-sm border border-gray-100">
+                      <Heart size={48} className="mx-auto text-gray-300 mb-4" />
+                      <p className="text-gray-500 font-medium">Você ainda não tem produtos favoritos.</p>
+                      <button onClick={() => setMostrarFavoritos(false)} className="mt-4 text-orange-500 font-bold hover:underline">Ver cardápio completo</button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <>
+            <div className="flex overflow-x-auto gap-4 pb-4 mb-6" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {categoriasConfig.filter(c => !c.oculto).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome)).map(config => {
                 const cat = config.nome;
+                const isSelected = categoriaExpandida === cat;
                 return (
-                  <button 
-                    key={cat} 
-                    onClick={() => {
-                      document.getElementById(`cat-${cat}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                    }}
-                    className="flex flex-col items-center min-w-[90px] w-[90px] gap-3 group"
+                  <button
+                    key={cat}
+                    onClick={() => setCategoriaExpandida(isSelected ? null : cat)}
+                    className={`flex flex-col items-center min-w-[100px] w-[100px] gap-2 p-1 rounded-2xl transition-all ${isSelected ? 'scale-105' : 'hover:scale-105'}`}
                   >
-                    <div className="w-20 h-20 bg-white rounded-[24px] shadow-sm border-2 border-orange-50 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 group-hover:border-orange-400 group-hover:shadow-lg transition-all duration-300 group-active:scale-95">
-                      {config?.imageUrl ? (
-                        <img src={config.imageUrl} alt={cat} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                      ) : (
-                        <Utensils className="text-orange-300 group-hover:text-orange-500 transition-colors duration-300" size={32} />
-                      )}
+                    <div className={`w-20 h-20 bg-white rounded-2xl shadow-sm border flex items-center justify-center overflow-hidden shrink-0 transition-colors ${isSelected ? 'border-orange-500 ring-2 ring-orange-200' : 'border-gray-100'}`}>
+                      {config.imageUrl ? <img src={config.imageUrl} alt={cat} className="w-full h-full object-cover" /> : <Utensils className={isSelected ? 'text-orange-500' : 'text-orange-300'} size={28} />}
                     </div>
-                    <span className="text-sm font-black text-gray-600 text-center leading-tight line-clamp-2 w-full group-hover:text-orange-600 transition-colors duration-300">{cat}</span>
+                    <span className={`text-sm font-bold text-center leading-tight line-clamp-2 w-full ${isSelected ? 'text-orange-600' : 'text-gray-700'}`}>{cat}</span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="space-y-10">
+            <div className={`grid transition-all duration-700 ease-in-out ${categoriaExpandida ? 'grid-rows-[0fr] opacity-0 mb-0' : 'grid-rows-[1fr] opacity-100 mb-6'}`}>
+              <div className="overflow-hidden">
+                 {carrosselImagens.length > 0 && (
+                   <div className="relative w-full aspect-square rounded-3xl overflow-hidden shadow-sm border border-gray-100">
+                     {carrosselImagens.map((img, idx) => (
+                       <img key={idx} src={img} className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${idx === currentImgIndex ? 'opacity-100' : 'opacity-0'}`} />
+                     ))}
+                   </div>
+                 )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
               {categoriasConfig.filter(c => !c.oculto).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome)).map(config => {
                 const cat = config.nome;
+                if (categoriaExpandida !== cat) return null;
                 const prodsCat = produtos.filter(p => !p.oculto && (p.categoria || 'Outros') === cat).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome));
                 if (prodsCat.length === 0) return null;
+
                 return (
-                  <div key={cat} id={`cat-${cat}`} className="space-y-5 pt-2 scroll-mt-24">
-                    <div className="flex items-center gap-3">
-                      <div className="h-10 w-2 bg-orange-500 rounded-full"></div>
-                      <h3 className="text-2xl font-black text-gray-800 tracking-tight">{cat}</h3>
-                    </div>
-                    
-                    <div className="grid grid-cols-1 gap-5">
-                      {prodsCat.map((p, idx) => (
-                        renderProdutoCard(p, idx)
-                      ))}
+                  <div key={cat} id={`cat-${cat}`} className="space-y-4 pt-2">
+                    <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
+                      <Utensils className="text-orange-500" size={20}/> {cat}
+                    </h3>
+                    <div className="grid grid-cols-1 gap-4">
+                      {prodsCat.map((p, idx) => renderProdutoCard(p, idx))}
                     </div>
                   </div>
                 );
               })}
             </div>
+              </>
+            )}
           </div>
         )}
 
@@ -938,7 +984,6 @@ export default function DeliveryApp() {
           <div className="space-y-6">
             <div className="flex bg-white p-1 rounded-xl w-fit mx-auto mb-4 border border-gray-200 shadow-sm">
               <button onClick={() => setPerfilSubTab('dados')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'dados' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Meus Dados</button>
-              <button onClick={() => setPerfilSubTab('favoritos')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'favoritos' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Favoritos</button>
               <button onClick={() => setPerfilSubTab('fidelidade')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'fidelidade' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>
             </div>
 
@@ -950,7 +995,7 @@ export default function DeliveryApp() {
                   <input type="tel" required value={editTelefone} onChange={e => setEditTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                   <input type="text" value={editCpf} onChange={e => setEditCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                   <div>
-                    <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe seu aniversário para receber promoções! 🎂</p>
+                    <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe sua data de nascimento! 🎂</p>
                     <input type="date" value={editDataNascimento} onChange={e => setEditDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
                   </div>
                   
@@ -985,23 +1030,6 @@ export default function DeliveryApp() {
                     Salvar Alterações
                   </button>
                 </form>
-              </div>
-            )}
-
-            {perfilSubTab === 'favoritos' && (
-              <div className="space-y-4 animate-in fade-in">
-                <h3 className="text-xl font-black text-gray-800 mb-4 flex items-center"><Heart className="mr-2 text-red-500" fill="currentColor"/> Meus Favoritos</h3>
-                <div className="grid grid-cols-1 gap-5">
-                  {produtos.filter(p => cliente.favoritos?.includes(p.id)).length > 0 ? (
-                    produtos.filter(p => cliente.favoritos?.includes(p.id)).map((p, idx) => renderProdutoCard(p, idx))
-                  ) : (
-                    <div className="text-center py-10 bg-white rounded-3xl shadow-sm border border-gray-100">
-                      <Heart size={48} className="mx-auto text-gray-300 mb-4" />
-                      <p className="text-gray-500 font-medium">Você ainda não tem produtos favoritos.</p>
-                      <button onClick={() => setActiveTab('cardapio')} className="mt-4 text-orange-500 font-bold hover:underline">Ir para o cardápio</button>
-                    </div>
-                  )}
-                </div>
               </div>
             )}
 

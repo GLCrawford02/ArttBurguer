@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction, query, orderByChild, startAt } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2 } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2, Filter } from 'lucide-react';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 import DescontoModal from './modals/DescontoModal';
 import QuickClientModal from './modals/QuickClientModal';
@@ -2294,6 +2294,17 @@ Formato esperado:
 
           <div className="bg-white p-3 sm:p-4 lg:p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col flex-1 h-[60vh] lg:h-full min-h-[400px]">
             <div className="flex items-center gap-2 mb-4">
+              <div className="relative shrink-0 hidden sm:block">
+                <Filter className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
+                <select
+                  value={pdvCategoria}
+                  onChange={(e) => setPdvCategoria(e.target.value)}
+                  className="pl-10 pr-8 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-sm font-bold text-gray-700 appearance-none cursor-pointer"
+                >
+                  {categoriasCardapio.map((cat: any) => <option key={cat} value={cat}>{cat}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 pointer-events-none" size={16} />
+              </div>
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
                 <input type="text" placeholder="Buscar hambúrguer, bebida ou combo..." value={pdvSearchProd} onChange={(e) => setPdvSearchProd(e.target.value)} className="w-full pl-10 pr-4 py-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 bg-gray-50 focus:bg-white transition-colors text-lg" />
