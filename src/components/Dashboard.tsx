@@ -2,12 +2,16 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, Search, CalendarClock, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown } from 'lucide-react';
+import { AlertTriangle, Package, Search, CalendarClock, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
 
 export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
   const [produtos, setProdutos] = useState<Produto[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
+  const [contasPagar, setContasPagar] = useState<any[]>([]);
+  const [contasReceber, setContasReceber] = useState<any[]>([]);
+  const [vendas, setVendas] = useState<any[]>([]);
+  const [tarefas, setTarefas] = useState<any[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [filtroTipoUso, setFiltroTipoUso] = useState('');
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -61,10 +65,26 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       }
     });
 
+    const contasPagarRef = ref(db, 'contas_pagar');
+    const unsubContasPagar = onValue(contasPagarRef, (snap) => setContasPagar(snap.val() ? Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })) : []));
+
+    const contasReceberRef = ref(db, 'contas_receber');
+    const unsubContasReceber = onValue(contasReceberRef, (snap) => setContasReceber(snap.val() ? Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })) : []));
+
+    const vendasRef = ref(db, 'vendas_pdv');
+    const unsubVendas = onValue(vendasRef, (snap) => setVendas(snap.val() ? Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })) : []));
+
+    const tarefasRef = ref(db, 'tarefas');
+    const unsubTarefas = onValue(tarefasRef, (snap) => setTarefas(snap.val() ? Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })) : []));
+
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubFunc();
+      unsubContasPagar();
+      unsubContasReceber();
+      unsubVendas();
+      unsubTarefas();
     };
   }, []);
 
@@ -276,8 +296,8 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     return '';
   };
 
-  const lembretesPagar = contasPagar.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
-  const lembretesReceber = contasReceber.filter(c => c.status === 'Pendente' && isVencendo(c.vencimento));
+  const lembretesPagar = contasPagar.filter((c: any) => c.status === 'Pendente' && isVencendo(c.vencimento));
+  const lembretesReceber = contasReceber.filter((c: any) => c.status === 'Pendente' && isVencendo(c.vencimento));
 
 
   const tiposExistentes = Array.from(new Set(insumos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
@@ -377,7 +397,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const vendasPorDia = dias.map(d => {
     const nextDay = new Date(d);
     nextDay.setDate(nextDay.getDate() + 1);
-    const total = vendas.filter(v => v.timestamp >= d.getTime() && v.timestamp < nextDay.getTime()).reduce((acc, v) => acc + (v.valorLiquido || v.valor || 0), 0);
+    const total = vendas.filter((v: any) => v.timestamp >= d.getTime() && v.timestamp < nextDay.getTime()).reduce((acc: number, v: any) => acc + (v.valorLiquido || v.valor || 0), 0);
     return { dia: d.toLocaleDateString('pt-BR', { weekday: 'short' }).replace('.', ''), total };
   });
   const maxVenda = Math.max(...vendasPorDia.map(v => v.total), 1);
@@ -390,7 +410,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     return `${year}-${month}-${day}`;
   };
   const hojeDateStr = getHojeComercialStr();
-  const agendaHoje = tarefas.filter(t => t.dataAgendada === hojeDateStr && t.status === 'pendente').sort((a, b) => (a.horaAgendada || '23:59').localeCompare(b.horaAgendada || '23:59'));
+  const agendaHoje = tarefas.filter((t: any) => t.dataAgendada === hojeDateStr && t.status === 'pendente').sort((a: any, b: any) => (a.horaAgendada || '23:59').localeCompare(b.horaAgendada || '23:59'));
   
   const isDono = currentUser && (Array.isArray(currentUser.cargo) ? currentUser.cargo.includes('Dono') || currentUser.cargo.includes('TI') : currentUser.cargo === 'Dono' || currentUser.cargo === 'TI');
   const isAdminOrDono = currentUser && (
@@ -561,12 +581,12 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
                   <h3 className="text-sm font-medium text-orange-800">Lembretes Financeiros</h3>
                   <div className="mt-2 text-sm text-orange-700 max-h-[150px] overflow-y-auto pr-2">
                     <ul className="list-disc pl-5 space-y-1">
-                      {lembretesPagar.map(c => (
+                    {lembretesPagar.map((c: any) => (
                         <li key={c.id}>
                           <span className="font-bold text-red-600">A Pagar:</span> {c.descricao} - R$ {Number(c.valor).toFixed(2).replace('.', ',')} <span className="font-bold text-orange-800">({formatarStatusVencimento(c.vencimento)})</span>
                         </li>
                       ))}
-                      {lembretesReceber.map(c => (
+                    {lembretesReceber.map((c: any) => (
                         <li key={c.id}>
                           <span className="font-bold text-blue-600">A Receber:</span> {c.descricao} - R$ {Number(c.valor).toFixed(2).replace('.', ',')} <span className="font-bold text-orange-800">({formatarStatusVencimento(c.vencimento)})</span>
                         </li>

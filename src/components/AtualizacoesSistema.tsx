@@ -29,6 +29,18 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.11',
+      titulo: 'App Espelho (Nuvem), Limpeza de Código e Correções Visuais',
+      descricao: 'Estruturação do aplicativo e do software para buscar os dados diretamente em nuvem, garantindo atualizações invisíveis. Limpeza de arquivos e correções de tipagem no Dashboard.',
+      features: [
+        'App Espelho (Windows Electron): O caixa agora abre direto o site na nuvem, garantindo que o terminal sempre terá a versão mais nova imediatamente, sem a necessidade de gerar um novo .exe a cada mudança.',
+        'App Espelho (Mobile Capacitor): O app do entregador também espelha a versão nuvem. O que significa que os motoboys não precisarão reinstalar APKs para receber as novas atualizações de tela e funções.',
+        'Limpeza do Código: Remoção completa de variáveis sem uso e de arquivos temporários, tornando a plataforma e a compilação mais ágil.',
+        'Correções de Dashboard: Solução de problemas internos na verificação de lembretes financeiros (contas a pagar/receber e vendas do dia) exibidos na tela inicial do sistema.'
+      ],
+      icon: <Rocket className="text-indigo-500" size={20} />
+    },
+    {
       versao: '1.2.10',
       titulo: 'Fidelidade Automática, Mesas por Cliente e Segurança no PDV',
       descricao: 'Novas automações de relacionamento com clientes, resgate de recompensas com saldo preservado e travas para evitar alterações acidentais em pedidos já salvos.',
