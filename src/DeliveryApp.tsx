@@ -36,6 +36,18 @@ const getStateCode = (stateName: string) => {
   return states[stateName] || (stateName ? stateName.substring(0, 2).toUpperCase() : '');
 };
 
+const isPointInPolygon = (point: [number, number], vs: number[][]) => {
+  let x = point[0], y = point[1];
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    let xi = vs[i][0], yi = vs[i][1];
+    let xj = vs[j][0], yj = vs[j][1];
+    let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
 export default function DeliveryApp() {
   const [cliente, setCliente] = useState<Cliente | null>(() => {
     const saved = localStorage.getItem('arttburger_cliente_session');
@@ -87,9 +99,11 @@ export default function DeliveryApp() {
   const [carrinho, setCarrinho] = useState<Record<string, any>>({});
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [produtoModal, setProdutoModal] = useState<any>(null);
-  const [itemOptions, setItemOptions] = useState<any>({ quantidade: 1, observacao: '' });
+  const [itemOptions, setItemOptions] = useState<any>({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: '' });
   const [formaPagamento, setFormaPagamento] = useState('');
+  const [tipoEntregaApp, setTipoEntregaApp] = useState<'delivery' | 'retirada'>('delivery');
   const [taxas, setTaxas] = useState<any[]>([]);
+  const [zonasRestritas, setZonasRestritas] = useState<number[][][]>([]);
   const [entregasAbertas, setEntregasAbertas] = useState<any[]>([]);
   const [vendasPdv, setVendasPdv] = useState<any[]>([]);
 
@@ -131,7 +145,14 @@ export default function DeliveryApp() {
       else setCategoriasConfig([]);
     });
 
-    return () => { unsubClientes(); unsubProd(); unsubCat(); };
+    const configRef = ref(db, 'configuracoes/taxas_entrega');
+    const unsubConfig = onValue(configRef, snap => {
+      if (snap.val()) {
+        setZonasRestritas(snap.val().zonasRestritas || []);
+      }
+    });
+
+    return () => { unsubClientes(); unsubProd(); unsubCat(); unsubConfig(); };
   }, []);
 
   useEffect(() => {
@@ -414,6 +435,30 @@ export default function DeliveryApp() {
     if (Object.keys(carrinho).length === 0) return alert('Carrinho vazio.');
     if (!formaPagamento) return alert('Selecione a forma de pagamento.');
 
+    if (tipoEntregaApp === 'delivery') {
+      const enderecoSelecionado = enderecos[selectedEnderecoIndex];
+      if (!enderecoSelecionado) return alert('Selecione um endereço de entrega.');
+      
+      let lat = enderecoSelecionado.lat;
+      let lng = enderecoSelecionado.lng;
+
+      if (!lat || !lng) {
+        const q = encodeURIComponent(`${enderecoSelecionado.logradouro}, ${enderecoSelecionado.numero}, ${enderecoSelecionado.cidade}, Brasil`);
+        try {
+          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
+          const data = await res.json();
+          if (data && data.length > 0) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); } 
+          else return alert('Não conseguimos localizar o seu endereço no mapa para validar a área de entrega. Por favor, ajuste ou use a localização atual.');
+        } catch (e) {
+          return alert('Erro ao validar a área de entrega com o mapa.');
+        }
+      }
+
+      if (zonasRestritas.some(zona => isPointInPolygon([lat, lng], zona))) {
+        return alert('Desculpe, este endereço está em uma área fora da nossa área de entregas. Por favor, escolha a opção "Retirar na loja".');
+      }
+    }
+
     const inicioHoje = getInicioDiaComercial();
     const maxEntrega = Math.max(0, 
       ...entregasAbertas.filter((e: any) => e.timestamp >= inicioHoje).map((e: any) => e.numeroDiario || 0), 
@@ -423,8 +468,6 @@ export default function DeliveryApp() {
 
     const id = `delivery_${Date.now()}`;
     const sessaoId = `sessao_${Date.now()}`;
-
-    const enderecoSelecionado = enderecos[selectedEnderecoIndex];
 
     const itensParaEnviar = Object.entries(carrinho).map(([cId, item]: any) => {
       const prod = produtos.find(p => p.id === item.produtoId);
@@ -442,6 +485,7 @@ export default function DeliveryApp() {
     const pedidoPayload = {
       identificador: `Delivery: ${cliente!.nome}`,
       tipo: 'Entrega',
+      isRetirada: tipoEntregaApp === 'retirada',
       referenciaId: id,
       itens: itensParaEnviar,
       status: 'Pendente',
@@ -461,7 +505,7 @@ export default function DeliveryApp() {
 
     try {
       await set(ref(db, `pedidos_cozinha/${dedupKey}`), pedidoPayload);
-      await set(ref(db, `entregas_abertas/${id}`), { clienteId: cliente!.id, clienteNome: cliente!.nome, clienteTelefone: cliente!.telefone, enderecoEntrega: enderecoSelecionado || null, carrinho: novoCarrinho, numeroDiario: numDiario, timestamp: Date.now(), sessaoId, formaPagamentoStr: nomePagamento, statusEntrega: 'Pendente', origem: 'App Cliente' });
+      await set(ref(db, `entregas_abertas/${id}`), { clienteId: cliente!.id, clienteNome: cliente!.nome, clienteTelefone: cliente!.telefone, enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex], isRetirada: tipoEntregaApp === 'retirada', carrinho: novoCarrinho, numeroDiario: numDiario, timestamp: Date.now(), sessaoId, formaPagamentoStr: nomePagamento, statusEntrega: 'Pendente', origem: 'App Cliente' });
 
       setCarrinho({});
       setIsCartOpen(false);
@@ -555,9 +599,29 @@ export default function DeliveryApp() {
   // TELA DE CARDÁPIO
   return (
     <>
-      <div className="min-h-screen bg-gray-50 flex flex-col font-sans pb-24" translate="no">
+      <div className="min-h-screen bg-animated-gradient flex flex-col font-sans pb-24" translate="no">
+      <style>{`
+        @keyframes gradientMove {
+          0% { background-position: 0% 50%; }
+          50% { background-position: 100% 50%; }
+          100% { background-position: 0% 50%; }
+        }
+        .bg-animated-gradient {
+          background: linear-gradient(-45deg, #fdfbfb, #fff7ed, #fffbeb, #fefce8);
+          background-size: 400% 400%;
+          animation: gradientMove 15s ease infinite;
+        }
+        .card-hover-effect {
+          transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        .card-hover-effect:hover {
+          transform: translateY(-6px) scale(1.02);
+          box-shadow: 0 12px 25px -5px rgba(249, 115, 22, 0.15), 0 8px 10px -6px rgba(249, 115, 22, 0.1);
+          border-color: #fdba74;
+        }
+      `}</style>
       {/* Cabeçalho */}
-      <header className="bg-white px-4 py-4 shadow-sm sticky top-0 z-50 flex justify-between items-center">
+      <header className="bg-white/80 backdrop-blur-md px-4 py-4 shadow-sm sticky top-0 z-50 flex justify-between items-center border-b border-orange-100">
         <div className="flex items-center gap-3">
           <img src={logoImg} alt="ArttBurger" className="h-10 w-auto" />
           <div>
@@ -570,10 +634,13 @@ export default function DeliveryApp() {
 
       <main className="flex-1 p-4 max-w-2xl mx-auto w-full">
         {activeTab === 'cardapio' && (
-          <div className="space-y-6">
-            <h2 className="text-2xl font-black text-gray-800 flex items-center gap-2 mb-4"><Utensils className="text-orange-500" /> Nosso Cardápio</h2>
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+            <div className="flex flex-col items-center mb-8 mt-2">
+              <h2 className="text-3xl font-black text-gray-800 flex items-center gap-2 drop-shadow-sm"><Utensils className="text-orange-500" size={28} /> Nosso Cardápio</h2>
+              <p className="text-gray-500 text-sm font-medium mt-1">O que você vai pedir hoje?</p>
+            </div>
             
-            <div className="flex overflow-x-auto gap-4 pb-4 mb-6" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
+            <div className="flex overflow-x-auto gap-4 pb-4 mb-6 px-1 scrollbar-hide" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}>
               {categoriasConfig.filter(c => !c.oculto).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome)).map(config => {
                 const cat = config.nome;
                 return (
@@ -582,44 +649,60 @@ export default function DeliveryApp() {
                     onClick={() => {
                       document.getElementById(`cat-${cat}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
                     }}
-                    className="flex flex-col items-center min-w-[100px] w-[100px] gap-2"
+                    className="flex flex-col items-center min-w-[90px] w-[90px] gap-3 group"
                   >
-                    <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-100 flex items-center justify-center overflow-hidden shrink-0">
+                    <div className="w-20 h-20 bg-white rounded-[24px] shadow-sm border-2 border-orange-50 flex items-center justify-center overflow-hidden shrink-0 group-hover:scale-105 group-hover:border-orange-400 group-hover:shadow-lg transition-all duration-300 group-active:scale-95">
                       {config?.imageUrl ? (
-                        <img src={config.imageUrl} alt={cat} className="w-full h-full object-cover" />
+                        <img src={config.imageUrl} alt={cat} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
                       ) : (
-                        <MapPin className="text-orange-300" size={28} />
+                        <Utensils className="text-orange-300 group-hover:text-orange-500 transition-colors duration-300" size={32} />
                       )}
                     </div>
-                    <span className="text-sm font-bold text-gray-700 text-center leading-tight line-clamp-2 w-full">{cat}</span>
+                    <span className="text-sm font-black text-gray-600 text-center leading-tight line-clamp-2 w-full group-hover:text-orange-600 transition-colors duration-300">{cat}</span>
                   </button>
                 );
               })}
             </div>
 
-            <div className="space-y-8">
+            <div className="space-y-10">
               {categoriasConfig.filter(c => !c.oculto).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome)).map(config => {
                 const cat = config.nome;
                 const prodsCat = produtos.filter(p => !p.oculto && (p.categoria || 'Outros') === cat).sort((a, b) => (a.ordem || 0) - (b.ordem || 0) || a.nome.localeCompare(b.nome));
                 if (prodsCat.length === 0) return null;
                 return (
-                  <div key={cat} id={`cat-${cat}`} className="space-y-4 pt-4">
-                    <h3 className="text-xl font-black text-gray-800 flex items-center gap-2">
-                      <MapPin className="text-orange-500" size={20} /> {cat}
-                    </h3>
-                    <div className="grid grid-cols-1 gap-4">
-                      {prodsCat.map(p => (
-                        <div key={p.id} onClick={() => { setProdutoModal(p); setItemOptions({ quantidade: 1, observacao: '', tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex gap-4 cursor-pointer hover:border-orange-300 transition-colors">
-                          <div className="flex-1 min-w-0">
-                            <h4 className="font-bold text-gray-900 text-lg">{p.nome}</h4>
-                            {p.ingredientes && <p className="text-xs text-gray-500 mt-1 line-clamp-2 leading-relaxed">Acompanha: {p.ingredientes.map((ing: any) => ing.nome || 'Ingrediente').join(', ')}</p>}
-                            <p className="font-black text-green-600 mt-3 text-lg">R$ {Number(p.precoVenda || 0).toFixed(2).replace('.', ',')}</p>
+                  <div key={cat} id={`cat-${cat}`} className="space-y-5 pt-2 scroll-mt-24">
+                    <div className="flex items-center gap-3">
+                      <div className="h-10 w-2 bg-orange-500 rounded-full"></div>
+                      <h3 className="text-2xl font-black text-gray-800 tracking-tight">{cat}</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 gap-5">
+                      {prodsCat.map((p, idx) => (
+                        <div 
+                          key={p.id} 
+                          onClick={() => { setProdutoModal(p); setItemOptions({ quantidade: 1, observacao: '', tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} 
+                          className="bg-white/95 backdrop-blur-sm p-5 rounded-[28px] border border-gray-100 shadow-sm flex gap-4 cursor-pointer card-hover-effect relative overflow-hidden group"
+                          style={{ animationDelay: `${idx * 50}ms` }}
+                        >
+                          <div className="flex-1 min-w-0 flex flex-col justify-between">
+                            <div>
+                              <h4 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-orange-600 transition-colors duration-300">{p.nome}</h4>
+                              {p.ingredientes && <p className="text-xs text-gray-500 mt-2 line-clamp-2 leading-relaxed">Acompanha: {p.ingredientes.map((ing: any) => ing.nome || 'Ingrediente').join(', ')}</p>}
+                            </div>
+                            <div className="mt-4">
+                              <span className="inline-block font-black text-orange-600 text-lg bg-orange-50 px-3 py-1 rounded-xl border border-orange-100 shadow-sm">
+                                R$ {Number(p.precoVenda || 0).toFixed(2).replace('.', ',')}
+                              </span>
+                            </div>
                           </div>
                           {p.imageUrl ? (
-                            <img src={p.imageUrl} alt={p.nome} className="w-28 h-28 object-cover rounded-xl shrink-0 bg-gray-50 border border-gray-100" />
+                            <div className="w-32 h-32 shrink-0 rounded-[20px] overflow-hidden shadow-sm border border-gray-100 relative">
+                              <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+                            </div>
                           ) : (
-                            <div className="w-28 h-28 bg-gray-50 rounded-xl flex items-center justify-center shrink-0 border border-gray-100">
-                              <Utensils size={32} className="text-gray-300" />
+                            <div className="w-32 h-32 bg-gray-50 rounded-[20px] flex items-center justify-center shrink-0 border border-gray-100 group-hover:bg-orange-50 transition-colors duration-300">
+                              <Utensils size={36} className="text-gray-300 group-hover:text-orange-300 transition-colors duration-300" />
                             </div>
                           )}
                         </div>
@@ -759,7 +842,7 @@ export default function DeliveryApp() {
       {produtoModal && (
         <div className="fixed inset-0 bg-black/60 z-[100] flex items-end sm:items-center justify-center sm:p-4">
         <div className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-6 animate-in slide-in-from-bottom-4">
-          <div className="flex justify-between items-start mb-4">
+          <div className="flex justify-between items-start mb-4 shrink-0">
             <div>
               <h3 className="text-xl font-black text-gray-800">{produtoModal.nome}</h3>
               <p className="text-gray-500 mt-1">R$ {Number(produtoModal.precoVenda || 0).toFixed(2).replace('.', ',')}</p>
@@ -767,7 +850,7 @@ export default function DeliveryApp() {
             <button onClick={() => setProdutoModal(null)} className="p-2 bg-gray-100 rounded-full text-gray-500"><XIcon size={20}/></button>
           </div>
           
-          <div className="space-y-4 mb-6">
+          <div className="space-y-6 mb-6 overflow-y-auto max-h-[50vh] pr-2">
             {produtoModal.opcoes?.tamanhos && produtoModal.opcoes.tamanhos.length > 0 && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-500 uppercase">Tamanho</label>
@@ -780,6 +863,84 @@ export default function DeliveryApp() {
                 </div>
               </div>
             )}
+
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Tipo de Montagem</h4>
+              <div className="flex flex-wrap gap-2">
+                {(produtoModal.opcoes?.tiposMontagem || []).map((t: any) => (
+                  <button key={t.id} onClick={() => setItemOptions((prev: any) => ({ ...prev, montagem: prev.montagem.includes(t.nome) ? [] : [t.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${itemOptions.montagem.includes(t.nome) ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{t.nome}</button>
+                ))}
+                {(produtoModal.opcoes?.tiposMontagem || []).length === 0 && <span className="text-xs text-gray-400">Nenhum configurado.</span>}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Ponto da Carne</h4>
+              <div className="flex flex-wrap gap-2">
+                {(produtoModal.opcoes?.pontosCarne || []).map((p: any) => (
+                  <button key={p.id} onClick={() => setItemOptions({...itemOptions, pontoCarne: itemOptions.pontoCarne === p.nome ? '' : p.nome})} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${itemOptions.pontoCarne === p.nome ? 'bg-orange-100 border-orange-500 text-orange-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{p.nome}</button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Adicionais</h4>
+              <div className="grid grid-cols-1 gap-3">
+                {(produtoModal.opcoes?.adicionais || []).map((a: any) => {
+                  const qtd = itemOptions.adicionais[a.id] || 0;
+                  return (
+                    <div key={a.id} className="flex justify-between items-center p-2 border rounded-lg bg-gray-50">
+                      <div>
+                        <span className="font-medium text-sm text-gray-800">{a.nome}</span>
+                        {a.preco > 0 && <span className="block text-xs text-green-600 font-bold">+ R$ {a.preco.toFixed(2)}</span>}
+                      </div>
+                      <div className="flex items-center space-x-3 bg-white p-1 rounded-lg border shadow-sm">
+                        <button onClick={() => setItemOptions((prev: any) => { const n = {...prev.adicionais}; if (qtd <= 1) delete n[a.id]; else n[a.id] = qtd - 1; return {...prev, adicionais: n}; })} className="text-gray-500 hover:text-red-500 px-3 py-1">-</button>
+                        <span className="text-sm font-bold w-4 text-center">{qtd}</span>
+                        <button onClick={() => setItemOptions((prev: any) => ({...prev, adicionais: {...prev.adicionais, [a.id]: qtd + 1}}))} className="text-gray-500 hover:text-green-500 px-3 py-1">+</button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Restrições (Sem)</h4>
+              <div className="flex flex-wrap gap-2">
+                {(produtoModal.opcoes?.restricoesLivres || []).map((r: any) => (
+                  <button key={r.id} onClick={() => setItemOptions((prev: any) => ({ ...prev, restricoes: prev.restricoes.includes(r.nome) ? prev.restricoes.filter((n: any) => n !== r.nome) : [...prev.restricoes, r.nome] }))} className={`px-3 py-1.5 border rounded-lg text-sm font-medium transition-colors ${itemOptions.restricoes.includes(r.nome) ? 'bg-red-100 border-red-500 text-red-700' : 'bg-white text-gray-600 hover:bg-gray-50'}`}>{r.nome}</button>
+                ))}
+              </div>
+            </div>
+
+            {itemOptions.montagem.some((m: string) => m.toLowerCase().includes('levar com pedido')) && (() => {
+              const bebidaProdutos = produtos.filter((p: any) => (p.categoria || '').toLowerCase() === 'bebidas' && !p.oculto);
+              if (bebidaProdutos.length === 0) return null;
+              return (
+                <div className="space-y-2">
+                  <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs flex items-center gap-1.5">Bebidas</h4>
+                  <div className="grid grid-cols-1 gap-3">
+                    {bebidaProdutos.map((bev: any) => {
+                      const qtd = itemOptions.bebidas?.[bev.id] || 0;
+                      return (
+                        <div key={bev.id} className="flex justify-between items-center p-2 border rounded-lg bg-orange-50 border-orange-200">
+                          <div>
+                            <span className="font-medium text-sm text-gray-800">{bev.nome}</span>
+                            {Number(bev.precoVenda) > 0 && <span className="block text-xs text-green-600 font-bold">+ R$ {Number(bev.precoVenda).toFixed(2)}</span>}
+                          </div>
+                          <div className="flex items-center space-x-3 bg-white p-1 rounded-lg border shadow-sm">
+                            <button onClick={() => setItemOptions((prev: any) => { const n = {...(prev.bebidas||{})}; if (qtd <= 1) delete n[bev.id]; else n[bev.id] = qtd - 1; return {...prev, bebidas: n}; })} className="text-gray-500 hover:text-red-500 px-3 py-1">-</button>
+                            <span className="text-sm font-bold w-4 text-center">{qtd}</span>
+                            <button onClick={() => setItemOptions((prev: any) => ({...prev, bebidas: {...(prev.bebidas||{}), [bev.id]: qtd + 1}}))} className="text-gray-500 hover:text-green-500 px-3 py-1">+</button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              );
+            })()}
 
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase">Observações (opcional)</label>
@@ -799,12 +960,32 @@ export default function DeliveryApp() {
             const cartItemId = `${produtoModal.id}_${Date.now()}`;
             const selectedTamanho = (produtoModal.opcoes?.tamanhos || []).find((t: any) => t.nome === itemOptions.tamanho);
             const basePrice = selectedTamanho ? Number(selectedTamanho.preco) : Number(produtoModal.precoVenda || 0);
+            
+            let adicionaisPrice = 0;
+            Object.entries(itemOptions.adicionais).forEach(([addId, qtd]: [string, any]) => {
+              const add = (produtoModal.opcoes?.adicionais || []).find((a: any) => a.id === addId);
+              if (add) adicionaisPrice += Number(add.preco || 0) * qtd;
+            });
+
+            let bebidasPrice = 0;
+            const bebidasSelecionadas = Object.entries(itemOptions.bebidas || {}).filter(([, qtd]: [string, any]) => qtd > 0);
+            bebidasSelecionadas.forEach(([prodId, qtd]: [string, any]) => {
+              const prod = produtos.find((p: any) => p.id === prodId);
+              if (prod) bebidasPrice += Number(prod.precoVenda || 0) * qtd;
+            });
+
+            const unitPrice = basePrice + adicionaisPrice + bebidasPrice;
+            const hasOptions = itemOptions.tamanho || itemOptions.montagem.length > 0 || itemOptions.pontoCarne || Object.keys(itemOptions.adicionais).length > 0 || itemOptions.restricoes.length > 0 || itemOptions.observacao || bebidasSelecionadas.length > 0;
             const nomeFinal = selectedTamanho ? `${produtoModal.nome} (${selectedTamanho.nome})` : produtoModal.nome;
-            setCarrinho(prev => ({ ...prev, [cartItemId]: { produtoId: produtoModal.id, nome: nomeFinal, preco: basePrice, qtd: itemOptions.quantidade, opcoes: itemOptions.observacao || itemOptions.tamanho ? { observacao: itemOptions.observacao, tamanho: itemOptions.tamanho } : null, enviadoCozinha: 0 } }));
+            
+            const opcoesObj = hasOptions ? { tamanho: itemOptions.tamanho, montagem: itemOptions.montagem, pontoCarne: itemOptions.pontoCarne, adicionais: Object.entries(itemOptions.adicionais).map(([addId, qtd]: [string, any]) => { const add = (produtoModal.opcoes?.adicionais || []).find((a: any) => a.id === addId); return { id: add?.id, nome: add?.nome, qtd, preco: Number(add?.preco || 0), insumoId: add?.insumoId, quantidadeInsumo: add?.quantidade || 1 }; }), restricoes: itemOptions.restricoes, observacao: itemOptions.observacao, bebidas: bebidasSelecionadas.map(([prodId, qtd]: [string, any]) => { const prod = produtos.find((p: any) => p.id === prodId); return { id: prodId, nome: prod?.nome || prodId, qtd, preco: Number(prod?.precoVenda || 0) }; }) } : null;
+            
+            setCarrinho(prev => ({ ...prev, [cartItemId]: { produtoId: produtoModal.id, nome: nomeFinal, preco: unitPrice, qtd: itemOptions.quantidade, opcoes: opcoesObj, enviadoCozinha: 0, adicionadoPor: cliente?.nome || 'App Delivery', adicionadoEm: Date.now() } }));
             setProdutoModal(null);
+            setItemOptions({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: '' });
             alert('Item adicionado ao carrinho!');
-          }} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 shadow-md">
-            Adicionar — R$ {(((() => { const st = (produtoModal.opcoes?.tamanhos || []).find((t: any) => t.nome === itemOptions.tamanho); return st ? Number(st.preco) : Number(produtoModal.precoVenda || 0); })()) * itemOptions.quantidade).toFixed(2).replace('.', ',')}
+          }} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 shadow-md shrink-0">
+            Adicionar — R$ {(((() => { const st = (produtoModal.opcoes?.tamanhos || []).find((t: any) => t.nome === itemOptions.tamanho); const bp = st ? Number(st.preco) : Number(produtoModal.precoVenda || 0); let addP = 0; Object.entries(itemOptions.adicionais).forEach(([id, q]: [string, any]) => { const a = (produtoModal.opcoes?.adicionais||[]).find((ad:any)=>ad.id===id); if(a) addP += Number(a.preco||0)*q; }); let bevP = 0; Object.entries(itemOptions.bebidas||{}).forEach(([id, q]: [string, any]) => { const p = produtos.find(pr=>pr.id===id); if(p) bevP += Number(p.precoVenda||0)*q; }); return bp + addP + bevP; })()) * itemOptions.quantidade).toFixed(2).replace('.', ',')}
           </button>
         </div>
       </div>
@@ -828,6 +1009,15 @@ export default function DeliveryApp() {
             ))}
           </div>
 
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+            <h3 className="font-bold text-gray-800 mb-2">Forma de Entrega</h3>
+            <div className="flex gap-2">
+              <button onClick={() => setTipoEntregaApp('delivery')} className={`flex-1 p-3 rounded-xl font-bold transition-colors border ${tipoEntregaApp === 'delivery' ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}>Receber em casa</button>
+              <button onClick={() => setTipoEntregaApp('retirada')} className={`flex-1 p-3 rounded-xl font-bold transition-colors border ${tipoEntregaApp === 'retirada' ? 'bg-orange-50 border-orange-500 text-orange-700' : 'bg-white border-gray-200 text-gray-500'}`}>Retirar na loja</button>
+            </div>
+          </div>
+
+          {tipoEntregaApp === 'delivery' && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="font-bold text-gray-800 mb-2">Enviar para qual endereço?</h3>
             
@@ -883,6 +1073,7 @@ export default function DeliveryApp() {
               </button>
             )}
           </div>
+          )}
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="font-bold text-gray-800 mb-2">Forma de Pagamento (Pagar na Entrega)</h3>

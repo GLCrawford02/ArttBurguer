@@ -47,7 +47,9 @@ export default function PainelEntregasModal({
                   <button key={entrega.id} onClick={() => { onClose(); onAbrirEntrega(entrega.id); }} className="w-full text-left p-3 rounded-xl border border-orange-200 bg-white hover:bg-orange-50 transition-colors shadow-sm group">
                     <div className="flex justify-between items-start">
                       <div className="overflow-hidden pr-2">
-                        <span className="font-bold text-sm text-gray-800 block truncate">#{entrega.numeroDiario || '?'} - {entrega.clienteNome}</span>
+                        <span className="font-bold text-sm text-gray-800 block truncate">
+                          #{entrega.numeroDiario || '?'} - {entrega.clienteNome} {entrega.isRetirada && <span className="text-orange-600 ml-1 text-[11px] uppercase">(Retirada)</span>}
+                        </span>
                         <span className="text-[10px] text-gray-500 mt-1 block truncate">{entrega.clienteTelefone}</span>
                       </div>
                       <span className="text-sm font-black text-orange-600 shrink-0">R$ {total.toFixed(2)}</span>
@@ -68,7 +70,9 @@ export default function PainelEntregasModal({
                 <div key={v.id} className="p-3 rounded-xl border border-blue-200 bg-white shadow-sm">
                   <div className="flex justify-between items-start">
                     <div className="overflow-hidden pr-2">
-                      <span className="font-bold text-sm text-gray-800 block truncate">#{v.numeroDiario || '?'} - {v.clienteNome}</span>
+                      <span className="font-bold text-sm text-gray-800 block truncate">
+                        #{v.numeroDiario || '?'} - {v.clienteNome} {v.isRetirada && <span className="text-orange-600 ml-1 text-[11px] uppercase">(Retirada)</span>}
+                      </span>
                       <span className="text-[10px] text-gray-500 mt-1 block truncate">Finalizado às {new Date(v.timestamp).toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'})}</span>
                     </div>
                     <span className="text-sm font-black text-blue-600 shrink-0">R$ {v.valor.toFixed(2)}</span>

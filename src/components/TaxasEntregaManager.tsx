@@ -1,9 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, update } from 'firebase/database';
 import { db } from '../firebase';
-import { MapPin, Save, CheckCircle, AlertTriangle, Navigation, Wand2 } from 'lucide-react';
+import { MapPin, Save, CheckCircle, AlertTriangle, Navigation, Wand2, Map, Plus, Trash2 } from 'lucide-react';
+import { MapContainer, TileLayer, Polygon, useMapEvents, useMap, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 const KM_MAX = 20;
+
+function MapClickHandler({ onClick }: { onClick: (latlng: [number, number]) => void }) {
+  useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
+  return null;
+}
+
+function InvalidateSize() {
+  const map = useMap();
+  useEffect(() => {
+    const timer = setTimeout(() => map.invalidateSize(), 400);
+    return () => clearTimeout(timer);
+  }, [map]);
+  return null;
+}
 
 export default function TaxasEntregaManager() {
   const [taxas, setTaxas] = useState<Record<number, string>>(
@@ -13,6 +30,10 @@ export default function TaxasEntregaManager() {
   const [saved, setSaved] = useState(false);
   const [autoBase, setAutoBase] = useState('');
   const [autoPerKm, setAutoPerKm] = useState('');
+  const [zonasRestritas, setZonasRestritas] = useState<number[][][]>([]);
+  const [currentZona, setCurrentZona] = useState<[number, number][]>([]);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [lojaCoords, setLojaCoords] = useState<{lat: number, lng: number} | null>(null);
 
   useEffect(() => {
     return onValue(ref(db, 'configuracoes/taxas_entrega'), snap => {
@@ -25,6 +46,12 @@ export default function TaxasEntregaManager() {
         }
         return next;
       });
+      if (data.zonasRestritas) {
+        setZonasRestritas(data.zonasRestritas);
+      }
+      if (data.loja_lat && data.loja_lng) {
+         setLojaCoords({ lat: data.loja_lat, lng: data.loja_lng });
+      }
     });
   }, []);
 
@@ -35,7 +62,10 @@ export default function TaxasEntregaManager() {
       for (let i = 1; i <= KM_MAX; i++) {
         taxasNum[i] = parseFloat(String(taxas[i]).replace(',', '.')) || 0;
       }
-      await set(ref(db, 'configuracoes/taxas_entrega/taxas'), taxasNum);
+      await update(ref(db, 'configuracoes/taxas_entrega'), { 
+        taxas: taxasNum,
+        zonasRestritas
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
     } finally {
@@ -166,6 +196,82 @@ export default function TaxasEntregaManager() {
               </div>
             </div>
           ))}
+        </div>
+      </div>
+
+      {/* Áreas Restritas (Mapa) */}
+      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 mb-4 gap-4">
+          <h4 className="text-sm font-bold text-gray-700 flex items-center">
+            <Map size={15} className="mr-2 text-red-500" />
+            Zonas de Não-Entrega (Áreas Restritas)
+          </h4>
+          <div className="flex items-center gap-2 w-full sm:w-auto">
+            {isDrawing ? (
+              <>
+                <button onClick={() => { setIsDrawing(false); setCurrentZona([]); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+                <button onClick={() => { if (currentZona.length >= 3) { setZonasRestritas([...zonasRestritas, currentZona]); setIsDrawing(false); setCurrentZona([]); } }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">Fechar Polígono</button>
+              </>
+            ) : (
+              <>
+                <button onClick={() => setZonasRestritas([])} disabled={zonasRestritas.length === 0} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center"><Trash2 size={14} className="mr-1"/> Limpar Áreas</button>
+                <button onClick={() => setIsDrawing(true)} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Nova Área</button>
+              </>
+            )}
+          </div>
+        </div>
+        
+        {isDrawing && <p className="text-xs text-orange-600 font-bold mb-3 animate-pulse">Clique no mapa para adicionar os pontos. Arraste as bolinhas para ajustar. Clique em uma bolinha para ver a opção de remover. No mínimo 3 pontos.</p>}
+        
+        <div className="border border-gray-200 rounded-xl overflow-hidden relative" style={{ height: 400, zIndex: 0 }}>
+          <MapContainer 
+            center={lojaCoords ? [lojaCoords.lat, lojaCoords.lng] : [-18.7580961, -44.4333648]} 
+            zoom={13} 
+            style={{ height: '100%', width: '100%', zIndex: 1 }}
+          >
+            <InvalidateSize />
+            <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+            
+            {lojaCoords && (
+              <Marker position={[lojaCoords.lat, lojaCoords.lng]} icon={L.divIcon({html: '<div style="background:red;width:12px;height:12px;border-radius:50%;border:2px solid white;box-shadow:0 0 5px black;"></div>', className: ''})}>
+              </Marker>
+            )}
+
+            {isDrawing && <MapClickHandler onClick={(latlng) => setCurrentZona([...currentZona, latlng])} />}
+            
+            {zonasRestritas.map((zona, idx) => (
+              <Polygon key={idx} positions={zona as [number, number][]} pathOptions={{ color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.5, weight: 2 }} />
+            ))}
+            
+            {currentZona.length > 0 && (
+              <Polygon positions={currentZona} pathOptions={{ color: '#f59e0b', dashArray: '5, 5', fillOpacity: 0.2 }} />
+            )}
+            
+            {currentZona.map((pt, idx) => (
+              <Marker 
+                key={idx} 
+                position={pt} 
+              draggable={true}
+              icon={L.divIcon({html: '<div style="background:#f59e0b;width:14px;height:14px;border-radius:50%;border:2px solid white;cursor:grab;box-shadow:0 0 5px rgba(0,0,0,0.5);"></div>', className: ''})}
+                eventHandlers={{
+                dragend: (e) => {
+                  const newPos = e.target.getLatLng();
+                  setCurrentZona(prev => {
+                    const next = [...prev];
+                    next[idx] = [newPos.lat, newPos.lng];
+                    return next;
+                  });
+                }
+                }}
+            >
+              <Popup>
+                <button onClick={(e) => { e.stopPropagation(); setCurrentZona(prev => prev.filter((_, i) => i !== idx)); }} className="bg-red-500 text-white px-3 py-1.5 rounded-md text-xs font-bold hover:bg-red-600 transition-colors shadow-sm">
+                  Remover Ponto
+                </button>
+              </Popup>
+            </Marker>
+            ))}
+          </MapContainer>
         </div>
       </div>
 

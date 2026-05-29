@@ -68,6 +68,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [pdvSearchCliente, setPdvSearchCliente] = useState('');
   const [pdvCliente, setPdvCliente] = useState<any | null>(null);
   const [pdvTipoPedido, setPdvTipoPedido] = useState<'Balcão' | 'Entrega' | 'Mesa'>('Balcão');
+  const [pdvIsRetirada, setPdvIsRetirada] = useState(false);
   const [showPainelEntregas, setShowPainelEntregas] = useState(false);
   const [isCartExpanded, setIsCartExpanded] = useState(false);
   const [pdvCategoria, setPdvCategoria] = useState<string>('Todos');
@@ -456,6 +457,10 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       }
     });
   }, []);
+
+  useEffect(() => {
+    if (pdvTipoPedido !== 'Entrega') setPdvIsRetirada(false);
+  }, [pdvTipoPedido]);
 
   useEffect(() => { funcionariosRef.current = funcionarios; }, [funcionarios]);
 
@@ -935,6 +940,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       const pedidoRef = ref(db, `pedidos_cozinha/${dedupKey}`);
       const pedidoPayload = {
         identificador, tipo,
+        isRetirada: pdvTipoPedido === 'Entrega' ? pdvIsRetirada : false,
         referenciaId: referenciaId || null,
         itens: itensParaEnviar,
         status: 'Pendente',
@@ -1076,6 +1082,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
         setPdvDescontoAplicado(null);
         setMesaSelecionada(null);
+        setPdvIsRetirada(false);
+        setPdvIsRetirada(false);
         setEntregaSelecionada(null);
         setPdvItemModal(null);
         setPdvSearchProd('');
@@ -1169,6 +1177,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     if (entregaData) {
       setPdvSessaoId(entregaData.sessaoId || `delivery_${id}_${entregaData.timestamp}`);
       setPdvCarrinho(entregaData.carrinho || {});
+      setPdvIsRetirada(entregaData.isRetirada || false);
       const c = clientes.find((client: any) => client.id === entregaData.clienteId);
       if (c) setPdvCliente(c);
       else setPdvCliente({ id: entregaData.clienteId, nome: entregaData.clienteNome, telefone: entregaData.clienteTelefone });
@@ -1192,6 +1201,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         clienteTelefone: pdvCliente.telefone,
         carrinho: novoCarrinho,
         numeroDiario: numDiario,
+        isRetirada: pdvIsRetirada,
         timestamp: Date.now(),
         sessaoId: pdvSessaoId
       });
@@ -1202,6 +1212,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvItemModal(null);
     setPdvSearchProd('');
     setPdvSearchCliente('');
+    setPdvIsRetirada(false);
     setIsCartExpanded(false);
     setPdvView('mapa');
   };
@@ -1581,6 +1592,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         descontoAutorizadoPor: pdvDescontoAplicado?.autorizadoPorNome || null,
         itens: Object.entries(pdvCarrinho).map(([id, item]) => ({ id, ...item })),
         tipoPedido: pdvTipoPedido,
+        isRetirada: pdvTipoPedido === 'Entrega' ? pdvIsRetirada : false,
         mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
         statusEntrega: pdvTipoPedido === 'Entrega' ? statusEntregaAtual : null,
         numeroDiario: numDiario,
@@ -1638,6 +1650,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setPdvCarrinho({}); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvCliente(null); setPdvTipoPedido('Balcão');
       setPdvDescontoAplicado(null);
       setMesaSelecionada(null);
+      setPdvIsRetirada(false);
       setEntregaSelecionada(null);
       setPdvItemModal(null);
       setPdvSearchProd('');
@@ -2116,6 +2129,12 @@ Formato esperado:
                 {canDelivery && <button onClick={() => setPdvTipoPedido('Entrega')} className={`flex-1 py-1.5 rounded-md font-bold text-sm transition-colors ${pdvTipoPedido === 'Entrega' ? 'bg-white text-green-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Delivery</button>}
                 {!isCaixaOrAdmin && !canDelivery && <div className="flex-1 text-center font-bold text-gray-500 py-1.5">Selecione uma mesa no mapa</div>}
                 </div>
+              )}
+              {pdvTipoPedido === 'Entrega' && !entregaSelecionada && (
+                <label className="flex items-center space-x-2 mt-2 w-full cursor-pointer bg-orange-50 p-2 rounded-lg border border-orange-100">
+                  <input type="checkbox" checked={pdvIsRetirada} onChange={e => setPdvIsRetirada(e.target.checked)} className="rounded text-orange-600 focus:ring-orange-500 accent-orange-600 w-4 h-4" />
+                  <span className="text-sm font-bold text-orange-800">Retirada na Loja (Cliente vem buscar)</span>
+                </label>
               )}
             </div>
             
