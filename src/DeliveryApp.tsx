@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from './firebase';
-import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus } from 'lucide-react';
+import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart } from 'lucide-react';
 import logoImg from './assets/logo.png';
 
 interface Cliente {
@@ -10,6 +10,7 @@ interface Cliente {
   telefone: string;
   pin?: string;
   cpf?: string;
+  dataNascimento?: string;
   cep?: string;
   logradouro?: string;
   numero?: string;
@@ -21,6 +22,7 @@ interface Cliente {
   lng?: number;
   coordAproximada?: boolean;
   enderecos?: any[];
+  favoritos?: string[];
 }
 
 const getStateCode = (stateName: string) => {
@@ -61,6 +63,7 @@ export default function DeliveryApp() {
   const [regNome, setRegNome] = useState('');
   const [regTelefone, setRegTelefone] = useState('');
   const [regCpf, setRegCpf] = useState('');
+  const [regDataNascimento, setRegDataNascimento] = useState('');
   const [regCep, setRegCep] = useState('');
   const [regLogradouro, setRegLogradouro] = useState('');
   const [regNumero, setRegNumero] = useState('');
@@ -92,7 +95,8 @@ export default function DeliveryApp() {
   const [clientesDb, setClientesDb] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'cardapio' | 'pedidos' | 'fidelidade'>('cardapio');
+  const [activeTab, setActiveTab] = useState<'cardapio' | 'pedidos' | 'perfil'>('cardapio');
+  const [perfilSubTab, setPerfilSubTab] = useState<'dados' | 'favoritos' | 'fidelidade'>('dados');
   const [expandedCategories, setExpandedCategories] = useState<string[]>([]);
 
   // Carrinho e Checkout
@@ -116,6 +120,22 @@ export default function DeliveryApp() {
   const [historicoPedidos, setHistoricoPedidos] = useState<any[]>([]);
   const [fidelidadePontos, setFidelidadePontos] = useState<any>(null);
   const [fidelidadeConfig, setFidelidadeConfig] = useState<any>(null);
+
+  // Edição de Perfil
+  const [editNome, setEditNome] = useState('');
+  const [editTelefone, setEditTelefone] = useState('');
+  const [editCpf, setEditCpf] = useState('');
+  const [editDataNascimento, setEditDataNascimento] = useState('');
+  const [editCep, setEditCep] = useState('');
+  const [editLogradouro, setEditLogradouro] = useState('');
+  const [editNumero, setEditNumero] = useState('');
+  const [editBairro, setEditBairro] = useState('');
+  const [editComplemento, setEditComplemento] = useState('');
+  const [editCidade, setEditCidade] = useState('');
+  const [editUf, setEditUf] = useState('');
+  const [editLat, setEditLat] = useState<number | null>(null);
+  const [editLng, setEditLng] = useState<number | null>(null);
+  const [isFetchingEditLocation, setIsFetchingEditLocation] = useState(false);
 
   useEffect(() => {
     document.title = 'ArttBurger - Pedir Delivery';
@@ -157,6 +177,20 @@ export default function DeliveryApp() {
 
   useEffect(() => {
     if (cliente) {
+      setEditNome(cliente.nome || '');
+      setEditTelefone(cliente.telefone || '');
+      setEditCpf(cliente.cpf || '');
+      setEditDataNascimento(cliente.dataNascimento || '');
+      setEditCep(cliente.cep || '');
+      setEditLogradouro(cliente.logradouro || '');
+      setEditNumero(cliente.numero || '');
+      setEditBairro(cliente.bairro || '');
+      setEditComplemento(cliente.complemento || '');
+      setEditCidade(cliente.cidade || '');
+      setEditUf(cliente.uf || '');
+      setEditLat(cliente.lat ?? null);
+      setEditLng(cliente.lng ?? null);
+
       const pedidosRef = query(ref(db, 'vendas_pdv'), orderByChild('clienteId'), equalTo(cliente.id));
       const unsubPedidos = onValue(pedidosRef, snap => {
         if (snap.val()) {
@@ -327,6 +361,69 @@ export default function DeliveryApp() {
     }
   };
 
+  const handleEditGetLocation = () => {
+    setIsFetchingEditLocation(true);
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setEditLat(lat);
+        setEditLng(lng);
+        
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+            headers: { 'Accept-Language': 'pt-BR' }
+          });
+          const data = await response.json();
+          
+          if (data && data.address) {
+            setEditCep(data.address.postcode ? data.address.postcode.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2') : '');
+            setEditLogradouro(data.address.road || data.address.pedestrian || '');
+            setEditBairro(data.address.suburb || data.address.neighbourhood || data.address.city_district || '');
+            setEditCidade(data.address.city || data.address.town || data.address.village || data.address.municipality || '');
+            setEditUf(data.address.state ? getStateCode(data.address.state) : '');
+            setEditNumero('');
+            document.getElementById('edit_numero')?.focus();
+          }
+        } catch (error) {
+          console.error("Erro ao buscar endereço:", error);
+          alert("Não foi possível preencher o endereço automaticamente.");
+        } finally {
+          setIsFetchingEditLocation(false);
+        }
+      }, (error) => {
+        console.error(error);
+        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
+        setIsFetchingEditLocation(false);
+      }, { enableHighAccuracy: true });
+    } else {
+      alert("Geolocalização não suportada.");
+      setIsFetchingEditLocation(false);
+    }
+  };
+
+  const handleEditCepChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = formatCEP(e.target.value);
+    setEditCep(val);
+    const justNumbers = val.replace(/\D/g, '');
+    
+    if (justNumbers.length === 8) {
+      try {
+        const response = await fetch(`https://viacep.com.br/ws/${justNumbers}/json/`);
+        const data = await response.json();
+        if (!data.erro) {
+          setEditLogradouro(data.logradouro || '');
+          setEditBairro(data.bairro || '');
+          setEditCidade(data.localidade || '');
+          setEditUf(data.uf || '');
+          document.getElementById('edit_numero')?.focus();
+        }
+      } catch (error) {
+        console.error(error);
+      }
+    }
+  };
+
   const handleAddNewAddress = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newEndLogradouro || !newEndNumero || !newEndBairro || !newEndCidade || !newEndUf) {
@@ -362,7 +459,13 @@ export default function DeliveryApp() {
     const cleanPhone = loginPhone.replace(/\D/g, '');
     if (cleanPhone.length < 10) return alert('Por favor, digite um telefone válido com DDD.');
 
-    const existe = clientesDb.find(c => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
+    const normalizePhoneForComparison = (p: string) => {
+      const digits = p.replace(/\D/g, '');
+      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
+      return digits;
+    };
+    const targetPhone = normalizePhoneForComparison(cleanPhone);
+    const existe = clientesDb.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone);
 
     if (existe) {
       if (existe.pin && existe.pin !== loginPin) {
@@ -387,9 +490,19 @@ export default function DeliveryApp() {
     if (cleanPhone.length < 10) return alert('Por favor, digite um telefone válido.');
     if (regPin.length !== 6) return alert('A senha deve ter 6 dígitos.');
 
-    const existe = clientesDb.find(c => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
+    const normalizePhoneForComparison = (p: string) => {
+      const digits = p.replace(/\D/g, '');
+      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
+      return digits;
+    };
+    const targetPhone = normalizePhoneForComparison(cleanPhone);
+    const existe = clientesDb.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone);
 
-    const clienteData: any = { nome: regNome.trim(), telefone: regTelefone, cpf: regCpf, cep: regCep, logradouro: regLogradouro.trim(), numero: regNumero.trim(), bairro: regBairro.trim(), complemento: regComplemento.trim(), cidade: regCidade.trim(), uf: regUf.trim(), pin: regPin, dataCadastro: Date.now() };
+    if (existe) {
+      return alert('Este telefone já está cadastrado. Por favor, faça login.');
+    }
+
+    const clienteData: any = { nome: regNome.trim(), telefone: regTelefone, cpf: regCpf, dataNascimento: regDataNascimento, cep: regCep, logradouro: regLogradouro.trim(), numero: regNumero.trim(), bairro: regBairro.trim(), complemento: regComplemento.trim(), cidade: regCidade.trim(), uf: regUf.trim(), pin: regPin, dataCadastro: Date.now() };
     
     if (regLat !== null && regLng !== null) {
       clienteData.lat = regLat;
@@ -397,16 +510,9 @@ export default function DeliveryApp() {
       clienteData.coordAproximada = false;
     }
 
-    let clienteFinal;
-
-    if (existe) {
-      await update(ref(db, `clientes/${existe.id}`), clienteData);
-      clienteFinal = { ...existe, ...clienteData };
-    } else {
-      const newRef = push(ref(db, 'clientes'));
-      await set(newRef, clienteData);
-      clienteFinal = { id: newRef.key!, ...clienteData };
-    }
+    const newRef = push(ref(db, 'clientes'));
+    await set(newRef, clienteData);
+    const clienteFinal = { id: newRef.key!, ...clienteData };
     
     setCliente(clienteFinal);
     localStorage.setItem('arttburger_cliente_session', JSON.stringify(clienteFinal));
@@ -418,6 +524,63 @@ export default function DeliveryApp() {
     setLoginPhone('');
     setLoginPin('');
     setAuthMode('login');
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!cliente) return;
+    const cleanPhone = editTelefone.replace(/\D/g, '');
+    if (cleanPhone.length < 10) return alert('Por favor, digite um telefone válido.');
+
+    const normalizePhoneForComparison = (p: string) => {
+      const digits = p.replace(/\D/g, '');
+      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
+      return digits;
+    };
+    const targetPhone = normalizePhoneForComparison(cleanPhone);
+    const existe = clientesDb.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone && c.id !== cliente.id);
+    if (existe) return alert('Este telefone já está sendo usado por outro cliente.');
+
+    const updateData: any = {
+      nome: editNome.trim(),
+      telefone: editTelefone,
+      cpf: editCpf,
+      dataNascimento: editDataNascimento,
+      cep: editCep,
+      logradouro: editLogradouro.trim(),
+      numero: editNumero.trim(),
+      bairro: editBairro.trim(),
+      complemento: editComplemento.trim(),
+      cidade: editCidade.trim(),
+      uf: editUf.trim()
+    };
+
+    if (editLat !== null && editLng !== null) {
+      updateData.lat = editLat;
+      updateData.lng = editLng;
+      updateData.coordAproximada = false;
+    }
+
+    try {
+      await update(ref(db, `clientes/${cliente.id}`), updateData);
+      const updatedCliente = { ...cliente, ...updateData };
+      setCliente(updatedCliente);
+      localStorage.setItem('arttburger_cliente_session', JSON.stringify(updatedCliente));
+      alert('Perfil atualizado com sucesso!');
+    } catch (err) {
+      alert('Erro ao atualizar perfil.');
+    }
+  };
+
+  const toggleFavorito = async (produtoId: string) => {
+    if (!cliente) return;
+    const favs = cliente.favoritos || [];
+    const newFavs = favs.includes(produtoId) ? favs.filter((id: string) => id !== produtoId) : [...favs, produtoId];
+    
+    await update(ref(db, `clientes/${cliente.id}`), { favoritos: newFavs });
+    const updatedCliente = { ...cliente, favoritos: newFavs };
+    setCliente(updatedCliente);
+    localStorage.setItem('arttburger_cliente_session', JSON.stringify(updatedCliente));
   };
 
   const getInicioDiaComercial = () => {
@@ -524,6 +687,45 @@ export default function DeliveryApp() {
      else setExpandedCategories([...expandedCategories, cat]);
   };
 
+  const renderProdutoCard = (p: any, idx: number) => (
+    <div 
+      key={p.id} 
+      onClick={() => { setProdutoModal(p); setItemOptions({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} 
+      className="bg-white/95 backdrop-blur-sm p-5 rounded-[28px] border border-gray-100 shadow-sm flex gap-4 cursor-pointer card-hover-effect relative overflow-hidden group"
+      style={{ animationDelay: `${idx * 50}ms` }}
+    >
+      <div className="flex-1 min-w-0 flex flex-col justify-between">
+        <div>
+          <div className="flex justify-between items-start">
+            <h4 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-orange-600 transition-colors duration-300 pr-2">{p.nome}</h4>
+            <button 
+              onClick={(e) => { e.stopPropagation(); toggleFavorito(p.id); }}
+              className="p-2 -mt-2 -mr-2 rounded-full hover:bg-red-50 transition-colors shrink-0"
+            >
+              <Heart size={22} className={cliente?.favoritos?.includes(p.id) ? 'fill-red-500 text-red-500' : 'text-gray-300 hover:text-red-400'} />
+            </button>
+          </div>
+          {p.ingredientes && <p className="text-xs text-gray-500 mt-2 line-clamp-2 leading-relaxed">Acompanha: {p.ingredientes.map((ing: any) => ing.nome || 'Ingrediente').join(', ')}</p>}
+        </div>
+        <div className="mt-4">
+          <span className="inline-block font-black text-orange-600 text-lg bg-orange-50 px-3 py-1 rounded-xl border border-orange-100 shadow-sm">
+            R$ {Number(p.precoVenda || 0).toFixed(2).replace('.', ',')}
+          </span>
+        </div>
+      </div>
+      {p.imageUrl ? (
+        <div className="w-32 h-32 shrink-0 rounded-[20px] overflow-hidden shadow-sm border border-gray-100 relative">
+          <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+        </div>
+      ) : (
+        <div className="w-32 h-32 bg-gray-50 rounded-[20px] flex items-center justify-center shrink-0 border border-gray-100 group-hover:bg-orange-50 transition-colors duration-300">
+          <Utensils size={36} className="text-gray-300 group-hover:text-orange-300 transition-colors duration-300" />
+        </div>
+      )}
+    </div>
+  );
+
   if (loading) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-500">Carregando cardápio...</div>;
   }
@@ -560,6 +762,7 @@ export default function DeliveryApp() {
               <input type="tel" required value={regTelefone} onChange={e => setRegTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               <input type="password" required maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value.replace(/\D/g, ''))} placeholder="Criar Senha (6 números) *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm tracking-widest text-center" />
               <input type="text" value={regCpf} onChange={e => setRegCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+              <input type="date" value={regDataNascimento} onChange={e => setRegDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
               
               <button 
                 type="button" 
@@ -678,34 +881,7 @@ export default function DeliveryApp() {
                     
                     <div className="grid grid-cols-1 gap-5">
                       {prodsCat.map((p, idx) => (
-                        <div 
-                          key={p.id} 
-                          onClick={() => { setProdutoModal(p); setItemOptions({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} 
-                          className="bg-white/95 backdrop-blur-sm p-5 rounded-[28px] border border-gray-100 shadow-sm flex gap-4 cursor-pointer card-hover-effect relative overflow-hidden group"
-                          style={{ animationDelay: `${idx * 50}ms` }}
-                        >
-                          <div className="flex-1 min-w-0 flex flex-col justify-between">
-                            <div>
-                              <h4 className="font-bold text-gray-900 text-lg leading-tight group-hover:text-orange-600 transition-colors duration-300">{p.nome}</h4>
-                              {p.ingredientes && <p className="text-xs text-gray-500 mt-2 line-clamp-2 leading-relaxed">Acompanha: {p.ingredientes.map((ing: any) => ing.nome || 'Ingrediente').join(', ')}</p>}
-                            </div>
-                            <div className="mt-4">
-                              <span className="inline-block font-black text-orange-600 text-lg bg-orange-50 px-3 py-1 rounded-xl border border-orange-100 shadow-sm">
-                                R$ {Number(p.precoVenda || 0).toFixed(2).replace('.', ',')}
-                              </span>
-                            </div>
-                          </div>
-                          {p.imageUrl ? (
-                            <div className="w-32 h-32 shrink-0 rounded-[20px] overflow-hidden shadow-sm border border-gray-100 relative">
-                              <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
-                            </div>
-                          ) : (
-                            <div className="w-32 h-32 bg-gray-50 rounded-[20px] flex items-center justify-center shrink-0 border border-gray-100 group-hover:bg-orange-50 transition-colors duration-300">
-                              <Utensils size={36} className="text-gray-300 group-hover:text-orange-300 transition-colors duration-300" />
-                            </div>
-                          )}
-                        </div>
+                        renderProdutoCard(p, idx)
                       ))}
                     </div>
                   </div>
@@ -752,61 +928,131 @@ export default function DeliveryApp() {
           </div>
         )}
 
-        {activeTab === 'fidelidade' && (
+        {activeTab === 'perfil' && (
           <div className="space-y-6">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 text-center">
-              <h3 className="text-xl font-black text-gray-800 mb-2">Programa Fidelidade</h3>
-              <p className="text-sm text-gray-500 mb-4">Acumule carimbos e troque por prêmios incríveis!</p>
-              <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 inline-block mb-4">
-                <p className="text-4xl font-black text-orange-600">{fidelidadePontos?.pontos || 0}</p>
-                <p className="text-xs font-bold text-orange-800 uppercase tracking-widest mt-1">Carimbos</p>
+            <div className="flex bg-white p-1 rounded-xl w-fit mx-auto mb-4 border border-gray-200 shadow-sm">
+              <button onClick={() => setPerfilSubTab('dados')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'dados' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Meus Dados</button>
+              <button onClick={() => setPerfilSubTab('favoritos')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'favoritos' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Favoritos</button>
+              <button onClick={() => setPerfilSubTab('fidelidade')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'fidelidade' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>
+            </div>
+
+            {perfilSubTab === 'dados' && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 animate-in fade-in">
+                <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center"><User className="mr-2 text-orange-500"/> Meus Dados</h3>
+                <form onSubmit={handleUpdateProfile} className="space-y-4">
+                  <input type="text" required value={editNome} onChange={e => setEditNome(e.target.value)} placeholder="Nome Completo *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                  <input type="tel" required value={editTelefone} onChange={e => setEditTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                  <input type="text" value={editCpf} onChange={e => setEditCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                  <input type="date" value={editDataNascimento} onChange={e => setEditDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
+                  
+                  <div className="pt-2 border-t border-gray-100 mt-2">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center">
+                      <MapPin size={16} className="mr-1 text-orange-500"/> Endereço Principal
+                    </h4>
+                    <button 
+                      type="button" 
+                      onClick={handleEditGetLocation} 
+                      disabled={isFetchingEditLocation}
+                      className="w-full bg-blue-50 text-blue-600 py-3 rounded-xl font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50 border border-blue-200 mb-4"
+                    >
+                      <MapPin size={18} />
+                      {isFetchingEditLocation ? 'Buscando localização...' : 'Usar minha localização atual'}
+                    </button>
+
+                    <div className="flex gap-2 mb-4">
+                      <input type="text" value={editCep} onChange={handleEditCepChange} placeholder="CEP *" required className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                      <input type="text" value={editUf} onChange={e => setEditUf(e.target.value)} placeholder="UF *" required maxLength={2} className="w-16 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm uppercase text-center" />
+                    </div>
+                    <input type="text" value={editLogradouro} onChange={e => setEditLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
+                    <div className="flex gap-2 mb-4">
+                      <input type="text" id="edit_numero" value={editNumero} onChange={e => setEditNumero(e.target.value)} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                      <input type="text" value={editBairro} onChange={e => setEditBairro(e.target.value)} placeholder="Bairro *" required className="w-2/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                    </div>
+                    <input type="text" value={editCidade} onChange={e => setEditCidade(e.target.value)} placeholder="Cidade *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
+                    <input type="text" value={editComplemento} onChange={e => setEditComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                  </div>
+                  
+                  <button type="submit" className="w-full bg-orange-500 text-white py-4 rounded-xl font-black text-base hover:bg-orange-600 transition-colors shadow-md mt-6">
+                    Salvar Alterações
+                  </button>
+                </form>
               </div>
-              <p className="text-xs text-gray-500 bg-gray-50 p-4 rounded-xl text-left border border-gray-100 leading-relaxed font-medium">
-                Lembrando: Somente os produtos consumidos no estabelecimento (presencialmente) são contabilizados no programa de fidelidade. Pedidos via delivery não geram carimbos.
-              </p>
-            </div>
+            )}
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Gift className="mr-2 text-green-500" size={20}/> Prêmios Disponíveis</h4>
-              {fidelidadeConfig?.recompensas ? (
-                <div className="space-y-3">
-                   {Object.entries(fidelidadeConfig.recompensas).filter(([_, r]: any) => r.ativo).map(([id, r]: any) => (
-                      <div key={id} className="flex justify-between items-center p-4 border border-gray-100 rounded-xl bg-gray-50">
-                        <div>
-                          <p className="font-bold text-gray-800">{r.nome}</p>
-                          {r.descricao && <p className="text-xs text-gray-500 mt-1">{r.descricao}</p>}
-                        </div>
-                        <span className="text-xs font-black bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg shrink-0">
-                          {fidelidadeConfig.carimbosParaPremio || 10} ★
-                        </span>
-                      </div>
-                   ))}
+            {perfilSubTab === 'favoritos' && (
+              <div className="space-y-4 animate-in fade-in">
+                <h3 className="text-xl font-black text-gray-800 mb-4 flex items-center"><Heart className="mr-2 text-red-500" fill="currentColor"/> Meus Favoritos</h3>
+                <div className="grid grid-cols-1 gap-5">
+                  {produtos.filter(p => cliente.favoritos?.includes(p.id)).length > 0 ? (
+                    produtos.filter(p => cliente.favoritos?.includes(p.id)).map((p, idx) => renderProdutoCard(p, idx))
+                  ) : (
+                    <div className="text-center py-10 bg-white rounded-3xl shadow-sm border border-gray-100">
+                      <Heart size={48} className="mx-auto text-gray-300 mb-4" />
+                      <p className="text-gray-500 font-medium">Você ainda não tem produtos favoritos.</p>
+                      <button onClick={() => setActiveTab('cardapio')} className="mt-4 text-orange-500 font-bold hover:underline">Ir para o cardápio</button>
+                    </div>
+                  )}
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">Nenhum prêmio configurado no momento.</p>
-              )}
-            </div>
+              </div>
+            )}
 
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
-              <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Star className="mr-2 text-blue-500" size={20}/> Histórico de Pontos</h4>
-              {fidelidadePontos?.historico ? (
-                <div className="space-y-3 max-h-60 overflow-y-auto">
-                   {Object.entries(fidelidadePontos.historico).sort((a: any, b: any) => b[1].timestamp - a[1].timestamp).map(([id, h]: any) => (
-                      <div key={id} className="flex justify-between items-center p-3 border-b border-gray-50 text-sm">
-                        <div>
-                          <p className="font-medium text-gray-800">{h.descricao}</p>
-                          <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">{new Date(h.timestamp).toLocaleString('pt-BR')}</p>
-                        </div>
-                        <span className={`font-black text-lg ${h.pontos > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                          {h.pontos > 0 ? '+' : ''}{h.pontos} ★
-                        </span>
-                      </div>
-                   ))}
+            {perfilSubTab === 'fidelidade' && (
+              <div className="space-y-6 animate-in fade-in">
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+                  <h3 className="text-xl font-black text-gray-800 mb-2">Programa Fidelidade</h3>
+                  <p className="text-sm text-gray-500 mb-4">Acumule carimbos e troque por prêmios incríveis!</p>
+                  <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 inline-block mb-4">
+                    <p className="text-4xl font-black text-orange-600">{fidelidadePontos?.pontos || 0}</p>
+                    <p className="text-xs font-bold text-orange-800 uppercase tracking-widest mt-1">Carimbos</p>
+                  </div>
+                  <p className="text-xs text-gray-500 bg-gray-50 p-4 rounded-xl text-left border border-gray-100 leading-relaxed font-medium">
+                    Lembrando: Somente os produtos consumidos no estabelecimento (presencialmente) são contabilizados no programa de fidelidade. Pedidos via delivery não geram carimbos.
+                  </p>
                 </div>
-              ) : (
-                <p className="text-sm text-gray-500">Você ainda não possui histórico de pontos.</p>
-              )}
-            </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Gift className="mr-2 text-green-500" size={20}/> Prêmios Disponíveis</h4>
+                  {fidelidadeConfig?.recompensas ? (
+                    <div className="space-y-3">
+                       {Object.entries(fidelidadeConfig.recompensas).filter(([_, r]: any) => r.ativo).map(([id, r]: any) => (
+                          <div key={id} className="flex justify-between items-center p-4 border border-gray-100 rounded-2xl bg-gray-50">
+                            <div>
+                              <p className="font-bold text-gray-800">{r.nome}</p>
+                              {r.descricao && <p className="text-xs text-gray-500 mt-1">{r.descricao}</p>}
+                            </div>
+                            <span className="text-xs font-black bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg shrink-0">
+                              {fidelidadeConfig.carimbosParaPremio || 10} ★
+                            </span>
+                          </div>
+                       ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Nenhum prêmio configurado no momento.</p>
+                  )}
+                </div>
+
+                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                  <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Star className="mr-2 text-blue-500" size={20}/> Histórico de Pontos</h4>
+                  {fidelidadePontos?.historico ? (
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                       {Object.entries(fidelidadePontos.historico).sort((a: any, b: any) => b[1].timestamp - a[1].timestamp).map(([id, h]: any) => (
+                          <div key={id} className="flex justify-between items-center p-3 border-b border-gray-50 text-sm">
+                            <div>
+                              <p className="font-medium text-gray-800">{h.descricao}</p>
+                              <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">{new Date(h.timestamp).toLocaleString('pt-BR')}</p>
+                            </div>
+                            <span className={`font-black text-lg ${h.pontos > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                              {h.pontos > 0 ? '+' : ''}{h.pontos} ★
+                            </span>
+                          </div>
+                       ))}
+                    </div>
+                  ) : (
+                    <p className="text-sm text-gray-500">Você ainda não possui histórico de pontos.</p>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </main>
@@ -822,9 +1068,9 @@ export default function DeliveryApp() {
               <History size={22} className="mb-1" />
               <span className="text-[10px] font-bold uppercase tracking-wider">Pedidos</span>
            </button>
-           <button onClick={() => setActiveTab('fidelidade')} className={`flex flex-col items-center p-2 flex-1 rounded-xl transition-colors ${activeTab === 'fidelidade' ? 'text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-gray-600'}`}>
-              <Star size={22} className="mb-1" />
-              <span className="text-[10px] font-bold uppercase tracking-wider">Fidelidade</span>
+           <button onClick={() => setActiveTab('perfil')} className={`flex flex-col items-center p-2 flex-1 rounded-xl transition-colors ${activeTab === 'perfil' ? 'text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-gray-600'}`}>
+              <User size={22} className="mb-1" />
+              <span className="text-[10px] font-bold uppercase tracking-wider">Perfil</span>
            </button>
         </div>
       </div>

@@ -8,6 +8,7 @@ export interface Cliente {
   nome: string;
   telefone: string;
   cpf: string;
+  dataNascimento?: string;
   cep: string;
   logradouro: string;
   numero: string;
@@ -78,6 +79,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   const [nome, setNome] = useState('');
   const [telefone, setTelefone] = useState('');
   const [cpf, setCpf] = useState('');
+  const [dataNascimento, setDataNascimento] = useState('');
   const [cep, setCep] = useState('');
   const [logradouro, setLogradouro] = useState('');
   const [numero, setNumero] = useState('');
@@ -216,7 +218,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   };
 
   const resetForm = () => {
-    setEditId(null); setNome(''); setTelefone(''); setCpf(''); setCep('');
+    setEditId(null); setNome(''); setTelefone(''); setCpf(''); setDataNascimento(''); setCep('');
     setLogradouro(''); setNumero(''); setBairro(''); setComplemento('');
     setCidade(''); setUf(''); setObservacaoCliente(''); setObservacaoEntregador('');
     setGoogleMapsLink('');
@@ -232,10 +234,19 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     }
 
     const telLimpo = telefone.replace(/\D/g, '');
-    const clienteExistente = clientes.find(c => (c.telefone || '').replace(/\D/g, '') === telLimpo && c.id !== editId);
-    if (clienteExistente) {
-      showToast(`Este telefone já está cadastrado para o cliente: ${clienteExistente.nome}`, 'error');
-      return;
+    const normalizePhoneForComparison = (p: string) => {
+      const digits = p.replace(/\D/g, '');
+      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
+      return digits;
+    };
+    
+    if (telLimpo) {
+      const targetPhone = normalizePhoneForComparison(telLimpo);
+      const clienteExistente = clientes.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone && c.id !== editId);
+      if (clienteExistente) {
+        showToast(`Este telefone já está cadastrado para o cliente: ${clienteExistente.nome}`, 'error');
+        return;
+      }
     }
 
     const cpfLimpo = cpf.replace(/\D/g, '');
@@ -291,6 +302,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       nome: nome || '',
       telefone: telefone || '',
       cpf: cpf || '',
+      dataNascimento: dataNascimento || '',
       cep: cep || '',
       logradouro: logradouro || '',
       numero: numero || '',
@@ -306,18 +318,6 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     };
 
     try {
-      // Verifica duplicação de telefone ANTES de salvar (se não for edição e se tiver telefone)
-      if (!editId && telefone) {
-        const cleanPhone = telefone.replace(/\D/g, '');
-        if (cleanPhone) {
-          const existe = clientes.find((c: Cliente) => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
-          if (existe) {
-            showToast(`Telefone já cadastrado para o cliente: ${existe.nome}`, 'error');
-            return;
-          }
-        }
-      }
-
       if (editId) {
         await update(ref(db, `clientes/${editId}`), clienteData);
         showToast('Cliente atualizado com sucesso!', 'success');
@@ -361,6 +361,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     setNome(cliente.nome || '');
     setTelefone(cliente.telefone || '');
     setCpf(cliente.cpf || '');
+    setDataNascimento(cliente.dataNascimento || '');
     setCep(cliente.cep || '');
     setLogradouro(cliente.logradouro || '');
     setNumero(cliente.numero || '');
@@ -473,7 +474,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
               <label className="text-xs font-bold text-gray-500 uppercase">Nome Completo *</label>
               <input type="text" value={nome} onChange={e => setNome(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" placeholder="Ex: João da Silva" />
             </div>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">Telefone / WhatsApp *</label>
                 <input type="text" value={telefone} onChange={e => setTelefone(formatPhone(e.target.value))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" placeholder="(00) 00000-0000" />
@@ -481,6 +482,10 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
               <div className="space-y-1">
                 <label className="text-xs font-bold text-gray-500 uppercase">CPF (Opcional)</label>
                 <input type="text" value={cpf} onChange={e => setCpf(formatCPF(e.target.value))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white" placeholder="000.000.000-00" />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs font-bold text-gray-500 uppercase">Nascimento (Opcional)</label>
+                <input type="date" value={dataNascimento} onChange={e => setDataNascimento(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 bg-white text-gray-600" />
               </div>
             </div>
           </div>

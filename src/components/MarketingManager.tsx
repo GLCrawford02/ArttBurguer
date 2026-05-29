@@ -24,6 +24,13 @@ export default function MarketingManager({ currentUser, temPermissao }: { curren
   const canEdit = temPermissao ? temPermissao('marketing', 'aba_marketing', 'editar') : true;
   const canDelete = temPermissao ? temPermissao('marketing', 'aba_marketing', 'apagar') : true;
 
+  const getHojeMesDia = () => {
+    const d = new Date();
+    const mes = String(d.getMonth() + 1).padStart(2, '0');
+    const dia = String(d.getDate()).padStart(2, '0');
+    return `${mes}-${dia}`;
+  };
+
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
     setToast({ message, type });
     setTimeout(() => setToast(null), 3000);
@@ -110,6 +117,8 @@ export default function MarketingManager({ currentUser, temPermissao }: { curren
     }
     const clientesAlvo = categoriaMassa === 'Todos' 
       ? clientes.filter(c => c.telefone)
+      : categoriaMassa === 'AniversariantesHoje'
+      ? clientes.filter(c => c.telefone && c.dataNascimento && c.dataNascimento.substring(5, 10) === getHojeMesDia())
       : clientes.filter(c => c.telefone && c.categorias?.includes(categoriaMassa));
       
     if (clientesAlvo.length === 0) {
@@ -141,7 +150,19 @@ export default function MarketingManager({ currentUser, temPermissao }: { curren
   };
 
   const todasCategorias = Array.from(new Set(clientes.flatMap(c => c.categorias || []))).sort();
-  const clientesAlvoCount = categoriaMassa === 'Todos' ? clientes.filter(c => c.telefone).length : clientes.filter(c => c.telefone && c.categorias?.includes(categoriaMassa)).length;
+  const clientesAlvoCount = categoriaMassa === 'Todos' 
+    ? clientes.filter(c => c.telefone).length 
+    : categoriaMassa === 'AniversariantesHoje'
+    ? clientes.filter(c => c.telefone && c.dataNascimento && c.dataNascimento.substring(5, 10) === getHojeMesDia()).length
+    : clientes.filter(c => c.telefone && c.categorias?.includes(categoriaMassa)).length;
+
+  const handleCategoriaChange = (e: any) => {
+    const val = e.target.value;
+    setCategoriaMassa(val);
+    if (val === 'AniversariantesHoje' && (!mensagemMassa.trim() || mensagemMassa.includes('promoção especial para você hoje'))) {
+      setMensagemMassa('Parabéns pelo seu dia! 🎉\nNós da ArttBurger lhe desejamos um feliz aniversário!\nPara comemorar, temos um presente especial para você: ...');
+    }
+  };
 
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
@@ -214,8 +235,9 @@ export default function MarketingManager({ currentUser, temPermissao }: { curren
             </div>
             <div>
               <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Filtrar por Categoria (Tag)</label>
-              <select value={categoriaMassa} onChange={e => setCategoriaMassa(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm bg-gray-50">
+              <select value={categoriaMassa} onChange={handleCategoriaChange} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-green-500 text-sm bg-gray-50">
                 <option value="Todos">Todos os Clientes</option>
+                <option value="AniversariantesHoje">🎂 Aniversariantes de Hoje</option>
                 {todasCategorias.map(cat => (
                   <option key={cat as string} value={cat as string}>{cat as string}</option>
                 ))}

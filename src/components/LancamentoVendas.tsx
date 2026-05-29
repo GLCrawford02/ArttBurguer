@@ -244,7 +244,14 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     
     if (!nomeForm || !telForm) return showToast('Nome e Telefone são obrigatórios.', 'error');
     
-    const existe = clientes.find((c: any) => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
+    const normalizePhoneForComparison = (p: string) => {
+      const digits = p.replace(/\D/g, '');
+      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
+      return digits;
+    };
+
+    const targetPhone = normalizePhoneForComparison(cleanPhone);
+    const existe = clientes.find((c: any) => normalizePhoneForComparison(c.telefone || '') === targetPhone);
     if (existe) {
       showToast(`Telefone já cadastrado para o cliente: ${existe.nome}`, 'error');
       return;
