@@ -105,6 +105,7 @@ export default function DeliveryApp() {
   const [produtoModal, setProdutoModal] = useState<any>(null);
   const [itemOptions, setItemOptions] = useState<any>({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: '' });
   const [formaPagamento, setFormaPagamento] = useState('');
+  const [trocoPara, setTrocoPara] = useState('');
   const [tipoEntregaApp, setTipoEntregaApp] = useState<'delivery' | 'retirada'>('delivery');
   const [taxas, setTaxas] = useState<any[]>([]);
   const [zonasRestritas, setZonasRestritas] = useState<number[][][]>([]);
@@ -662,8 +663,10 @@ export default function DeliveryApp() {
     Object.keys(novoCarrinho).forEach(k => { novoCarrinho[k].enviadoCozinha = novoCarrinho[k].qtd; });
 
     let nomePagamento = formaPagamento;
-    if (formaPagamento === 'pix') nomePagamento = 'Pix';
-    else if (formaPagamento === 'dinheiro') nomePagamento = 'Dinheiro';
+    if (formaPagamento === 'Pix') nomePagamento = 'Pix';
+    else if (formaPagamento === 'Dinheiro') nomePagamento = `Dinheiro${trocoPara ? ` (Troco para R$ ${trocoPara})` : ''}`;
+    else if (formaPagamento === 'Credito') nomePagamento = 'Cartão de Crédito';
+    else if (formaPagamento === 'Debito') nomePagamento = 'Cartão de Débito';
     else { const t = taxas.find(x => x.id === formaPagamento); if (t) nomePagamento = t.nome; }
 
     try {
@@ -762,7 +765,10 @@ export default function DeliveryApp() {
               <input type="tel" required value={regTelefone} onChange={e => setRegTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               <input type="password" required maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value.replace(/\D/g, ''))} placeholder="Criar Senha (6 números) *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm tracking-widest text-center" />
               <input type="text" value={regCpf} onChange={e => setRegCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <input type="date" value={regDataNascimento} onChange={e => setRegDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
+              <div>
+                <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe seu aniversário para receber promoções! 🎂</p>
+                <input type="date" value={regDataNascimento} onChange={e => setRegDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
+              </div>
               
               <button 
                 type="button" 
@@ -943,7 +949,10 @@ export default function DeliveryApp() {
                   <input type="text" required value={editNome} onChange={e => setEditNome(e.target.value)} placeholder="Nome Completo *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                   <input type="tel" required value={editTelefone} onChange={e => setEditTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                   <input type="text" value={editCpf} onChange={e => setEditCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-                  <input type="date" value={editDataNascimento} onChange={e => setEditDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
+                  <div>
+                    <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe seu aniversário para receber promoções! 🎂</p>
+                    <input type="date" value={editDataNascimento} onChange={e => setEditDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
+                  </div>
                   
                   <div className="pt-2 border-t border-gray-100 mt-2">
                     <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center">
@@ -1324,8 +1333,27 @@ export default function DeliveryApp() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="font-bold text-gray-800 mb-2">Forma de Pagamento (Pagar na Entrega)</h3>
             <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-gray-700">
-              <option value="">Selecione como vai pagar...</option><option value="pix">Pix (Chave com entregador)</option><option value="dinheiro">Dinheiro Físico</option>{taxas.map(t => <option key={t.id} value={t.id}>{t.nome}</option>)}
+              <option value="">Selecione como vai pagar...</option>
+              <option value="Pix">Pix (Chave com entregador)</option>
+              <option value="Dinheiro">Dinheiro Físico</option>
+              <option value="Credito">Cartão de Crédito</option>
+              <option value="Debito">Cartão de Débito</option>
             </select>
+            {formaPagamento === 'Dinheiro' && (
+              <div className="mt-3 animate-in fade-in">
+                <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Troco para quanto? (Opcional)</label>
+                <div className="relative w-full">
+                  <span className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-500 text-sm font-medium">R$</span>
+                  <input
+                    type="text"
+                    value={trocoPara}
+                    onChange={e => { const digits = e.target.value.replace(/\D/g, ''); setTrocoPara(digits ? (parseInt(digits, 10) / 100).toFixed(2).replace('.', ',') : ''); }}
+                    className="w-full pl-9 pr-4 py-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-gray-700"
+                    placeholder="Ex: 50,00"
+                  />
+                </div>
+              </div>
+            )}
           </div>
           <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center"><span className="font-bold text-orange-800">Total do Pedido</span><span className="text-2xl font-black text-orange-600">R$ {valorTotalCarrinho.toFixed(2).replace('.', ',')}</span></div>
         </div>
