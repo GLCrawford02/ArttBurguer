@@ -680,7 +680,7 @@ export default function DeliveryApp() {
                       {prodsCat.map((p, idx) => (
                         <div 
                           key={p.id} 
-                          onClick={() => { setProdutoModal(p); setItemOptions({ quantidade: 1, observacao: '', tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} 
+                          onClick={() => { setProdutoModal(p); setItemOptions({ montagem: [], pontoCarne: '', adicionais: {}, restricoes: [], observacao: '', quantidade: 1, bebidas: {}, tamanho: p.opcoes?.tamanhos?.[0]?.nome || '' }); }} 
                           className="bg-white/95 backdrop-blur-sm p-5 rounded-[28px] border border-gray-100 shadow-sm flex gap-4 cursor-pointer card-hover-effect relative overflow-hidden group"
                           style={{ animationDelay: `${idx * 50}ms` }}
                         >
