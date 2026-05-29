@@ -51,8 +51,6 @@ export default function DREManager() {
   const [contasPagar, setContasPagar] = useState<ContaPagar[]>([]);
   const [contasReceber, setContasReceber] = useState<ContaReceber[]>([]);
   const [periodo, setPeriodo] = useState<Periodo>('mes_atual');
-  const [mesSelecionado, setMesSelecionado] = useState(new Date().getMonth());
-  const [anoSelecionado, setAnoSelecionado] = useState(new Date().getFullYear());
   const [dataInicio, setDataInicio] = useState('');
   const [dataFim, setDataFim] = useState('');
   const [expandido, setExpandido] = useState<Record<string, boolean>>({});

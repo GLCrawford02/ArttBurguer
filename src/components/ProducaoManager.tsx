@@ -20,7 +20,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const cargos = currentUser ? (Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || '']) : [];
   const kdsRoles = cargos.filter((c: string) => c.toUpperCase().includes('KDS'));
-  const isKdsOnly = cargos.length > 0 && cargos.every((c: string) => c.toUpperCase().includes('KDS'));
 
   // Extrai apenas as telas que este funcionário KDS tem acesso (ex: "KDS Chapa" -> "Chapa")
   const allowedStations = kdsRoles.length > 0 
@@ -46,14 +45,16 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
   useEffect(() => {
     if (!currentUser?.id) return;
     const kdsRef = ref(db, `funcionarios/${currentUser.id}/preferenciasKds/activeKds`);
-    onValue(kdsRef, (snap) => {
+    const unsub = onValue(kdsRef, (snap) => {
       const savedKds = snap.val();
       if (savedKds && allowedStations.includes(savedKds)) {
         setActiveKds(savedKds);
       } else if (!allowedStations.includes(activeKds)) {
         setActiveKds(allowedStations[0] || 'Montagem');
       }
-    }, { onlyOnce: true });
+      unsub();
+    });
+    return () => unsub();
   }, [currentUser?.id]);
 
   useEffect(() => {
@@ -68,7 +69,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
     isUpdatingFiltersRef.current = true;
 
     const filtrosRef = ref(db, `funcionarios/${currentUser.id}/preferenciasKds/filtros/${activeKds}`);
-    onValue(filtrosRef, (snap) => {
+    const unsub = onValue(filtrosRef, (snap) => {
       const savedFiltersStr = snap.val();
       if (savedFiltersStr) {
         if (savedFiltersStr === 'VAZIO') setKdsFiltroCategorias([]);
@@ -84,7 +85,9 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
         setKdsFiltroCategorias(defaults);
       }
       setTimeout(() => { isUpdatingFiltersRef.current = false; }, 300);
-    }, { onlyOnce: true });
+      unsub();
+    });
+    return () => unsub();
   }, [activeKds, currentUser?.id]);
 
   useEffect(() => {
@@ -144,40 +147,6 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
     };
   }, []);
 
-  const checkPromocaoValida = (promo: Promocao) => {
-    const now = new Date();
-
-    if (promo.dataInicio) {
-      const start = new Date(`${promo.dataInicio}T00:00:00`);
-      if (now < start) return false;
-    }
-    if (promo.dataFim) {
-      const end = new Date(`${promo.dataFim}T23:59:59`);
-      if (now > end) return false;
-    }
-
-
-    if (promo.horarioInicio || promo.horarioFim) {
-      const currentMinutes = now.getHours() * 60 + now.getMinutes();
-      let startMinutes = 0;
-      if (promo.horarioInicio) {
-        const [h, m] = promo.horarioInicio.split(':').map(Number);
-        startMinutes = h * 60 + m;
-      }
-      let endMinutes = 24 * 60;
-      if (promo.horarioFim) {
-        const [h, m] = promo.horarioFim.split(':').map(Number);
-        endMinutes = h * 60 + m;
-      }
-      if (startMinutes <= endMinutes) {
-        if (currentMinutes < startMinutes || currentMinutes > endMinutes) return false;
-      } else {
-        if (currentMinutes < startMinutes && currentMinutes > endMinutes) return false;
-      }
-    }
-    return true; 
-  };
-
   const handleFinalizarPedido = async (pedido: any) => {
     try {
 
@@ -222,7 +191,9 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   // Mapeia categorias para seus respectivos setores do KDS
   const filterItemsForKDS = (itens: any[], kds: string) => {
-    const filtrosAtivos = kdsFiltroCategorias.length === 0 ? categoriasExistentes.map((c: any) => c as string) : kdsFiltroCategorias;
+    const filtrosAtivos = kdsFiltroCategorias;
+    
+    if (filtrosAtivos.length === 0) return [];
 
     console.debug('[ProducaoManager] filtro KDS', {
       activeKds: kds,
@@ -291,6 +262,16 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
   const expandedOrder = expandedKdsOrderId ? pedidosKds.find(p => p.id === expandedKdsOrderId) : null;
 
+  const priorityOrder = ['Hambúrguer', 'Promoção / Combo', 'Porção', 'Bebida', 'Sobremesa', 'Outros'];
+  const sortedCategorias = [...categoriasExistentes].sort((a, b) => {
+    const idxA = priorityOrder.indexOf(String(a));
+    const idxB = priorityOrder.indexOf(String(b));
+    if (idxA !== -1 && idxB !== -1) return idxA - idxB;
+    if (idxA !== -1) return -1;
+    if (idxB !== -1) return 1;
+    return String(a).localeCompare(String(b));
+  });
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
         <div className="space-y-6">
@@ -335,8 +316,16 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                     <span className="text-xs font-bold text-gray-500 uppercase">Categorias Visíveis</span>
                     <button onClick={() => setShowFiltrosKds(false)} className="text-gray-400 hover:text-gray-600"><X size={16}/></button>
                   </div>
+                  <div className="flex gap-2 mb-2">
+                    <button onClick={() => setKdsFiltroCategorias(categoriasExistentes.map(c => String(c)))} className="flex-1 bg-indigo-50 text-indigo-600 hover:bg-indigo-100 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                      Marcar Todos
+                    </button>
+                    <button onClick={() => setKdsFiltroCategorias([])} className="flex-1 bg-gray-100 text-gray-600 hover:bg-gray-200 py-1.5 rounded-lg text-xs font-bold transition-colors">
+                      Limpar
+                    </button>
+                  </div>
                   <div className="max-h-60 overflow-y-auto flex flex-col gap-1 pr-1">
-                    {categoriasExistentes.map(cat => {
+                    {sortedCategorias.map(cat => {
                       const isSelected = kdsFiltroCategorias.includes(cat as string);
                       return (
                         <label key={cat as string} className="flex items-center space-x-3 cursor-pointer p-2 hover:bg-gray-50 rounded-lg transition-colors">

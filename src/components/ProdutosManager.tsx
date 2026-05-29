@@ -14,7 +14,6 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
   const [selectedCategoria, setSelectedCategoria] = useState('');
   
   const [categoriasDb, setCategoriasDb] = useState<{id: string, nome: string}[]>([]);
-  const [novaCategoriaImagemForm, setNovaCategoriaImagemForm] = useState('');
   const [embalagensPadrao, setEmbalagensPadrao] = useState<{ delivery: {insumoId: string, quantidade: number}[], salao: {insumoId: string, quantidade: number}[] }>({ delivery: [], salao: [] });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [editProduto, setEditProduto] = useState<Produto | null>(null);

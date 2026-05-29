@@ -2437,17 +2437,6 @@ Formato esperado:
         onSubmit={handlePedidoIA}
       />
 
-
-
-      <GarcomIaModal
-        show={showIaModal}
-        onClose={() => setShowIaModal(false)}
-        aiPrompt={aiPrompt}
-        setAiPrompt={setAiPrompt}
-        isGenerating={isGenerating}
-        onSubmit={handlePedidoIA}
-      />
-
       {toast && (
         <div className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 sm:w-auto sm:max-w-md p-4 rounded-xl shadow-2xl text-white font-bold flex items-start z-[100] transition-all animate-in slide-in-from-bottom-5 duration-300 ${toast.type === 'success' ? 'bg-green-600' : 'bg-red-600'}`}>
           {toast.type === 'success' ? <CheckCircle className="mr-3 shrink-0 mt-0.5" size={20} /> : <AlertTriangle className="mr-3 shrink-0 mt-0.5" size={20} />}

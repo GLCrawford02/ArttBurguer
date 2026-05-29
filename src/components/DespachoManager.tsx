@@ -201,6 +201,26 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     return () => { isMounted = false; };
   }, [despachos, activeDespachoTab]);
 
+  const formatarEndereco = (c: Cliente, pedido?: any) => {
+    if (pedido?.enderecoEntrega) {
+      const e = pedido.enderecoEntrega;
+      const partes = [];
+      if (e.logradouro) partes.push(e.logradouro);
+      if (e.numero) partes.push(e.numero);
+      if (e.bairro) partes.push(e.bairro);
+      if (e.cidade) partes.push(e.cidade);
+      if (e.uf) partes.push(e.uf);
+      return partes.join(', ');
+    }
+    const partes = [];
+    if (c.logradouro) partes.push(c.logradouro);
+    if (c.numero) partes.push(c.numero);
+    if (c.bairro) partes.push(c.bairro);
+    if (c.cidade) partes.push(c.cidade);
+    if (c.uf) partes.push(c.uf);
+    return partes.join(', ');
+  };
+
   // Geocodifica endereços dos pedidos pendentes quando o mini-mapa está ativo
   useEffect(() => {
     if (!mapaMiniAtivo) return;
@@ -215,12 +235,17 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
         const c = clientes.find(cl => cl.id === ped.clienteId);
         if (!c) { setGeocodedPendentes(prev => ({ ...prev, [ped.id]: null })); continue; }
 
-        if ((c as any).lat && (c as any).lng) {
+        if (ped.enderecoEntrega?.lat && ped.enderecoEntrega?.lng) {
+          setGeocodedPendentes(prev => ({ ...prev, [ped.id]: { lat: ped.enderecoEntrega.lat, lng: ped.enderecoEntrega.lng } }));
+          continue;
+        }
+
+        if ((c as any).lat && (c as any).lng && !ped.enderecoEntrega) {
           setGeocodedPendentes(prev => ({ ...prev, [ped.id]: { lat: (c as any).lat, lng: (c as any).lng } }));
           continue;
         }
 
-        const endereco = formatarEndereco(c);
+        const endereco = formatarEndereco(c, ped);
         if (!endereco) { setGeocodedPendentes(prev => ({ ...prev, [ped.id]: null })); continue; }
 
         try {
@@ -243,16 +268,6 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     return () => { cancelled = true; };
   }, [mapaMiniAtivo, todosPedidosPendente.map(p => p.id).join(','), clientes.length]);
 
-  const formatarEndereco = (c: Cliente) => {
-    const partes = [];
-    if (c.logradouro) partes.push(c.logradouro);
-    if (c.numero) partes.push(c.numero);
-    if (c.bairro) partes.push(c.bairro);
-    if (c.cidade) partes.push(c.cidade);
-    if (c.uf) partes.push(c.uf);
-    return partes.join(', ');
-  };
-
   const handleAddParada = (pedido: any) => {
     if (rotaAtual.find(p => p.pedidoId === pedido.id)) {
       showToast('Este pedido já está na rota!', 'error');
@@ -261,7 +276,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     const c = clientes.find(client => client.id === pedido.clienteId);
     if (!c) return showToast('Cliente não encontrado.', 'error');
 
-    const endereco = formatarEndereco(c);
+    const endereco = formatarEndereco(c, pedido);
     if (!endereco) {
       showToast('Este cliente não possui endereço cadastrado.', 'error');
       return;
@@ -275,7 +290,9 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
       isAberta: pedido.isAberta || false,
       numeroDiario: pedido.numeroDiario || 0,
       googleMapsLink: c.googleMapsLink || '',
-      ...(c.lat && c.lng ? { lat: c.lat, lng: c.lng, coordAproximada: c.coordAproximada ?? false } : {}),
+      ...(pedido.enderecoEntrega?.lat && pedido.enderecoEntrega?.lng 
+        ? { lat: pedido.enderecoEntrega.lat, lng: pedido.enderecoEntrega.lng, coordAproximada: pedido.enderecoEntrega.coordAproximada ?? false }
+        : c.lat && c.lng ? { lat: c.lat, lng: c.lng, coordAproximada: c.coordAproximada ?? false } : {}),
     }]);
     setSearchTerm('');
   };
@@ -609,7 +626,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                   <div key={ped.id} className={`p-4 rounded-xl border ${isPronto ? 'border-gray-200 bg-white hover:border-indigo-300' : 'border-orange-200 bg-orange-50 opacity-90'} transition-colors shadow-sm flex justify-between items-center group`}>
                     <div className="truncate pr-2">
                       <p className="font-bold text-gray-800">#{ped.numeroDiario || '?'} - {c.nome}</p>
-                      <p className="text-sm text-gray-500 truncate mt-1 flex items-center"><MapPin size={14} className="mr-1"/> {formatarEndereco(c) || 'Sem endereço'}</p>
+                      <p className="text-sm text-gray-500 truncate mt-1 flex items-center"><MapPin size={14} className="mr-1"/> {formatarEndereco(c, ped) || 'Sem endereço'}</p>
                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                         {ped.isAberta ? <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold">Falta Pagar</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[11px] font-bold">Pago</span>}
                         <span className="text-[11px] text-indigo-500 font-bold">Pedido às {new Date(ped.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>

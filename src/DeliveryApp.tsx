@@ -9,7 +9,32 @@ interface Cliente {
   nome: string;
   telefone: string;
   pin?: string;
+  cpf?: string;
+  cep?: string;
+  logradouro?: string;
+  numero?: string;
+  bairro?: string;
+  complemento?: string;
+  cidade?: string;
+  uf?: string;
+  lat?: number;
+  lng?: number;
+  coordAproximada?: boolean;
+  enderecos?: any[];
 }
+
+const getStateCode = (stateName: string) => {
+  const states: Record<string, string> = {
+    "Acre": "AC", "Alagoas": "AL", "Amapá": "AP", "Amazonas": "AM", "Bahia": "BA",
+    "Ceará": "CE", "Distrito Federal": "DF", "Espírito Santo": "ES", "Goiás": "GO",
+    "Maranhão": "MA", "Mato Grosso": "MT", "Mato Grosso do Sul": "MS", "Minas Gerais": "MG",
+    "Pará": "PA", "Paraíba": "PB", "Paraná": "PR", "Pernambuco": "PE", "Piauí": "PI",
+    "Rio de Janeiro": "RJ", "Rio Grande do Norte": "RN", "Rio Grande do Sul": "RS",
+    "Rondônia": "RO", "Roraima": "RR", "Santa Catarina": "SC", "São Paulo": "SP",
+    "Sergipe": "SE", "Tocantins": "TO"
+  };
+  return states[stateName] || (stateName ? stateName.substring(0, 2).toUpperCase() : '');
+};
 
 export default function DeliveryApp() {
   const [cliente, setCliente] = useState<Cliente | null>(() => {
@@ -32,6 +57,25 @@ export default function DeliveryApp() {
   const [regCidade, setRegCidade] = useState('');
   const [regUf, setRegUf] = useState('');
   const [regPin, setRegPin] = useState('');
+
+  const [regLat, setRegLat] = useState<number | null>(null);
+  const [regLng, setRegLng] = useState<number | null>(null);
+  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+
+  // Endereços Adicionais
+  const [enderecos, setEnderecos] = useState<any[]>([]);
+  const [selectedEnderecoIndex, setSelectedEnderecoIndex] = useState<number>(0);
+  const [isAddingAddress, setIsAddingAddress] = useState(false);
+  const [newEndCep, setNewEndCep] = useState('');
+  const [newEndLogradouro, setNewEndLogradouro] = useState('');
+  const [newEndNumero, setNewEndNumero] = useState('');
+  const [newEndBairro, setNewEndBairro] = useState('');
+  const [newEndComplemento, setNewEndComplemento] = useState('');
+  const [newEndCidade, setNewEndCidade] = useState('');
+  const [newEndUf, setNewEndUf] = useState('');
+  const [newEndLat, setNewEndLat] = useState<number | null>(null);
+  const [newEndLng, setNewEndLng] = useState<number | null>(null);
+  const [isFetchingNewLocation, setIsFetchingNewLocation] = useState(false);
 
   const [clientesDb, setClientesDb] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
@@ -118,6 +162,24 @@ export default function DeliveryApp() {
   }, [cliente]);
 
   useEffect(() => {
+    if (cliente) {
+      const list = [];
+      if (cliente.logradouro) {
+        list.push({
+          logradouro: cliente.logradouro, numero: cliente.numero, bairro: cliente.bairro,
+          cidade: cliente.cidade, uf: cliente.uf, cep: cliente.cep, complemento: cliente.complemento,
+          lat: cliente.lat, lng: cliente.lng, coordAproximada: cliente.coordAproximada
+        });
+      }
+      if (cliente.enderecos && Array.isArray(cliente.enderecos)) {
+        list.push(...cliente.enderecos);
+      }
+      setEnderecos(list);
+      setSelectedEnderecoIndex(0);
+    }
+  }, [cliente]);
+
+  useEffect(() => {
     const unsubTaxas = onValue(ref(db, 'taxas_cartoes'), snap => {
       if (snap.val()) setTaxas(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
     });
@@ -164,6 +226,116 @@ export default function DeliveryApp() {
     }
   };
 
+  const handleGetLocation = () => {
+    setIsFetchingLocation(true);
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setRegLat(lat);
+        setRegLng(lng);
+        
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+            headers: { 'Accept-Language': 'pt-BR' }
+          });
+          const data = await response.json();
+          
+          if (data && data.address) {
+            setRegCep(data.address.postcode ? data.address.postcode.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2') : '');
+            setRegLogradouro(data.address.road || data.address.pedestrian || '');
+            setRegBairro(data.address.suburb || data.address.neighbourhood || data.address.city_district || '');
+            setRegCidade(data.address.city || data.address.town || data.address.village || data.address.municipality || '');
+            setRegUf(data.address.state ? getStateCode(data.address.state) : '');
+            setRegNumero('');
+            document.getElementById('reg_numero')?.focus();
+          }
+        } catch (error) {
+          console.error("Erro ao buscar endereço:", error);
+          alert("Não foi possível preencher o endereço automaticamente.");
+        } finally {
+          setIsFetchingLocation(false);
+        }
+      }, (error) => {
+        console.error(error);
+        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
+        setIsFetchingLocation(false);
+      }, { enableHighAccuracy: true });
+    } else {
+      alert("Geolocalização não suportada.");
+      setIsFetchingLocation(false);
+    }
+  };
+
+  const handleNewEndGetLocation = () => {
+    setIsFetchingNewLocation(true);
+    if ('geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(async (position) => {
+        const lat = position.coords.latitude;
+        const lng = position.coords.longitude;
+        setNewEndLat(lat);
+        setNewEndLng(lng);
+        
+        try {
+          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+            headers: { 'Accept-Language': 'pt-BR' }
+          });
+          const data = await response.json();
+          
+          if (data && data.address) {
+            setNewEndCep(data.address.postcode ? data.address.postcode.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2') : '');
+            setNewEndLogradouro(data.address.road || data.address.pedestrian || '');
+            setNewEndBairro(data.address.suburb || data.address.neighbourhood || data.address.city_district || '');
+            setNewEndCidade(data.address.city || data.address.town || data.address.village || data.address.municipality || '');
+            setNewEndUf(data.address.state ? getStateCode(data.address.state) : '');
+            setNewEndNumero('');
+          }
+        } catch (error) {
+          console.error("Erro ao buscar endereço:", error);
+        } finally {
+          setIsFetchingNewLocation(false);
+        }
+      }, (error) => {
+        console.error(error);
+        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
+        setIsFetchingNewLocation(false);
+      }, { enableHighAccuracy: true });
+    } else {
+      alert("Geolocalização não suportada.");
+      setIsFetchingNewLocation(false);
+    }
+  };
+
+  const handleAddNewAddress = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newEndLogradouro || !newEndNumero || !newEndBairro || !newEndCidade || !newEndUf) {
+      alert("Preencha os campos obrigatórios do endereço.");
+      return;
+    }
+    const novoEnd = {
+      cep: newEndCep, logradouro: newEndLogradouro, numero: newEndNumero, bairro: newEndBairro,
+      complemento: newEndComplemento, cidade: newEndCidade, uf: newEndUf,
+      ...(newEndLat && newEndLng ? { lat: newEndLat, lng: newEndLng, coordAproximada: false } : {})
+    };
+    
+    const novasEnderecos = [...(cliente?.enderecos || []), novoEnd];
+    await update(ref(db, `clientes/${cliente!.id}`), {
+      enderecos: novasEnderecos
+    });
+
+    const updatedCliente = { ...cliente!, enderecos: novasEnderecos };
+    setCliente(updatedCliente);
+    localStorage.setItem('arttburger_cliente_session', JSON.stringify(updatedCliente));
+    
+    setEnderecos([...enderecos, novoEnd]);
+    setSelectedEnderecoIndex(enderecos.length);
+    setIsAddingAddress(false);
+    
+    setNewEndCep(''); setNewEndLogradouro(''); setNewEndNumero(''); setNewEndBairro('');
+    setNewEndComplemento(''); setNewEndCidade(''); setNewEndUf('');
+    setNewEndLat(null); setNewEndLng(null);
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanPhone = loginPhone.replace(/\D/g, '');
@@ -196,7 +368,14 @@ export default function DeliveryApp() {
 
     const existe = clientesDb.find(c => (c.telefone || '').replace(/\D/g, '') === cleanPhone);
 
-    const clienteData = { nome: regNome.trim(), telefone: regTelefone, cpf: regCpf, cep: regCep, logradouro: regLogradouro.trim(), numero: regNumero.trim(), bairro: regBairro.trim(), complemento: regComplemento.trim(), cidade: regCidade.trim(), uf: regUf.trim(), pin: regPin, dataCadastro: Date.now() };
+    const clienteData: any = { nome: regNome.trim(), telefone: regTelefone, cpf: regCpf, cep: regCep, logradouro: regLogradouro.trim(), numero: regNumero.trim(), bairro: regBairro.trim(), complemento: regComplemento.trim(), cidade: regCidade.trim(), uf: regUf.trim(), pin: regPin, dataCadastro: Date.now() };
+    
+    if (regLat !== null && regLng !== null) {
+      clienteData.lat = regLat;
+      clienteData.lng = regLng;
+      clienteData.coordAproximada = false;
+    }
+
     let clienteFinal;
 
     if (existe) {
@@ -245,6 +424,8 @@ export default function DeliveryApp() {
     const id = `delivery_${Date.now()}`;
     const sessaoId = `sessao_${Date.now()}`;
 
+    const enderecoSelecionado = enderecos[selectedEnderecoIndex];
+
     const itensParaEnviar = Object.entries(carrinho).map(([cId, item]: any) => {
       const prod = produtos.find(p => p.id === item.produtoId);
       return {
@@ -280,7 +461,7 @@ export default function DeliveryApp() {
 
     try {
       await set(ref(db, `pedidos_cozinha/${dedupKey}`), pedidoPayload);
-      await set(ref(db, `entregas_abertas/${id}`), { clienteId: cliente!.id, clienteNome: cliente!.nome, clienteTelefone: cliente!.telefone, carrinho: novoCarrinho, numeroDiario: numDiario, timestamp: Date.now(), sessaoId, formaPagamentoStr: nomePagamento, statusEntrega: 'Pendente', origem: 'App Cliente' });
+      await set(ref(db, `entregas_abertas/${id}`), { clienteId: cliente!.id, clienteNome: cliente!.nome, clienteTelefone: cliente!.telefone, enderecoEntrega: enderecoSelecionado || null, carrinho: novoCarrinho, numeroDiario: numDiario, timestamp: Date.now(), sessaoId, formaPagamentoStr: nomePagamento, statusEntrega: 'Pendente', origem: 'App Cliente' });
 
       setCarrinho({});
       setIsCartOpen(false);
@@ -335,13 +516,24 @@ export default function DeliveryApp() {
               <input type="tel" required value={regTelefone} onChange={e => setRegTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               <input type="password" required maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value.replace(/\D/g, ''))} placeholder="Criar Senha (6 números) *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm tracking-widest text-center" />
               <input type="text" value={regCpf} onChange={e => setRegCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+              
+              <button 
+                type="button" 
+                onClick={handleGetLocation} 
+                disabled={isFetchingLocation}
+                className="w-full bg-blue-50 text-blue-600 py-3 rounded-xl font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50 border border-blue-200"
+              >
+                <MapPin size={18} />
+                {isFetchingLocation ? 'Buscando localização...' : 'Usar minha localização atual'}
+              </button>
+
               <div className="flex gap-2">
                 <input type="text" value={regCep} onChange={handleCepChange} placeholder="CEP *" required className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                 <input type="text" value={regUf} onChange={e => setRegUf(e.target.value)} placeholder="UF *" required maxLength={2} className="w-16 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm uppercase text-center" />
               </div>
               <input type="text" value={regLogradouro} onChange={e => setRegLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               <div className="flex gap-2">
-                <input type="text" value={regNumero} onChange={e => setRegNumero(e.target.value)} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                <input type="text" id="reg_numero" value={regNumero} onChange={e => setRegNumero(e.target.value)} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                 <input type="text" value={regBairro} onChange={e => setRegBairro(e.target.value)} placeholder="Bairro *" required className="w-2/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
               </div>
               <input type="text" value={regCidade} onChange={e => setRegCidade(e.target.value)} placeholder="Cidade *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
@@ -635,6 +827,63 @@ export default function DeliveryApp() {
               </div>
             ))}
           </div>
+
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
+            <h3 className="font-bold text-gray-800 mb-2">Enviar para qual endereço?</h3>
+            
+            {enderecos.map((end, idx) => (
+              <label key={idx} className={`flex items-start gap-3 p-3 border rounded-xl cursor-pointer transition-colors ${selectedEnderecoIndex === idx ? 'border-orange-500 bg-orange-50' : 'border-gray-200 bg-white hover:bg-gray-50'}`}>
+                <input 
+                  type="radio" 
+                  name="enderecoEntrega" 
+                  checked={selectedEnderecoIndex === idx} 
+                  onChange={() => setSelectedEnderecoIndex(idx)}
+                  className="mt-1 accent-orange-500"
+                />
+                <div className="text-sm">
+                  <p className="font-bold text-gray-800">{end.logradouro}, {end.numero}</p>
+                  <p className="text-gray-500">{end.bairro} - {end.cidade}/{end.uf}</p>
+                  {end.complemento && <p className="text-gray-400 text-xs">Comp: {end.complemento}</p>}
+                </div>
+              </label>
+            ))}
+
+            {isAddingAddress ? (
+              <div className="border border-orange-200 rounded-xl p-4 bg-orange-50/50 mt-4 space-y-3">
+                <h4 className="font-bold text-orange-800 text-sm mb-2 flex justify-between items-center">
+                  Novo Endereço
+                  <button onClick={() => setIsAddingAddress(false)} className="text-gray-400 hover:text-gray-600"><XIcon size={16}/></button>
+                </h4>
+                <button 
+                  type="button" 
+                  onClick={handleNewEndGetLocation} 
+                  disabled={isFetchingNewLocation}
+                  className="w-full bg-blue-50 text-blue-600 py-2 rounded-lg font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-xs disabled:opacity-50 border border-blue-200"
+                >
+                  <MapPin size={14} />
+                  {isFetchingNewLocation ? 'Buscando...' : 'Usar localização atual'}
+                </button>
+
+                <div className="flex gap-2">
+                  <input type="text" value={newEndCep} onChange={(e) => { const val = formatCEP(e.target.value); setNewEndCep(val); if (val.replace(/\D/g, '').length === 8) { fetch(`https://viacep.com.br/ws/${val.replace(/\D/g, '')}/json/`).then(r=>r.json()).then(d=>{if(!d.erro){setNewEndLogradouro(d.logradouro||'');setNewEndBairro(d.bairro||'');setNewEndCidade(d.localidade||'');setNewEndUf(d.uf||'');}}); } }} placeholder="CEP *" className="flex-1 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                  <input type="text" value={newEndUf} onChange={e => setNewEndUf(e.target.value)} placeholder="UF *" maxLength={2} className="w-12 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs uppercase text-center" />
+                </div>
+                <input type="text" value={newEndLogradouro} onChange={e => setNewEndLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                <div className="flex gap-2">
+                  <input type="text" value={newEndNumero} onChange={e => setNewEndNumero(e.target.value)} placeholder="Número *" className="w-1/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                  <input type="text" value={newEndBairro} onChange={e => setNewEndBairro(e.target.value)} placeholder="Bairro *" className="w-2/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                </div>
+                <input type="text" value={newEndCidade} onChange={e => setNewEndCidade(e.target.value)} placeholder="Cidade *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                <input type="text" value={newEndComplemento} onChange={e => setNewEndComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+                <button onClick={handleAddNewAddress} className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-orange-600 transition-colors shadow-sm">Salvar Endereço</button>
+              </div>
+            ) : (
+              <button onClick={() => setIsAddingAddress(true)} className="w-full py-2.5 mt-2 border-2 border-dashed border-gray-300 rounded-xl text-sm font-bold text-gray-500 hover:border-orange-500 hover:text-orange-500 transition-colors flex items-center justify-center gap-2">
+                <Plus size={16} /> Adicionar novo endereço
+              </button>
+            )}
+          </div>
+
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="font-bold text-gray-800 mb-2">Forma de Pagamento (Pagar na Entrega)</h3>
             <select value={formaPagamento} onChange={e => setFormaPagamento(e.target.value)} className="w-full p-4 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-gray-700">

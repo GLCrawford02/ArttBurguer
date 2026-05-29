@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
-import { AlertTriangle, Package, TrendingUp, Search, CalendarClock, Trash2, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown } from 'lucide-react';
+import { AlertTriangle, Package, Search, CalendarClock, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown } from 'lucide-react';
 
 export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -14,13 +14,9 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [showPinModal, setShowPinModal] = useState(false);
   const [pin, setPin] = useState('');
   const [pendingAction, setPendingAction] = useState<((func: Funcionario) => Promise<void>) | null>(null);
-  const [contasPagar, setContasPagar] = useState<any[]>([]);
-  const [contasReceber, setContasReceber] = useState<any[]>([]);
-  const [tarefas, setTarefas] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeModal, setActiveModal] = useState<'insumos' | 'produtos' | 'baixos' | 'excedentes' | 'vencimentos' | null>(null);
   const [modalSearchTerm, setModalSearchTerm] = useState('');
-  const [vendas, setVendas] = useState<any[]>([]);
   const [sortConfig, setSortConfig] = useState<{ key: string, direction: 'asc' | 'desc' } | null>(null);
 
   const showToast = (message: string, type: 'success' | 'error' = 'success') => {
@@ -65,42 +61,10 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
       }
     });
 
-    const pagarRef = ref(db, 'contas_pagar');
-    const unsubPagar = onValue(pagarRef, (snap) => {
-      const data = snap.val();
-      if (data) setContasPagar(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setContasPagar([]);
-    });
-
-    const receberRef = ref(db, 'contas_receber');
-    const unsubReceber = onValue(receberRef, (snap) => {
-      const data = snap.val();
-      if (data) setContasReceber(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setContasReceber([]);
-    });
-
-    const tarefasRef = ref(db, 'tarefas');
-    const unsubTarefas = onValue(tarefasRef, (snap) => {
-      const data = snap.val();
-      if (data) setTarefas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setTarefas([]);
-    });
-
-    const vendasRef = ref(db, 'vendas_pdv');
-    const unsubVendas = onValue(vendasRef, (snap) => {
-      const data = snap.val();
-      if (data) setVendas(Object.entries(data).map(([id, val]: any) => ({ id, ...val })));
-      else setVendas([]);
-    });
-
     return () => {
       unsubInsumos();
       unsubProdutos();
       unsubFunc();
-      unsubPagar();
-      unsubReceber();
-      unsubVendas();
-      unsubTarefas();
     };
   }, []);
 
