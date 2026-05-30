@@ -106,7 +106,7 @@ export default function App() {
     if (!Capacitor.isNativePlatform()) return true;
     return localStorage.getItem('arttburger_permissoes') === 'ok';
   });
-  const [etapaPermissao, setEtapaPermissao] = useState<'idle' | 'localizacao' | 'camera' | 'concluido'>('idle');
+  const [etapaPermissao, setEtapaPermissao] = useState<'idle' | 'localizacao' | 'camera' | 'notificacao' | 'concluido'>('idle');
 
   const [gpsLigado, setGpsLigado] = useState(!Capacitor.isNativePlatform());
   const gpsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -203,7 +203,7 @@ export default function App() {
       metaViewport.name = 'viewport';
       document.head.appendChild(metaViewport);
     }
-    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=0";
+    metaViewport.content = "width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no";
 
     // Adiciona a logo na aba do navegador (Favicon)
     let link = document.querySelector("link[rel~='icon']") as HTMLLinkElement;
@@ -640,6 +640,16 @@ export default function App() {
       // Permissão negada ou câmera indisponível — registra e segue
     }
     await new Promise(r => setTimeout(r, 400));
+    setEtapaPermissao('notificacao');
+  };
+
+  const solicitarNotificacao = async () => {
+    try {
+      if ('Notification' in window) {
+        await Notification.requestPermission();
+      }
+    } catch (e) {}
+    await new Promise(r => setTimeout(r, 400));
     concluirPermissoes();
   };
 
@@ -694,6 +704,13 @@ export default function App() {
                     <p className="text-xs text-gray-500">Reconhecimento facial no login e no registro de ponto.</p>
                   </div>
                 </div>
+                <div className="flex items-start gap-3 p-3 bg-green-50 rounded-xl border border-green-100">
+                  <span className="text-2xl shrink-0">🔔</span>
+                  <div>
+                    <p className="font-bold text-gray-800 text-sm">3ª — Notificações</p>
+                    <p className="text-xs text-gray-500">Mantém o app ativo em 2º plano nas entregas.</p>
+                  </div>
+                </div>
               </div>
               <button
                 onClick={solicitarLocalizacao}
@@ -726,6 +743,20 @@ export default function App() {
               </button>
             </div>
           )}
+
+          {etapaPermissao === 'notificacao' && (
+            <div className="text-center flex flex-col items-center gap-4">
+              <span className="text-6xl">🔔</span>
+              <h2 className="text-xl font-black text-gray-800">Permissão de Notificações</h2>
+              <p className="text-sm text-gray-500">Isso é obrigatório no Android 13+ para o GPS de fundo funcionar e a tela não apagar a rota.</p>
+              <button
+                onClick={solicitarNotificacao}
+                className="w-full py-4 bg-green-600 hover:bg-green-700 active:bg-green-800 text-white font-black rounded-2xl text-base shadow-lg transition-colors"
+              >
+                Ativar Notificações →
+              </button>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -734,7 +765,7 @@ export default function App() {
   if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4 md:p-8" translate="no">
-        <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+        <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) and (pointer: fine) { html { font-size: 12px; } }`}</style>
         <div className={`bg-white rounded-2xl md:rounded-3xl shadow-2xl p-6 md:p-10 w-full transition-all duration-300 ${loginMode === 'face' ? 'max-w-lg md:max-w-xl' : 'max-w-sm md:max-w-md lg:max-w-lg'}`}>
           <div className="flex justify-center mb-6 md:mb-8">
             <img src={logoImg} alt="ArttBurger Logo" className="h-28 md:h-40 w-auto object-contain transition-all duration-300" />
@@ -811,7 +842,7 @@ export default function App() {
 
   return (
     <div className="h-screen bg-gray-50 flex flex-col xl:flex-row overflow-hidden" translate="no">
-      <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) { html { font-size: 12px; } }`}</style>
+      <style>{`html { font-size: clamp(10px, 1vw + 8px, 16px); } @media (min-width: 1280px) and (pointer: fine) { html { font-size: 12px; } }`}</style>
 
       {/* Notificação de rotação automática de PIN */}
       {pinRotacaoNotif && (

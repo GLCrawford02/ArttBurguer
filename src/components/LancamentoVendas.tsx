@@ -58,6 +58,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [mesaSelecionada, setMesaSelecionada] = useState<number | null>(null);
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
   const [entregasAbertas, setEntregasAbertas] = useState<Record<string, any>>({});
+  const [taxasEntregaConfig, setTaxasEntregaConfig] = useState<any>({ taxas: {}, lojaLat: null, lojaLng: null });
+  const [pdvTaxaEntregaFixa, setPdvTaxaEntregaFixa] = useState<number | null>(null);
   const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
   const [qtdMesas, setQtdMesas] = useState(30);
 
@@ -653,8 +655,45 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     ...taxas
   ];
 
+  const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
 
-  const rawTotalPdvBase = Object.values(pdvCarrinho).reduce((acc, item) => acc + (item.preco * item.qtd), 0);
+  const calculateDeliveryFee = (clienteLat?: number, clienteLng?: number) => {
+    if (!clienteLat || !clienteLng || !taxasEntregaConfig.lojaLat || !taxasEntregaConfig.lojaLng) return null;
+    const dist = getDistanceFromLatLonInKm(taxasEntregaConfig.lojaLat, taxasEntregaConfig.lojaLng, clienteLat, clienteLng);
+    const km = Math.ceil(dist);
+    if (km > 20 || !taxasEntregaConfig.taxas[km]) return null;
+    return Number(taxasEntregaConfig.taxas[km]);
+  };
+
+  let taxaEntregaPdv = 0;
+  let taxaEntregaText = '';
+
+  if (pdvTipoPedido === 'Entrega' && !pdvIsRetirada) {
+    if (pdvTaxaEntregaFixa !== null) {
+      taxaEntregaPdv = pdvTaxaEntregaFixa;
+      taxaEntregaText = `R$ ${taxaEntregaPdv.toFixed(2).replace('.', ',')}`;
+    } else if (pdvCliente && pdvCliente.lat && pdvCliente.lng) {
+      const calculated = calculateDeliveryFee(pdvCliente.lat, pdvCliente.lng);
+      if (calculated !== null) {
+        taxaEntregaPdv = calculated;
+        taxaEntregaText = `R$ ${taxaEntregaPdv.toFixed(2).replace('.', ',')}`;
+      } else {
+        taxaEntregaText = 'A Calcular / Fora de Área';
+      }
+    } else if (pdvCliente) {
+      taxaEntregaText = 'Sem Coordenadas GPS';
+    }
+  }
+
+  const rawSubtotalPdvBase = Object.values(pdvCarrinho).reduce((acc: any, item: any) => acc + (item.preco * item.qtd), 0);
+  const rawTotalPdvBase = rawSubtotalPdvBase + taxaEntregaPdv;
   let descontoCalculado = 0;
   if (pdvDescontoAplicado) {
      descontoCalculado = pdvDescontoAplicado.valor;
@@ -1049,6 +1088,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setEntregaSelecionada(null);
     setPdvTipoPedido('Mesa');
     setPdvDescontoAplicado(null);
+    setPdvTaxaEntregaFixa(null);
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvSessaoId(mesaData.sessaoId || `mesa_${numero}_${mesaData.timestamp}`);
@@ -1114,8 +1154,10 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setPdvDescontoAplicado(null);
         setMesaSelecionada(null);
         setEntregaSelecionada(null);
+        setPdvTaxaEntregaFixa(null);
         setPdvItemModal(null);
         setPdvSearchProd('');
+        setPdvTaxaEntregaFixa(null);
         setPdvSearchCliente('');
         setIsCartExpanded(false);
         setPdvView('mapa');
@@ -1175,6 +1217,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvTipoPedido('Entrega');
     setPdvDescontoAplicado(null);
     setPdvItemModal(null);
+    setPdvTaxaEntregaFixa(null);
     setPdvSearchProd('');
     setPdvSearchCliente('');
     setIsCartExpanded(false);
@@ -1185,6 +1228,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setPdvSessaoId(entregaData.sessaoId || `delivery_${id}_${entregaData.timestamp}`);
       setPdvCarrinho(entregaData.carrinho || {});
       setPdvIsRetirada(entregaData.isRetirada || false);
+      setPdvTaxaEntregaFixa(entregaData.taxaEntrega !== undefined ? entregaData.taxaEntrega : null);
       const c = clientes.find((client: any) => client.id === entregaData.clienteId);
       if (c) setPdvCliente(c);
       else setPdvCliente({ id: entregaData.clienteId, nome: entregaData.clienteNome, telefone: entregaData.clienteTelefone });
@@ -1210,6 +1254,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         numeroDiario: numDiario,
         isRetirada: pdvIsRetirada,
         timestamp: Date.now(),
+        taxaEntrega: taxaEntregaPdv,
         sessaoId: pdvSessaoId
       });
       showToast('Pedido de Delivery salvo!', 'success');
@@ -1220,6 +1265,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvSearchProd('');
     setPdvSearchCliente('');
     setPdvIsRetirada(false);
+    setPdvTaxaEntregaFixa(null);
     setIsCartExpanded(false);
     setPdvView('mapa');
   };
@@ -1227,14 +1273,16 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   const handleReimprimirEntrega = (e: React.MouseEvent, id: string, entrega: any) => {
     e.stopPropagation();
     if (!entrega) return;
-    const total = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
+    const subtotal = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
+    const taxa = Number(entrega.taxaEntrega || 0);
     setViewComanda({
       timestamp: entrega.timestamp || Date.now(),
       descricao: `Delivery: ${entrega.clienteNome}`,
       tipoPedido: 'Entrega',
       clienteNome: entrega.clienteNome || '',
       itens: Object.values(entrega.carrinho || {}),
-      valor: total,
+      valor: subtotal + taxa,
+      taxaEntrega: taxa,
       desconto: 0,
       pagamentos: []
     });
@@ -1277,8 +1325,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const subtotalBruto = viewComanda.itens
       ? (viewComanda.itens as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0)
       : 0;
+    const taxaEntregaCupom = Number(viewComanda.taxaEntrega || 0);
     const desconto = Number(viewComanda.desconto || 0);
-    const total = Number(viewComanda.valor || subtotalBruto - desconto);
+    const total = Number(viewComanda.valor || (subtotalBruto + taxaEntregaCupom - desconto));
 
     const tipoPedido = viewComanda.tipoPedido || '';
     let identificador = 'Balcão';
@@ -1415,6 +1464,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   </table>
   <div class="sep"></div>
   <div class="row-subtotal"><span>Subtotal:</span><span>R$ ${subtotalBruto.toFixed(2)}</span></div>
+  ${taxaEntregaCupom > 0 ? `<div class="row-desconto"><span>Taxa de Entrega:</span><span>+ R$ ${taxaEntregaCupom.toFixed(2)}</span></div>` : ''}
   ${desconto > 0 ? `<div class="row-desconto"><span>Desconto${viewComanda.cupom ? ` (${viewComanda.cupom})` : ''}:</span><span>- R$ ${desconto.toFixed(2)}</span></div>` : ''}
   <div class="sep"></div>
   <div class="row-total"><span>Total</span><span>R$ ${total.toFixed(2)}</span></div>
@@ -1602,6 +1652,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         isRetirada: pdvTipoPedido === 'Entrega' ? pdvIsRetirada : false,
         mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
         statusEntrega: pdvTipoPedido === 'Entrega' ? statusEntregaAtual : null,
+        taxaEntrega: taxaEntregaPdv,
         numeroDiario: numDiario,
         timestamp: Date.now()
       });
@@ -1659,6 +1710,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setMesaSelecionada(null);
       setPdvIsRetirada(false);
       setEntregaSelecionada(null);
+      setPdvTaxaEntregaFixa(null);
       setPdvItemModal(null);
       setPdvSearchProd('');
       setPdvSearchCliente('');
@@ -1957,6 +2009,9 @@ Formato esperado:
             <div className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg border border-gray-200 mb-2">
               <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
               <div className="text-right">
+                {pdvTipoPedido === 'Entrega' && !pdvIsRetirada && (
+                  <div className="text-[10px] text-gray-500 mb-1 font-bold">+ {taxaEntregaText} (Entrega)</div>
+                )}
                 {pdvDescontoAplicado && <span className="text-xs text-red-500 line-through mr-2">R$ {rawTotalPdvBase.toFixed(2)}</span>}
                 <span className="font-black text-lg text-green-600">R$ {totalPdv.toFixed(2)}</span>
               </div>
@@ -2176,7 +2231,7 @@ Formato esperado:
                     {pdvSearchCliente && pdvFilteredClientes.length > 0 && (
                       <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                         {pdvFilteredClientes.map(c => (
-                          <button key={c.id} onClick={() => { setPdvCliente(c); setPdvSearchCliente(''); }} className="w-full text-left p-3 hover:bg-indigo-50 border-b border-gray-50 text-sm flex justify-between items-center transition-colors">
+                          <button key={c.id} onClick={() => { setPdvCliente(c); setPdvSearchCliente(''); setPdvTaxaEntregaFixa(null); }} className="w-full text-left p-3 hover:bg-indigo-50 border-b border-gray-50 text-sm flex justify-between items-center transition-colors">
                             <div>
                               <p className="font-bold text-gray-800">{c.nome}</p>
                               <p className="text-xs text-gray-500">{c.telefone}</p>

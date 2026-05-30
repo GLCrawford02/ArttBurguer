@@ -111,7 +111,8 @@ export default function DeliveryApp() {
   const [trocoPara, setTrocoPara] = useState('');
   const [tipoEntregaApp, setTipoEntregaApp] = useState<'delivery' | 'retirada'>('delivery');
   const [taxas, setTaxas] = useState<any[]>([]);
-  const [zonasRestritas, setZonasRestritas] = useState<number[][][]>([]);
+  const [zonasRestritas, setZonasRestritas] = useState<any[]>([]);
+  const [taxasEntregaConfig, setTaxasEntregaConfig] = useState<any>({ taxas: {}, lojaLat: null, lojaLng: null });
   const [entregasAbertas, setEntregasAbertas] = useState<any[]>([]);
   const [vendasPdv, setVendasPdv] = useState<any[]>([]);
 
@@ -172,7 +173,10 @@ export default function DeliveryApp() {
     const configRef = ref(db, 'configuracoes/taxas_entrega');
     const unsubConfig = onValue(configRef, snap => {
       if (snap.val()) {
-        setZonasRestritas(snap.val().zonasRestritas || []);
+        let z = snap.val().zonasRestritas;
+        if (z && !Array.isArray(z)) z = Object.values(z);
+        setZonasRestritas(z || []);
+        setTaxasEntregaConfig({ taxas: snap.val().taxas || {}, lojaLat: snap.val().loja_lat || null, lojaLng: snap.val().loja_lng || null });
       }
     });
 
@@ -272,7 +276,26 @@ export default function DeliveryApp() {
     return () => { unsubTaxas(); unsubEntregas(); unsubVendas(); };
   }, []);
 
-  const valorTotalCarrinho = Object.values(carrinho).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+  const getDistanceFromLatLonInKm = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+    const R = 6371;
+    const dLat = (lat2 - lat1) * (Math.PI / 180);
+    const dLon = (lon2 - lon1) * (Math.PI / 180);
+    const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) + Math.cos(lat1 * (Math.PI / 180)) * Math.cos(lat2 * (Math.PI / 180)) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return R * c;
+  };
+
+  const calculateDeliveryFee = (endereco: any) => {
+    if (!endereco || !endereco.lat || !endereco.lng || !taxasEntregaConfig.lojaLat || !taxasEntregaConfig.lojaLng) return null;
+    const dist = getDistanceFromLatLonInKm(taxasEntregaConfig.lojaLat, taxasEntregaConfig.lojaLng, endereco.lat, endereco.lng);
+    const km = Math.ceil(dist);
+    if (km > 20 || !taxasEntregaConfig.taxas[km]) return null;
+    return Number(taxasEntregaConfig.taxas[km]);
+  };
+
+  const taxaEntrega = tipoEntregaApp === 'delivery' && enderecos[selectedEnderecoIndex] ? calculateDeliveryFee(enderecos[selectedEnderecoIndex]) : 0;
+  const subtotalCarrinho = Object.values(carrinho).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
+  const valorTotalCarrinho = subtotalCarrinho + (taxaEntrega || 0);
 
   const formatCEP = (val: string) => val.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2').substring(0, 9);
   const formatCPF = (val: string) => val.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
@@ -640,7 +663,7 @@ export default function DeliveryApp() {
         }
       }
 
-      if (zonasRestritas.some(zona => isPointInPolygon([lat, lng], zona))) {
+      if (zonasRestritas.some(zona => isPointInPolygon([lat, lng], zona.coords || zona))) {
         return alert('Desculpe, este endereço está em uma área fora da nossa área de entregas. Por favor, escolha a opção "Retirar na loja".');
       }
     }
@@ -1383,6 +1406,14 @@ export default function DeliveryApp() {
               </div>
             )}
           </div>
+          {tipoEntregaApp === 'delivery' && (
+            <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center mt-3">
+              <span className="font-bold text-orange-800 text-sm">Taxa de Entrega</span>
+              <span className="font-black text-orange-600">
+                {taxaEntrega === null ? 'A Calcular' : `+ R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`}
+              </span>
+            </div>
+          )}
           <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center"><span className="font-bold text-orange-800">Total do Pedido</span><span className="text-2xl font-black text-orange-600">R$ {valorTotalCarrinho.toFixed(2).replace('.', ',')}</span></div>
         </div>
 

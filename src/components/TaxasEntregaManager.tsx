@@ -8,6 +8,12 @@ import 'leaflet/dist/leaflet.css';
 
 const KM_MAX = 20;
 
+export interface ZonaRestrita {
+  id: string;
+  nome: string;
+  coords: [number, number][];
+}
+
 function MapClickHandler({ onClick }: { onClick: (latlng: [number, number]) => void }) {
   useMapEvents({ click(e) { onClick([e.latlng.lat, e.latlng.lng]); } });
   return null;
@@ -30,10 +36,13 @@ export default function TaxasEntregaManager() {
   const [saved, setSaved] = useState(false);
   const [autoBase, setAutoBase] = useState('');
   const [autoPerKm, setAutoPerKm] = useState('');
-  const [zonasRestritas, setZonasRestritas] = useState<number[][][]>([]);
+  const [zonasRestritas, setZonasRestritas] = useState<ZonaRestrita[]>([]);
   const [currentZona, setCurrentZona] = useState<[number, number][]>([]);
   const [isDrawing, setIsDrawing] = useState(false);
   const [lojaCoords, setLojaCoords] = useState<{lat: number, lng: number} | null>(null);
+  const [editingZonaId, setEditingZonaId] = useState<string | null>(null);
+  const [renamingZonaId, setRenamingZonaId] = useState<string | null>(null);
+  const [nomeEdit, setNomeEdit] = useState('');
 
   useEffect(() => {
     return onValue(ref(db, 'configuracoes/taxas_entrega'), snap => {
@@ -47,7 +56,21 @@ export default function TaxasEntregaManager() {
         return next;
       });
       if (data.zonasRestritas) {
-        setZonasRestritas(data.zonasRestritas);
+        let z = data.zonasRestritas;
+        if (!Array.isArray(z)) z = Object.values(z);
+        if (z.length > 0) {
+          if (Array.isArray(z[0]) && Array.isArray(z[0][0])) {
+            setZonasRestritas(z.map((coords: any, idx: number) => ({
+              id: `zona_legado_${idx}`,
+              nome: `Área Restrita ${idx + 1}`,
+              coords
+            })));
+          } else {
+            setZonasRestritas(z);
+          }
+        } else {
+          setZonasRestritas([]);
+        }
       }
       if (data.loja_lat && data.loja_lng) {
          setLojaCoords({ lat: data.loja_lat, lng: data.loja_lng });
@@ -209,13 +232,22 @@ export default function TaxasEntregaManager() {
           <div className="flex items-center gap-2 w-full sm:w-auto">
             {isDrawing ? (
               <>
-                <button onClick={() => { setIsDrawing(false); setCurrentZona([]); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
-                <button onClick={() => { if (currentZona.length >= 3) { setZonasRestritas([...zonasRestritas, currentZona]); setIsDrawing(false); setCurrentZona([]); } }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">Fechar Polígono</button>
+                <button onClick={() => { setIsDrawing(false); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+                <button onClick={() => { 
+                  if (currentZona.length >= 3) { 
+                    if (editingZonaId) {
+                      setZonasRestritas(prev => prev.map(z => z.id === editingZonaId ? { ...z, coords: currentZona } : z));
+                    } else {
+                      setZonasRestritas([...zonasRestritas, { id: `zona_${Date.now()}`, nome: `Área Restrita ${zonasRestritas.length + 1}`, coords: currentZona }]); 
+                    }
+                    setIsDrawing(false); setCurrentZona([]); setEditingZonaId(null);
+                  } 
+                }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">Salvar Área</button>
               </>
             ) : (
               <>
-                <button onClick={() => setZonasRestritas([])} disabled={zonasRestritas.length === 0} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center"><Trash2 size={14} className="mr-1"/> Limpar Áreas</button>
-                <button onClick={() => setIsDrawing(true)} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Nova Área</button>
+                <button onClick={() => {if(confirm('Tem certeza que deseja apagar TODAS as áreas?')) setZonasRestritas([]);}} disabled={zonasRestritas.length === 0} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center"><Trash2 size={14} className="mr-1"/> Limpar Áreas</button>
+                <button onClick={() => { setIsDrawing(true); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Nova Área</button>
               </>
             )}
           </div>
@@ -239,9 +271,10 @@ export default function TaxasEntregaManager() {
 
             {isDrawing && <MapClickHandler onClick={(latlng) => setCurrentZona([...currentZona, latlng])} />}
             
-            {zonasRestritas.map((zona, idx) => (
-              <Polygon key={idx} positions={zona as [number, number][]} pathOptions={{ color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.5, weight: 2 }} />
-            ))}
+            {zonasRestritas.map(zona => {
+              if (editingZonaId === zona.id) return null;
+              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.5, weight: 2 }} />
+            })}
             
             {currentZona.length > 0 && (
               <Polygon positions={currentZona} pathOptions={{ color: '#f59e0b', dashArray: '5, 5', fillOpacity: 0.2 }} />
@@ -272,6 +305,39 @@ export default function TaxasEntregaManager() {
             </Marker>
             ))}
           </MapContainer>
+        </div>
+
+        <div className="mt-6 space-y-3">
+          {zonasRestritas.map(zona => (
+            <div key={zona.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 border border-gray-200 rounded-lg bg-gray-50 gap-3">
+              {renamingZonaId === zona.id ? (
+                <div className="flex gap-2 w-full sm:w-auto flex-1">
+                  <input type="text" value={nomeEdit} onChange={e => setNomeEdit(e.target.value)} className="p-1.5 border border-gray-300 rounded text-sm w-full outline-none focus:border-blue-500" autoFocus />
+                  <button onClick={() => {
+                    setZonasRestritas(prev => prev.map(z => z.id === zona.id ? { ...z, nome: nomeEdit || z.nome } : z));
+                    setRenamingZonaId(null);
+                  }} className="text-green-600 font-bold text-sm bg-green-50 px-2 rounded">Salvar</button>
+                  <button onClick={() => setRenamingZonaId(null)} className="text-gray-500 font-bold text-sm bg-gray-200 px-2 rounded">Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <MapPin size={16} className="text-red-500" />
+                  <span className="font-bold text-gray-700">{zona.nome}</span>
+                </div>
+              )}
+              
+              {!renamingZonaId && (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button onClick={() => { setRenamingZonaId(zona.id); setNomeEdit(zona.nome); }} className="flex-1 sm:flex-none text-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Renomear</button>
+                  <button onClick={() => { setIsDrawing(true); setEditingZonaId(zona.id); setCurrentZona(zona.coords); window.scrollTo({top: 0, behavior: 'smooth'}) }} className="flex-1 sm:flex-none text-center text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Editar Área no Mapa</button>
+                  <button onClick={() => { if(confirm('Deseja excluir esta área?')) setZonasRestritas(prev => prev.filter(z => z.id !== zona.id)); }} className="flex-1 sm:flex-none text-center text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Excluir</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {zonasRestritas.length === 0 && (
+            <p className="text-xs text-gray-400 italic mt-4">Nenhuma zona de não-entrega configurada.</p>
+          )}
         </div>
       </div>
 
