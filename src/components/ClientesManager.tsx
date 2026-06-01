@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X, User } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export interface Cliente {
   id: string;
@@ -398,8 +399,8 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     }
   };
 
-  const filteredClientes = clientes.filter(c => 
-    (c.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+  const filteredClientes = clientes.filter(c =>
+    normalizeString(c.nome).includes(normalizeString(searchTerm)) ||
     (c.telefone || '').includes(searchTerm) ||
     (c.cpf || '').includes(searchTerm)
   );

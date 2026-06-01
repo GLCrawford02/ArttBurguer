@@ -3,6 +3,7 @@ import { ref, onValue, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Produto } from '../types';
 import { Truck, Store, Plus, Trash2, Save, Search, CheckCircle, AlertTriangle, Package, X, Pencil, Tag } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 interface EmbalagemItem {
   insumoId: string;
@@ -32,7 +33,7 @@ function InsumoSelector({
   const [open, setOpen] = useState(false);
 
   const filtered = insumos.filter(
-    i => (i.nome || '').toLowerCase().includes(search.toLowerCase()) && !excludeIds.includes(i.id)
+    i => normalizeString(i.nome).includes(normalizeString(search)) && !excludeIds.includes(i.id)
   );
 
   const handle = () => {
@@ -90,7 +91,7 @@ function CategoriaSelector({
   const [open, setOpen] = useState(false);
 
   const filtered = categorias.filter(
-    c => c.toLowerCase().includes(search.toLowerCase()) && !excludeNomes.includes(c)
+    c => normalizeString(c).includes(normalizeString(search)) && !excludeNomes.includes(c)
   );
 
   return (

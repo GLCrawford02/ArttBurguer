@@ -3,6 +3,7 @@ import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao, ItemCombo, IngredienteReceita } from '../types';
 import { Tag, Trash2, Search, CheckCircle, AlertTriangle, Pencil, ChevronDown, ChevronUp, Plus, X } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import React from 'react';
 
 export default function PromocoesManager() {
@@ -202,7 +203,7 @@ export default function PromocoesManager() {
     }
   };
 
-  const filteredPromocoes = promocoes.filter(p => (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredPromocoes = promocoes.filter(p => normalizeString(p.nome).includes(normalizeString(searchTerm)));
 
   const sortedPromocoes = [...filteredPromocoes].sort((a, b) => {
     if (!sortConfig) return a.nome.localeCompare(b.nome);
@@ -308,12 +309,12 @@ export default function PromocoesManager() {
                   </div>
                   {showProdutoComboDropdown && (
                     <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                      {produtos.filter(p => p.nome.toLowerCase().includes(searchProdutoCombo.toLowerCase())).map(p => (
+                      {produtos.filter(p => normalizeString(p.nome).includes(normalizeString(searchProdutoCombo))).map(p => (
                         <div key={p.id} onClick={() => { setTempProdutoId(p.id); setSearchProdutoCombo(p.nome); setShowProdutoComboDropdown(false); }} className="p-2 text-sm hover:bg-purple-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
                           <span className="font-medium text-gray-800">{p.nome}</span>
                         </div>
                       ))}
-                      {produtos.filter(p => p.nome.toLowerCase().includes(searchProdutoCombo.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum produto encontrado</div>}
+                      {produtos.filter(p => normalizeString(p.nome).includes(normalizeString(searchProdutoCombo))).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum produto encontrado</div>}
                     </div>
                   )}
                 </div>

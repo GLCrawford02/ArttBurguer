@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
 import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X, Clock } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
@@ -439,7 +440,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     }
   };
 
-  const filteredPedidos = searchTerm ? todosPedidosPendente.filter(p => (p.clienteNome || '').toLowerCase().includes(searchTerm.toLowerCase())) : todosPedidosPendente;
+  const filteredPedidos = searchTerm ? todosPedidosPendente.filter(p => normalizeString(p.clienteNome).includes(normalizeString(searchTerm))) : todosPedidosPendente;
   const despachosAtivos = despachos.filter(d => d.status === 'Em Rota');
 
   const hoje = new Date();

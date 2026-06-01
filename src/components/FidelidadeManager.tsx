@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, update, set, push, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Gift, Star, Users, Settings, Search, X, CheckCircle, Trash2, Plus, ChevronDown, ChevronUp, Award, Stamp } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export interface ConfigFidelidade {
   ativo: boolean;
@@ -261,7 +262,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
   const recompensasArray = Object.entries(config.recompensas || {}).map(([id, r]) => ({ id, ...r }));
 
   const clientesFiltrados = clientes
-    .filter(c => !searchTerm || c.nome?.toLowerCase().includes(searchTerm.toLowerCase()) || c.telefone?.includes(searchTerm))
+    .filter(c => !searchTerm || normalizeString(c.nome).includes(normalizeString(searchTerm)) || c.telefone?.includes(searchTerm))
     .map(c => ({ ...c, dados: dadosClientes[c.id] }))
     .sort((a, b) => (b.dados?.pontos || 0) - (a.dados?.pontos || 0));
 

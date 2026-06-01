@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { TrendingDown, TrendingUp, Repeat, Pencil, Trash2, X, Search, ChevronUp, ChevronDown } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export default function ModalContas({
   isOpen, onClose, tipoConta, contas, categoriasDespesa, fornecedores, funcionarios,
@@ -277,11 +278,11 @@ export default function ModalContas({
 
   const filteredContas = contas.filter((c: any) => {
     if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    const matchDesc = (c.descricao || '').toLowerCase().includes(term);
-    const matchTipo = (c.tipo || '').toLowerCase().includes(term);
+    const term = normalizeString(searchTerm);
+    const matchDesc = normalizeString(c.descricao).includes(term);
+    const matchTipo = normalizeString(c.tipo).includes(term);
     const forn = fornecedores.find((f:any)=>f.id===c.fornecedorId);
-    const matchForn = forn ? (forn.nomeFantasia || '').toLowerCase().includes(term) || (forn.nome || '').toLowerCase().includes(term) || (forn.documento || '').includes(term) : false;
+    const matchForn = forn ? normalizeString(forn.nomeFantasia).includes(term) || normalizeString(forn.nome).includes(term) || (forn.documento || '').includes(searchTerm) : false;
     return matchDesc || matchTipo || matchForn;
   });
 
@@ -301,12 +302,12 @@ export default function ModalContas({
   });
 
   const fornecedoresFiltrados = fornecedores.filter((f: any) => {
-    const t = searchFornecedor.toLowerCase();
-    const apenasNumerosBusca = t.replace(/\D/g, '');
+    const t = normalizeString(searchFornecedor);
+    const apenasNumerosBusca = searchFornecedor.replace(/\D/g, '');
     const docLimpo = (f.documento || '').replace(/\D/g, '');
-    return (f.nomeFantasia || '').toLowerCase().includes(t) ||
-           (f.nome || '').toLowerCase().includes(t) ||
-           (f.documento || '').toLowerCase().includes(t) ||
+    return normalizeString(f.nomeFantasia).includes(t) ||
+           normalizeString(f.nome).includes(t) ||
+           normalizeString(f.documento).includes(t) ||
            (apenasNumerosBusca && docLimpo.includes(apenasNumerosBusca));
   });
 
@@ -434,10 +435,10 @@ export default function ModalContas({
                       </div>
                       {showTipoPagarDropdown && categoriasDespesa.length > 0 && (
                         <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                          {categoriasDespesa.filter((c: any) => c.nome.toLowerCase().includes(searchTipoPagar.toLowerCase())).map((c: any) => (
+                          {categoriasDespesa.filter((c: any) => normalizeString(c.nome).includes(normalizeString(searchTipoPagar))).map((c: any) => (
                             <div key={c.id} onClick={() => { setTipoPagar(c.nome); setSearchTipoPagar(c.nome); setShowTipoPagarDropdown(false); }} className="p-2 text-sm hover:bg-red-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{c.nome}</span></div>
                           ))}
-                          {categoriasDespesa.filter((c: any) => c.nome.toLowerCase().includes(searchTipoPagar.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
+                          {categoriasDespesa.filter((c: any) => normalizeString(c.nome).includes(normalizeString(searchTipoPagar))).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
                         </div>
                       )}
                     </div>

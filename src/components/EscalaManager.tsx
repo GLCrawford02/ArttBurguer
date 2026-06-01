@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { ref, onValue, set, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Calendar, ChevronLeft, ChevronRight, Save, X, CheckCircle, Users, Clock, Copy, Trash2, Download } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import ExcelJS from 'exceljs';
 
 const DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -139,7 +140,7 @@ export default function EscalaManager({ currentUser }: { currentUser?: any }) {
   };
 
   const exportarEscala = () => {
-    const funcsFiltrados = funcionarios.filter(f => !filtroFunc || f.nome?.toLowerCase().includes(filtroFunc.toLowerCase()));
+    const funcsFiltrados = funcionarios.filter(f => !filtroFunc || normalizeString(f.nome).includes(normalizeString(filtroFunc)));
     const linhas: string[][] = [
       ['Funcionário', ...DIAS_FULL.map((d, i) => `${d} (${getDiaData(i).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })})`), 'Total h/Sem']
     ];
@@ -176,7 +177,7 @@ export default function EscalaManager({ currentUser }: { currentUser?: any }) {
     return diaData.toDateString() === hoje.toDateString();
   };
 
-  const funcsFiltrados = funcionarios.filter(f => !filtroFunc || f.nome?.toLowerCase().includes(filtroFunc.toLowerCase()));
+  const funcsFiltrados = funcionarios.filter(f => !filtroFunc || normalizeString(f.nome).includes(normalizeString(filtroFunc)));
 
   const totalHorasPorFunc = (funcId: string): number => {
     let total = 0;

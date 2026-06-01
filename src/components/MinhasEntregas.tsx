@@ -118,11 +118,14 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
 
       const gpsCallback = (pos: any, err2: any) => {
         if (err2 || !pos) return;
+        // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
+        if (pos.coords.accuracy && pos.coords.accuracy > 100) return;
         if (currentUser?.id) {
           update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
             lat: pos.coords.latitude,
             lng: pos.coords.longitude,
             velocidade: pos.coords.speed || 0,
+            precisao: pos.coords.accuracy,
             timestamp: Date.now(),
           });
         }

@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction, query, orderByChild, startAt } from 'firebase/database';
 import { db } from '../firebase';
 import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2, Filter } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 import DescontoModal from './modals/DescontoModal';
 import QuickClientModal from './modals/QuickClientModal';
@@ -1828,7 +1829,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   const pdvFilteredItems = todosItens.filter(i => {
     if (i.oculto) return false;
     const nome = i.nome || '';
-    if (!nome.toLowerCase().includes(pdvSearchProd.toLowerCase())) return false;
+    if (!normalizeString(nome).includes(normalizeString(pdvSearchProd))) return false;
     const nomeTrimmed = nome.trimStart();
     if (pdvTipoPedido === 'Entrega' && nomeTrimmed.startsWith('%')) return false;
     if (pdvTipoPedido !== 'Entrega' && nomeTrimmed.startsWith('/')) return false;
@@ -1906,8 +1907,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     }
   };
 
-  const confFilteredItems = todosItens.filter(i => (i.nome || '').toLowerCase().includes(confSearchProd.toLowerCase()));
-  const pdvFilteredClientes = clientes.filter(c => (c.nome || '').toLowerCase().includes(pdvSearchCliente.toLowerCase()) || (c.telefone || '').includes(pdvSearchCliente));
+  const confFilteredItems = todosItens.filter(i => normalizeString(i.nome).includes(normalizeString(confSearchProd)));
+  const pdvFilteredClientes = clientes.filter(c => normalizeString(c.nome).includes(normalizeString(pdvSearchCliente)) || (c.telefone || '').includes(pdvSearchCliente));
 
   const handlePedidoIA = async () => {
     if (!aiPrompt.trim()) return showToast('Descreva o pedido do cliente.', 'error');

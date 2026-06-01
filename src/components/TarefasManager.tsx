@@ -36,6 +36,11 @@ export interface Tarefa {
   novaContaVinculadaId?: string; // Usado internamente na recorrência
 }
 
+const normalizeString = (str: string) => {
+  if (!str) return '';
+  return str.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+};
+
 export default function TarefasManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [funcionarios, setFuncionarios] = useState<Funcionario[]>([]);
@@ -67,6 +72,8 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
   const [dataFimRepeticao, setDataFimRepeticao] = useState('');
   const [lembreteAntecipado, setLembreteAntecipado] = useState<number>(0);
   const [editId, setEditId] = useState<string | null>(null);
+  const [buscaResponsavel, setBuscaResponsavel] = useState('');
+  const [buscaTarefa, setBuscaTarefa] = useState('');
   
   const [showForm, setShowForm] = useState(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
@@ -196,6 +203,7 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
     setSearchCategoria('Limpeza');
     setRecorrencia('Nenhuma'); setRecorrenciaCustomValor(1); setRecorrenciaCustomUnidade('dia');
     setTerminarRepeticao('nunca'); setDataFimRepeticao(''); setLembreteAntecipado(0);
+    setBuscaResponsavel('');
     setShowForm(false);
   };
 
@@ -375,13 +383,28 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
     return false;
   });
 
+  const tarefasFiltradas = tarefasVisiveis.filter(t => {
+    if (!buscaTarefa.trim()) return true;
+    const termo = normalizeString(buscaTarefa);
+    const matchesTitulo = normalizeString(t.titulo).includes(termo);
+    const matchesDesc = normalizeString(t.descricao).includes(termo);
+    const matchesCat = normalizeString(t.categoria || '').includes(termo);
+    const matchesCod = normalizeString(t.codigo || '').includes(termo);
+    
+    const ids = t.responsaveisIds || (t.responsavelId ? [t.responsavelId] : []);
+    const nomesResponsaveis = ids.map(id => funcionarios.find(f => f.id === id)?.nome || '').join(' ');
+    const matchesResp = normalizeString(nomesResponsaveis).includes(termo);
+
+    return matchesTitulo || matchesDesc || matchesCat || matchesCod || matchesResp;
+  });
+
   const hojeDate = new Date();
   const hojeStr = hojeDate.getFullYear() + '-' + String(hojeDate.getMonth() + 1).padStart(2, '0') + '-' + String(hojeDate.getDate()).padStart(2, '0');
 
-  const atrasadas = tarefasVisiveis.filter(t => t.status === 'pendente' && (!t.dataAgendada || t.dataAgendada < hojeStr));
-  const hojeTasks = tarefasVisiveis.filter(t => t.status === 'pendente' && t.dataAgendada === hojeStr);
-  const proximas = tarefasVisiveis.filter(t => t.status === 'pendente' && t.dataAgendada > hojeStr);
-  const concluidas = tarefasVisiveis.filter(t => t.status === 'concluida');
+  const atrasadas = tarefasFiltradas.filter(t => t.status === 'pendente' && (!t.dataAgendada || t.dataAgendada < hojeStr));
+  const hojeTasks = tarefasFiltradas.filter(t => t.status === 'pendente' && t.dataAgendada === hojeStr);
+  const proximas = tarefasFiltradas.filter(t => t.status === 'pendente' && t.dataAgendada > hojeStr);
+  const concluidas = tarefasFiltradas.filter(t => t.status === 'concluida');
 
   // Calculo de Produtividade
   const userStats = funcionarios.map(f => {
@@ -475,9 +498,24 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
         )}
       </div>
 
-      <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-        <button onClick={() => setActiveTab('lista')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'lista' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Quadro de Tarefas</button>
-        <button onClick={() => setActiveTab('produtividade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'produtividade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtividade e Relatório</button>
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
+          <button onClick={() => setActiveTab('lista')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'lista' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Quadro de Tarefas</button>
+          <button onClick={() => setActiveTab('produtividade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'produtividade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Produtividade e Relatório</button>
+        </div>
+        
+        {activeTab === 'lista' && (
+          <div className="relative w-full sm:w-64 shrink-0">
+            <Search size={16} className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Pesquisar tarefas..."
+              value={buscaTarefa}
+              onChange={e => setBuscaTarefa(e.target.value)}
+              className="w-full pl-9 p-2.5 border border-gray-200 rounded-xl outline-none focus:ring-2 focus:ring-indigo-500 text-sm bg-white shadow-sm"
+            />
+          </div>
+        )}
       </div>
 
       {showForm && (
@@ -496,8 +534,18 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
               <h4 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Responsáveis</h4>
               {!dataAgendada && <span className="text-[10px] text-orange-500 font-bold bg-orange-50 px-2 py-0.5 rounded border border-orange-100 hidden sm:block">Selecione a data para ver as folgas</span>}
             </div>
+            <div className="relative mb-2">
+              <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400" />
+              <input
+                type="text"
+                value={buscaResponsavel}
+                onChange={e => setBuscaResponsavel(e.target.value)}
+                placeholder="Pesquisar responsável..."
+                className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:ring-2 focus:ring-indigo-500 bg-gray-50"
+              />
+            </div>
             <div className="max-h-32 overflow-y-auto space-y-1">
-              {funcionarios.map(f => {
+              {funcionarios.filter(f => normalizeString(f.nome).includes(normalizeString(buscaResponsavel))).map(f => {
                 const isFolga = isFuncionarioDeFolga(f.id, dataAgendada);
                 return (
                   <label key={f.id} className={`flex items-center space-x-3 cursor-pointer p-1.5 rounded-lg transition-colors ${isFolga ? 'opacity-60 bg-gray-50' : 'hover:bg-gray-50'}`}>
@@ -557,10 +605,10 @@ export default function TarefasManager({ currentUser, temPermissao }: { currentU
                 </div>
                 {showCategoriaDropdown && categoriasDb.length > 0 && (
                   <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                    {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).map(c => (
+                    {categoriasDb.filter(c => normalizeString(c.nome).includes(normalizeString(searchCategoria))).map(c => (
                       <div key={c.id} onClick={() => { setCategoria(c.nome); setSearchCategoria(c.nome); setShowCategoriaDropdown(false); }} className="p-2 text-sm hover:bg-indigo-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{c.nome}</span></div>
                     ))}
-                    {categoriasDb.filter(c => c.nome.toLowerCase().includes(searchCategoria.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhuma categoria encontrada</div>}
+                    {categoriasDb.filter(c => normalizeString(c.nome).includes(normalizeString(searchCategoria))).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhuma categoria encontrada</div>}
                   </div>
                 )}
               </div>

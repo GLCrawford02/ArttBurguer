@@ -3,6 +3,7 @@ import { ref, onValue, set, push, runTransaction } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
 import { Scale, Save, Download, CalendarClock, CheckCircle, Search, Settings, X, RefreshCw, ChevronUp, ChevronDown, FileText, History, TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import CalculadoraFlutuante from './CalculadoraFlutuante';
 import ExcelJS from 'exceljs';
 
@@ -265,7 +266,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
   const tiposExistentes = Array.from(new Set(insumosPermitidos.map(i => (i as any).tipoUso).filter(Boolean))).sort();
 
   const insumosExibidos = insumosPermitidos.filter(i => {
-    const matchSearch = searchTerm ? i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase()) : true;
+    const matchSearch = searchTerm ? normalizeString(i.nome).includes(normalizeString(searchTerm)) || normalizeString((i as any).sku).includes(normalizeString(searchTerm)) : true;
     const matchVencimento = filtroVencimento ? isProximoVencimento(i) : true;
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchVencimento && matchTipo;

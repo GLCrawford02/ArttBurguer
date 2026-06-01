@@ -3,6 +3,7 @@ import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Users, Search, Download, X, Pencil, MapPin } from 'lucide-react';
 import ExcelJS from 'exceljs';
+import { normalizeString } from '../utils/stringUtils';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -134,9 +135,8 @@ export default function UltimosCadastros() {
   };
 
   const filteredClientes = clientes.filter(cliente => {
-    const term = searchTerm.toLowerCase();
-    if (!term) return true;
-    return cliente.nome.toLowerCase().includes(term) || (cliente.telefone || '').replace(/\D/g, '').includes(term.replace(/\D/g, ''));
+    if (!searchTerm) return true;
+    return normalizeString(cliente.nome).includes(normalizeString(searchTerm)) || (cliente.telefone || '').replace(/\D/g, '').includes(searchTerm.replace(/\D/g, ''));
   });
 
   const groupedClientes: Record<string, any[]> = {};

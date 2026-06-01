@@ -3,6 +3,7 @@ import { ref, push, set, onValue, remove, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
 import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon, ChevronUp, ChevronDown } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import TiposUsoModal from './modals/TiposUsoModal';
 
 export default function InsumosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
@@ -451,7 +452,7 @@ Formato esperado para cada objeto:
   };
 
   const filteredInsumos = insumos.filter(i => {
-    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku && (i as any).sku.toLowerCase().includes(searchTerm.toLowerCase()));
+    const matchSearch = normalizeString(i.nome).includes(normalizeString(searchTerm)) || normalizeString((i as any).sku).includes(normalizeString(searchTerm));
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;
   });
@@ -545,12 +546,12 @@ Formato esperado para cada objeto:
                     </div>
                     {showTipoUsoDropdown && tiposUsoDb.length > 0 && (
                       <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
-                        {tiposUsoDb.filter(t => t.nome.toLowerCase().includes(searchTipoUso.toLowerCase())).map(t => (
+                        {tiposUsoDb.filter(t => normalizeString(t.nome).includes(normalizeString(searchTipoUso))).map(t => (
                           <div key={t.id} onClick={() => { setTipoUso(t.nome); setSearchTipoUso(t.nome); setShowTipoUsoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50">
                             <span className="font-medium text-gray-800">{t.nome}</span>
                           </div>
                         ))}
-                        {tiposUsoDb.filter(t => t.nome.toLowerCase().includes(searchTipoUso.toLowerCase())).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
+                        {tiposUsoDb.filter(t => normalizeString(t.nome).includes(normalizeString(searchTipoUso))).length === 0 && <div className="p-3 text-sm text-gray-500 text-center">Nenhum tipo encontrado</div>}
                       </div>
                     )}
                   </div>
@@ -626,14 +627,14 @@ Formato esperado para cada objeto:
                     {showInsumoVinculadoDropdown && (
                       <div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-48 overflow-y-auto">
                         {insumos
-                          .filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase()))
+                          .filter(i => i.id !== editId && normalizeString(i.nome).includes(normalizeString(searchInsumoVinculado)))
                           .map(i => (
                             <div key={i.id} onClick={() => { setInsumoVinculado(i.id); setSearchInsumoVinculado(i.nome); setShowInsumoVinculadoDropdown(false); }} className="p-2 text-sm hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center">
                               <span className="font-medium text-gray-800">{i.nome}</span>
                               <span className="text-gray-400 text-xs ml-2">{i.unidade}{(i as any).insumoVinculado ? ' · container' : ' · base'}</span>
                             </div>
                           ))}
-                        {insumos.filter(i => i.id !== editId && i.nome.toLowerCase().includes(searchInsumoVinculado.toLowerCase())).length === 0 && (
+                        {insumos.filter(i => i.id !== editId && normalizeString(i.nome).includes(normalizeString(searchInsumoVinculado))).length === 0 && (
                           <div className="p-3 text-sm text-gray-500 text-center">Nenhum insumo encontrado</div>
                         )}
                       </div>

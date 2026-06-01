@@ -3,6 +3,7 @@ import { ref, push, set, onValue, remove, runTransaction, update } from 'firebas
 import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
 import { Plus, Trash2, Save, Calculator, ShoppingCart, Search, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, Pencil, Download, Upload, Sparkles, Bot, Loader2, X, Settings, ChevronUp as ChevronUpIcon, ChevronDown as ChevronDownIcon, Copy, Filter, Eye, EyeOff } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 import React from 'react';
 import ModalProduto from './ModalProduto';
 import ExcelJS from 'exceljs';
@@ -112,7 +113,7 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
   };
 
   const filteredProdutos = produtos.filter(p => {
-    const matchName = (p.nome || '').toLowerCase().includes(searchTerm.toLowerCase());
+    const matchName = normalizeString(p.nome).includes(normalizeString(searchTerm));
     const matchCat = selectedCategoria ? ((p as any).categoria || 'Outros') === selectedCategoria : true;
     return matchName && matchCat;
   });

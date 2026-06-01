@@ -3,6 +3,7 @@ import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo } from '../types';
 import { Search, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export default function VisibilidadeManager() {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -28,9 +29,9 @@ export default function VisibilidadeManager() {
     await update(ref(db, `insumos/${insumo.id}`), { restrito: !isRestrito });
   };
 
-  const filteredInsumos = insumos.filter(i => 
-    i.nome.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredInsumos = insumos.filter(i =>
+    normalizeString(i.nome).includes(normalizeString(searchTerm)) ||
+    normalizeString((i as any).sku).includes(normalizeString(searchTerm))
   );
 
   return (

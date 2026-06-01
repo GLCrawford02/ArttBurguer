@@ -3,6 +3,7 @@ import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
 import { Search, Plus, Trash2, CheckCircle, AlertTriangle } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 interface ItemDescarte {
   id: string;
@@ -182,7 +183,7 @@ export default function DescarteManager({ currentUser }: { currentUser?: any }) 
           
           {searchTerm && (
             <div className="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())).map(i => (
+               {insumos.filter(i => normalizeString(i.nome).includes(normalizeString(searchTerm)) || normalizeString((i as any).sku).includes(normalizeString(searchTerm))).map(i => (
                  <div key={i.id} onClick={() => adicionarALista(i)} className="p-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
                     <div>
                        <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
@@ -191,7 +192,7 @@ export default function DescarteManager({ currentUser }: { currentUser?: any }) 
                     <Plus size={18} className="text-red-600 bg-red-100 p-1 rounded-full"/>
                  </div>
                ))}
-               {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+               {insumos.filter(i => normalizeString(i.nome).includes(normalizeString(searchTerm))).length === 0 && (
                  <p className="p-4 text-center text-sm text-gray-500">Nenhum insumo encontrado.</p>
                )}
             </div>

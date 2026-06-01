@@ -3,6 +3,7 @@ import { ref, onValue, runTransaction, push, set, update } from 'firebase/databa
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
 import { ShoppingCart, Plus, Search, CheckCircle, MessageCircle, Trash2 } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 interface ItemCarrinho {
   id: string;
@@ -346,13 +347,12 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
   const valorTotalEntrada = carrinho.reduce((acc, item) => acc + (Number(item.valorTotalStr) || 0), 0);
 
   const fornecedoresFiltrados = fornecedores.filter(f => {
-    const t = searchFornecedor.toLowerCase();
-    const apenasNumerosBusca = t.replace(/\D/g, '');
+    const t = normalizeString(searchFornecedor);
+    const apenasNumerosBusca = searchFornecedor.replace(/\D/g, '');
     const docLimpo = (f.documento || '').replace(/\D/g, '');
-    
-    return (f.nomeFantasia || '').toLowerCase().includes(t) ||
-           (f.nome || '').toLowerCase().includes(t) ||
-           (f.documento || '').toLowerCase().includes(t) ||
+    return normalizeString(f.nomeFantasia).includes(t) ||
+           normalizeString(f.nome).includes(t) ||
+           normalizeString(f.documento).includes(t) ||
            (apenasNumerosBusca && docLimpo.includes(apenasNumerosBusca));
   });
 
@@ -388,7 +388,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
             
             {searchTerm && (
               <div className="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-xl shadow-xl max-h-64 overflow-y-auto">
-                 {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase()) || ((i as any).sku || '').toLowerCase().includes(searchTerm.toLowerCase())).map(i => (
+                 {insumos.filter(i => normalizeString(i.nome).includes(normalizeString(searchTerm)) || normalizeString((i as any).sku).includes(normalizeString(searchTerm))).map(i => (
                    <div key={i.id} onClick={() => adicionarAoCarrinho(i)} className="p-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 flex justify-between items-center transition-colors">
                       <div>
                          <p className="font-bold text-gray-800 text-sm">{i.nome}</p>
@@ -397,7 +397,7 @@ export default function ComprasManager({ currentUser, temPermissao }: { currentU
                       <Plus size={18} className="text-blue-600 bg-blue-100 p-1 rounded-full"/>
                    </div>
                  ))}
-                 {insumos.filter(i => (i.nome || '').toLowerCase().includes(searchTerm.toLowerCase())).length === 0 && (
+                 {insumos.filter(i => normalizeString(i.nome).includes(normalizeString(searchTerm))).length === 0 && (
                    <p className="p-4 text-center text-sm text-gray-500">Nenhum insumo encontrado.</p>
                  )}
               </div>

@@ -3,6 +3,7 @@ import { ref, onValue, runTransaction, push, set } from 'firebase/database';
 import { db } from '../firebase';
 import { Insumo, Funcionario, Produto } from '../types';
 import { AlertTriangle, Package, Search, CalendarClock, CheckCircle, ShoppingBag, BellRing, X, Download, BarChart2, ChevronUp, ChevronDown, Trash2 } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export default function Dashboard({ currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -187,7 +188,7 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
   };
 
   const filteredInsumos = insumosPermitidos.filter(i => {
-    const matchSearch = i.nome.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchSearch = normalizeString(i.nome).includes(normalizeString(searchTerm));
     const matchTipo = filtroTipoUso ? (i as any).tipoUso === filtroTipoUso : true;
     return matchSearch && matchTipo;
   });
@@ -324,9 +325,9 @@ export default function Dashboard({ currentUser }: { currentUser?: any }) {
     else if (activeModal === 'vencimentos') { baseData = validadeProxima; filename = 'vencimentos'; }
 
     const filtered = baseData.filter(item => {
-      const nome = (item.nome || '').toLowerCase();
-      const sku = ((item as any).sku || '').toLowerCase();
-      const term = modalSearchTerm.toLowerCase();
+      const nome = normalizeString(item.nome);
+      const sku = normalizeString((item as any).sku);
+      const term = normalizeString(modalSearchTerm);
       return nome.includes(term) || sku.includes(term);
     });
 

@@ -3,6 +3,7 @@ import { ref, onValue, runTransaction, push, set, update } from 'firebase/databa
 import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
 import { ArrowRight, Search, CheckCircle, AlertTriangle, History, User, Clock, Package, Scan } from 'lucide-react';
+import { normalizeString } from '../utils/stringUtils';
 
 export default function TransferenciaManager({ currentUser: _currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -154,8 +155,8 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
   const containers = insumos
     .filter(i => !!i.insumoVinculado && !!i.transferivel)
     .filter(i =>
-      i.nome.toLowerCase().includes(search.toLowerCase()) ||
-      (i.sku ?? '').toLowerCase().includes(search.toLowerCase())
+      normalizeString(i.nome).includes(normalizeString(search)) ||
+      normalizeString(i.sku).includes(normalizeString(search))
     )
     .sort((a, b) => a.nome.localeCompare(b.nome));
 
@@ -164,8 +165,8 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
   const variaveis = insumos
     .filter(i => !!i.isVariavel && !!i.transferivel)
     .filter(i =>
-      i.nome.toLowerCase().includes(search.toLowerCase()) ||
-      (i.sku ?? '').toLowerCase().includes(search.toLowerCase())
+      normalizeString(i.nome).includes(normalizeString(search)) ||
+      normalizeString(i.sku).includes(normalizeString(search))
     )
     .sort((a, b) => a.nome.localeCompare(b.nome));
 
@@ -173,8 +174,8 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
   const transferiveis = insumos
     .filter(i => !!i.transferivel && !i.insumoVinculado && !i.isVariavel)
     .filter(i =>
-      i.nome.toLowerCase().includes(search.toLowerCase()) ||
-      (i.sku ?? '').toLowerCase().includes(search.toLowerCase())
+      normalizeString(i.nome).includes(normalizeString(search)) ||
+      normalizeString(i.sku).includes(normalizeString(search))
     )
     .sort((a, b) => a.nome.localeCompare(b.nome));
 
@@ -326,6 +327,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       });
 
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
+      setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
@@ -422,6 +424,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
         : `${qty} ${insumo.unidade} de ${insumo.nome} → +${unitsToAdd} ${baseUnit.unidade} no rotativo de "${baseUnit.nome}".\nVeja na aba Rotativo do Balanço.`;
       showToast(msgOk);
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
+      setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
@@ -463,6 +466,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       });
       showToast(`+${qty} ${insumo.unidade} adicionadas ao rotativo de ${insumo.nome}.`);
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
+      setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
@@ -857,7 +861,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       {/* Modal vincular código de barras */}
       {barcodeVincularModal && (() => {
         const filtrado = insumos
-          .filter(i => i.nome.toLowerCase().includes(barcodeVincularSearch.toLowerCase()) || (i.sku ?? '').toLowerCase().includes(barcodeVincularSearch.toLowerCase()))
+          .filter(i => normalizeString(i.nome).includes(normalizeString(barcodeVincularSearch)) || normalizeString(i.sku).includes(normalizeString(barcodeVincularSearch)))
           .slice(0, 8);
         return (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">

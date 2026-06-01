@@ -113,3 +113,35 @@ export interface DescarteLog {
   autorizadoPorNome: string;
   timestamp: number;
 }
+
+export interface Tarefa {
+  id: string;
+  codigo?: string;
+  titulo: string;
+  descricao: string;
+  url?: string;
+  responsavelId?: string;
+  responsaveisIds?: string[];
+  dataAgendada: string;
+  horaAgendada: string;
+  urgente?: boolean;
+  status: 'pendente' | 'concluida';
+  timestamp: number;
+  dataConclusao?: number;
+  notificadoWhatsApp?: boolean;
+  notificadoAtraso24h?: boolean;
+  notificadoAntecipado?: boolean;
+  prioridade?: 'Nenhuma' | 'Baixa' | 'Média' | 'Alta';
+  sinalizado?: boolean;
+  categoria?: string;
+  recorrencia?: 'Nenhuma' | 'Diária' | 'Semanal' | 'Quinzenal' | 'Mensal' | 'Anual' | 'Personalizado';
+  recorrenciaCustomValor?: number;
+  recorrenciaCustomUnidade?: 'dia' | 'semana' | 'mes' | 'ano';
+  terminarRepeticao?: 'nunca' | 'em_data';
+  dataFimRepeticao?: string;
+  lembreteAntecipado?: number; // minutos
+  criadoPor?: string | null;
+  contaVinculadaId?: string;
+  contaVinculadaTipo?: 'pagar' | 'receber';
+  novaContaVinculadaId?: string; // Usado internamente na recorrência
+}
