@@ -29,6 +29,19 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.13',
+      titulo: 'Centralização da Gestão de Equipe e Otimizações de GPS',
+      descricao: 'Refatoração completa da tela de Gestão de Equipe para uma visão 360° do colaborador e melhorias na estabilidade e precisão do rastreamento de entregas.',
+      features: [
+        'Gestão de Equipe Unificada: Todas as informações do funcionário (atribuições, desempenho, horários, status) agora estão centralizadas em um único perfil com seções expansíveis, facilitando a visualização.',
+        'Filtro de KDS na Equipe: Os perfis de "KDS" (monitores da cozinha) foram ocultados da tela de gestão para focar apenas nos colaboradores.',
+        'Correção na Transferência: Itens transferidos individualmente agora são desmarcados corretamente, evitando a seleção laranja persistente.',
+        'GPS Mais Preciso: O aplicativo do entregador agora ignora atualizações de localização de baixa precisão (torres de celular/Wi-Fi), evitando que a posição "salte" no mapa.',
+        'Permissões de GPS em Segundo Plano: Adicionadas as permissões `FOREGROUND_SERVICE` e `ACCESS_BACKGROUND_LOCATION` no Android para garantir que o rastreamento continue funcionando com o app em segundo plano.'
+      ],
+      icon: <Users className="text-blue-500" size={20} />
+    },
+    {
       versao: '1.2.11',
       titulo: 'App Espelho (Nuvem), Limpeza de Código e Correções Visuais',
       descricao: 'Estruturação do aplicativo e do software para buscar os dados diretamente em nuvem, garantindo atualizações invisíveis. Limpeza de arquivos e correções de tipagem no Dashboard.',
