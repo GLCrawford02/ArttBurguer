@@ -1516,6 +1516,16 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 </body>
 </html>`;
 
+    if (electron && electron.imprimir && impressorasIPs.balcao && !isIp) {
+      try {
+        await electron.imprimir(impressorasIPs.balcao, html);
+        return;
+      } catch (e: any) {
+        console.error('Erro ao imprimir recibo via USB:', e);
+        showToast('Erro na impressão USB. Verifique a impressora.', 'error');
+      }
+    }
+
     win.document.write(html);
     win.document.close();
     win.focus();
