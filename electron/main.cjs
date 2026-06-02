@@ -304,3 +304,13 @@ ipcMain.handle('listar-impressoras', async () => {
     return [];
   }
 });
+
+// ─── IPC: Buscar impressoras (Padrão Web/React) ──────────────────────────────
+ipcMain.handle('get-printers', async (event) => {
+  try {
+    return await event.sender.getPrintersAsync();
+  } catch (error) {
+    console.error("Erro ao buscar impressoras:", error);
+    return [];
+  }
+});

@@ -17,4 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   listarImpressoras: () =>
     ipcRenderer.invoke('listar-impressoras'),
+
+  getPrinters: () =>
+    ipcRenderer.invoke('get-printers'),
 });
