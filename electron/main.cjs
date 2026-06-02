@@ -277,6 +277,7 @@ ipcMain.handle('imprimir-ticket', async (_event, { printerName, html }) => {
   return new Promise((resolve, reject) => {
     const printWin = new BrowserWindow({
       show: false,
+      width: 300,
       webPreferences: { contextIsolation: true },
     });
     printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));

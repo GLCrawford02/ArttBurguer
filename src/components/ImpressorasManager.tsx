@@ -103,7 +103,8 @@ export default function ImpressorasManager() {
             'Sistema'
           );
         } else if (!isIp && electron.imprimir) {
-          const html = `<!DOCTYPE html><html><body style="font-family: monospace; text-align: center; width: 74mm; margin: 0 auto;">
+          const html = `<!DOCTYPE html><html><head><style>@page { margin: 0; }</style></head>
+            <body style="font-family: monospace; text-align: center; width: 100%; margin: 0; padding: 4mm 8mm 4mm 4mm; color: black;">
             <h2>*** ${dest === 'cozinha' ? 'COZINHA' : 'BALCÃO'} (TESTE) ***</h2>
             <hr style="border: 1px dashed black;" />
             <p>==== TESTE DE COMUNICACAO ====</p>
