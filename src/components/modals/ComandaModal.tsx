@@ -49,6 +49,13 @@ export default function ComandaModal({ venda, onClose, onImprimir }: Props) {
             ))}
           </div>
 
+          {venda.taxaEntrega > 0 && (
+            <div className="border-t border-gray-100 py-3 mb-2 flex justify-between items-center text-gray-600">
+              <span className="text-sm font-medium">Taxa de Entrega</span>
+              <span className="font-bold text-sm">+ R$ {venda.taxaEntrega.toFixed(2)}</span>
+            </div>
+          )}
+
           {venda.desconto > 0 && (
             <div className="border-t border-gray-200 py-3 mb-2 flex justify-between items-center text-red-600 bg-red-50 px-3 rounded-lg">
               <span className="text-sm font-bold flex flex-col">

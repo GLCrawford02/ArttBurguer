@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Printer, Save, CheckCircle, AlertTriangle } from 'lucide-react';
+import { Printer, Save, CheckCircle, AlertTriangle, Search, Play } from 'lucide-react';
 
 const DESTINOS = [
   { value: 'cozinha', label: 'Cozinha' },
@@ -16,6 +16,8 @@ export default function ImpressorasManager() {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [nomes, setNomes] = useState({ cozinha: '', balcao: '' });
+  const [impressorasLocais, setImpressorasLocais] = useState<string[]>([]);
+  const [isDetecting, setIsDetecting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -53,6 +55,59 @@ export default function ImpressorasManager() {
     }
   };
 
+  const detectarImpressoras = async () => {
+    if (!isElectron) {
+      showToast('A detecção automática só funciona no aplicativo Windows (.exe).', 'error');
+      return;
+    }
+    setIsDetecting(true);
+    try {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.getPrinters) {
+        const list = await electron.getPrinters();
+        const names = list.map((p: any) => typeof p === 'string' ? p : p.name).filter(Boolean);
+        setImpressorasLocais(names);
+        showToast(`${names.length} impressoras detectadas no computador!`, 'success');
+      } else {
+        showToast('Sua versão do app desktop não suporta detecção automática.', 'error');
+      }
+    } catch (err) {
+      showToast('Erro ao detectar impressoras locais.', 'error');
+    } finally {
+      setIsDetecting(false);
+    }
+  };
+
+  const testarImpressora = async (dest: 'cozinha' | 'balcao') => {
+    const ipOuNome = nomes[dest];
+    if (!ipOuNome) {
+      showToast(`Informe o IP ou Nome para a impressora do ${dest === 'cozinha' ? 'Cozinha' : 'Balcão'}.`, 'error');
+      return;
+    }
+    if (!isElectron) {
+      showToast('Os testes diretos funcionam melhor no app Windows (.exe).', 'error');
+      return;
+    }
+    
+    try {
+      const electron = (window as any).electronAPI;
+      if (electron && electron.imprimirTicketIP) {
+        await electron.imprimirTicketIP(
+          ipOuNome, 
+          [{ qtd: 1, nome: '==== TESTE DE COMUNICACAO ====' }, { qtd: 1, nome: 'IMPRESSORA OK' }], 
+          dest === 'cozinha' ? 'COZINHA (TESTE)' : 'BALCÃO (TESTE)', 
+          'TESTE-001', 
+          'Sistema'
+        );
+        showToast(`Teste enviado para ${ipOuNome}!`, 'success');
+      } else {
+        showToast('Integração de impressão não encontrada.', 'error');
+      }
+    } catch (err) {
+      showToast(`Falha ao testar a impressora ${dest}. Verifique a conexão.`, 'error');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in duration-300">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -72,31 +127,47 @@ export default function ImpressorasManager() {
 
       {/* IP das impressoras */}
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-        <div className="flex items-center justify-between mb-4 border-b border-gray-100 pb-3">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between mb-4 border-b border-gray-100 pb-3 gap-4">
           <div>
-            <h4 className="font-bold text-gray-700">Endereço IP das Impressoras</h4>
-            <p className="text-xs text-gray-400 mt-0.5">Informe o IP da impressora térmica de cada destino. Ex: 192.168.0.55.</p>
+            <h4 className="font-bold text-gray-700">Identificação das Impressoras (Rede ou USB)</h4>
+            <p className="text-xs text-gray-400 mt-0.5">Informe o IP (Rede) ou selecione o nome da impressora (USB/Local).</p>
           </div>
+          {isElectron && (
+            <button onClick={detectarImpressoras} disabled={isDetecting} className="bg-gray-800 text-white hover:bg-gray-900 px-4 py-2.5 rounded-lg text-xs font-bold transition-colors flex items-center shadow-sm disabled:opacity-50 whitespace-nowrap">
+              <Search size={14} className={`mr-2 ${isDetecting ? 'animate-pulse' : ''}`} />
+              {isDetecting ? 'Buscando...' : 'Detectar Impressoras'}
+            </button>
+          )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-2xl">
+        <datalist id="detected-printers">
+          {impressorasLocais.map(p => <option key={p} value={p} />)}
+        </datalist>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl">
           {(['cozinha', 'balcao'] as const).map(dest => (
-            <div key={dest}>
-              <label className="block text-sm font-bold text-gray-600 mb-1">
-                IP — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
+            <div key={dest} className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+              <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">
+                Impressora — {dest === 'cozinha' ? 'Cozinha' : 'Balcão'}
               </label>
-              <input
-                type="text"
-                value={nomes[dest]}
-                onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
-                placeholder="Ex: 192.168.0.55"
-                className="w-full p-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-              />
+              <div className="flex flex-col xl:flex-row gap-2">
+                <input
+                  type="text"
+                  list="detected-printers"
+                  value={nomes[dest]}
+                  onChange={e => setNomes(prev => ({ ...prev, [dest]: e.target.value }))}
+                  placeholder="IP (192.168...) ou Nome"
+                  className="flex-1 p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 font-mono bg-white"
+                />
+                <button onClick={() => testarImpressora(dest)} className="bg-blue-100 text-blue-700 px-4 py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors flex items-center justify-center shadow-sm text-sm" title="Enviar teste de impressão">
+                  <Play size={16} className="mr-2" /> Testar
+                </button>
+              </div>
             </div>
           ))}
         </div>
         <p className="text-xs text-gray-400 mt-3">
-          Encontre o VID e PID da impressora no Gerenciador de Dispositivos do Windows (Propriedades &gt; Detalhes &gt; IDs de Hardware).
+          Você pode utilizar o IP para impressoras de rede Ethernet/Wi-Fi ou selecionar o nome exato da impressora para conexões USB (apenas no App Windows).
         </p>
       </div>
 

@@ -4,16 +4,16 @@ import { db } from '../firebase';
 import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X, ChevronDown, ChevronUp } from 'lucide-react';
 import ReportarProblemaModal from './modals/ReportarProblemaModal';
 import { Capacitor, registerPlugin } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 import { Geolocation } from '@capacitor/geolocation';
 import { KeepAwake } from '@capacitor-community/keep-awake';
-import type { BackgroundGeolocationPlugin } from '@capacitor-community/background-geolocation';
+import type { BackgroundGeolocationPlugin, Location } from '@capacitor-community/background-geolocation';
+const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
 import 'leaflet/dist/leaflet.css';
 import motoImg from '../assets/moto.png';
-
-const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
 
 function FitBounds({ positions }: { positions: [number, number][] }) {
   const map = useMap();
@@ -62,7 +62,6 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const wakeLockRef = useRef<any>(null);
   const watchIdRef = useRef<number | null>(null);
   const capWatchIdRef = useRef<string | null>(null);
-  const usingFallbackRef = useRef(false);
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [reportModal, setReportModal] = useState<number | null>(null);
 
@@ -115,71 +114,40 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const iniciarRastreamento = async () => {
     if (Capacitor.isNativePlatform()) {
       await KeepAwake.keepAwake();
-
-      const gpsCallback = (pos: any, err2: any) => {
-        if (err2 || !pos) return;
-        // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
-        if (pos.coords.accuracy && pos.coords.accuracy > 100) return;
-        if (currentUser?.id) {
-          update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
-            lat: pos.coords.latitude,
-            lng: pos.coords.longitude,
-            velocidade: pos.coords.speed || 0,
-            precisao: pos.coords.accuracy,
-            timestamp: Date.now(),
-          });
+      
+      // Solicita permissão para notificações (essencial para o serviço de fundo no Android 13+)
+      if (Capacitor.getPlatform() === 'android') {
+        let permStatus = await PushNotifications.checkPermissions();
+  
+        if (permStatus.receive === 'prompt') {
+          permStatus = await PushNotifications.requestPermissions();
         }
-      };
-
-      const iniciarGPSFallback = async () => {
-        try {
-          const perm = await Geolocation.requestPermissions();
-          if (perm.location === 'granted' || (perm as any).coarseLocation === 'granted') {
-            capWatchIdRef.current = await Geolocation.watchPosition(
-              { enableHighAccuracy: true, maximumAge: 10000, timeout: 15000 },
-              gpsCallback
-            );
-            usingFallbackRef.current = true;
-            setIsTracking(true);
-          } else {
-            showToast('Permissão de localização negada. Vá em Configurações > Aplicativos > ArttBurger > Permissões > Localização.', 'error');
-          }
-        } catch {
-          showToast('Não foi possível iniciar o GPS. Verifique as permissões de localização.', 'error');
+  
+        if (permStatus.receive !== 'granted') {
+          showToast('Permissão de notificação negada. O rastreio pode não funcionar com o app fechado.', 'error');
+          // Não retornamos aqui, pois o GPS pode funcionar em primeiro plano mesmo sem a notificação.
         }
-      };
+      }
 
-      // Retry helper: o bindService do plugin é assíncrono; se addWatcher for chamado
-      // antes do onServiceConnected disparar, ele rejeita com "Service not running."
-      // Tentamos até 5x com 600ms de intervalo antes de desistir.
-      const tentarBackgroundGeo = async (tentativas = 5): Promise<string> => {
-        try {
-          return await BackgroundGeolocation.addWatcher(
-            {
-              backgroundMessage: 'GPS ativo — rota em andamento. Toque para abrir o app.',
-              backgroundTitle: 'ArttBurger',
-              requestPermissions: true,
-              stale: false,
-              distanceFilter: 10,
-            },
-            (location, error) => {
-              if (error) {
-                if ((error as any).code === 'NOT_AUTHORIZED') {
-                  if (!usingFallbackRef.current) {
-                    usingFallbackRef.current = true;
-                    if (capWatchIdRef.current) {
-                      BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current }).catch(() => {});
-                      capWatchIdRef.current = null;
-                    }
-                    setBgDenied(true);
-                    showToast('GPS de fundo não autorizado. O rastreio pode parar com a tela bloqueada.', 'error');
-                    iniciarGPSFallback();
-                  }
-                }
-                return;
+      try {
+        capWatchIdRef.current = await BackgroundGeolocation.addWatcher(
+          {
+            backgroundMessage: "Sua rota está sendo rastreada em tempo real.",
+            backgroundTitle: "ArttBurger - Entregador em Rota",
+            requestPermissions: false, // Já pedimos as permissões antes
+            stale: false,
+            distanceFilter: 10,
+          },
+          (location, error) => {
+            if (error) {
+              if (error.code === "NOT_AUTHORIZED") {
+                setBgDenied(true);
+                showToast('Permissão de GPS em segundo plano negada. O rastreio não funcionará com o app fechado.', 'error');
               }
-              // Ignora localizações de baixa precisão (torre de celular/Wi-Fi = >100m)
-              if (!location || (location.accuracy !== null && location.accuracy > 100)) return;
+              return;
+            }
+
+            if (location && location.accuracy < 100) {
               if (currentUser?.id) {
                 update(ref(db, `funcionarios/${currentUser.id}/localizacao`), {
                   lat: location.latitude,
@@ -190,27 +158,16 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
                 });
               }
             }
-          );
-        } catch (err: any) {
-          const msg: string = err?.message || err?.toString() || '';
-          if (tentativas > 1 && msg.includes('Service not running')) {
-            await new Promise(r => setTimeout(r, 600));
-            return tentarBackgroundGeo(tentativas - 1);
           }
-          throw err;
-        }
-      };
-
-      try {
-        const watcherId = await tentarBackgroundGeo();
-        capWatchIdRef.current = watcherId;
-        usingFallbackRef.current = false;
+        );
         setIsTracking(true);
+        setBgDenied(false);
+
       } catch (err: any) {
-        console.error('BackgroundGeolocation falhou definitivamente:', err?.message || err);
+        const errorMsg = err?.message || err?.toString() || 'Erro desconhecido';
+        console.error('BackgroundGeolocation falhou para iniciar:', errorMsg);
         setBgDenied(true);
-        showToast('Serviço de GPS de fundo não disponível. Usando GPS simples — o rastreio pode parar com a tela bloqueada.', 'error');
-        await iniciarGPSFallback();
+        showToast(`Não foi possível iniciar o GPS em segundo plano. O rastreio pode não funcionar com a tela bloqueada. Causa: ${errorMsg}`, 'error');
       }
     } else {
       // Rodando no Navegador (Computador/Safari)
@@ -241,14 +198,11 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
     setBgDenied(false);
     if (Capacitor.isNativePlatform()) {
       KeepAwake.allowSleep();
-      if (capWatchIdRef.current !== null) {
-        if (usingFallbackRef.current) {
-          Geolocation.clearWatch({ id: capWatchIdRef.current });
-        } else {
-          await BackgroundGeolocation.removeWatcher({ id: capWatchIdRef.current });
-        }
+      if (capWatchIdRef.current) {
+        await BackgroundGeolocation.removeWatcher({
+          id: capWatchIdRef.current,
+        });
         capWatchIdRef.current = null;
-        usingFallbackRef.current = false;
       }
     } else {
       if (watchIdRef.current !== null) { navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; }

@@ -20,6 +20,18 @@ import ComandasView from './views/ComandasView';
 const CARGOS_EDIT_AUTORIZADO = ['Dono', 'TI', 'Admin', 'Administrador', 'Gerente', 'Caixa'];
 const AUTH_SESSION_MS = 30 * 1000;
 
+const isPointInPolygon = (point: [number, number], vs: number[][]) => {
+  let x = Number(point[0]), y = Number(point[1]);
+  let inside = false;
+  for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+    let xi = Number(vs[i][0]), yi = Number(vs[i][1]);
+    let xj = Number(vs[j][0]), yj = Number(vs[j][1]);
+    let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+
 export default function LancamentoVendas({ currentUser, permissoes = {} }: { currentUser?: any, permissoes?: any }) {
   const [activeView, setActiveView] = useState<'pdv' | 'comandas' | 'conferencia' | 'x9'>('pdv');
   
@@ -59,6 +71,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [mesaSelecionada, setMesaSelecionada] = useState<number | null>(null);
   const [mesasAbertas, setMesasAbertas] = useState<Record<string, any>>({});
   const [entregasAbertas, setEntregasAbertas] = useState<Record<string, any>>({});
+  const [zonasRestritas, setZonasRestritas] = useState<any[]>([]);
+  const [zonasValor, setZonasValor] = useState<any[]>([]);
   const [taxasEntregaConfig, setTaxasEntregaConfig] = useState<any>({ taxas: {}, lojaLat: null, lojaLng: null });
   const [pdvTaxaEntregaFixa, setPdvTaxaEntregaFixa] = useState<number | null>(null);
   const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
@@ -399,6 +413,16 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     const configMesasRef = ref(db, 'configuracoes/pdv/qtdMesas');
     onValue(configMesasRef, snap => {
       if (snap.val()) setQtdMesas(Number(snap.val()));
+    });
+
+    const configTaxasRef = ref(db, 'configuracoes/taxas_entrega');
+    onValue(configTaxasRef, snap => {
+      if (snap.val()) {
+        const data = snap.val();
+        setZonasRestritas(data.zonasRestritas ? (Array.isArray(data.zonasRestritas) ? data.zonasRestritas : Object.values(data.zonasRestritas)) : []);
+        setZonasValor(data.zonasValor ? (Array.isArray(data.zonasValor) ? data.zonasValor : Object.values(data.zonasValor)) : []);
+        setTaxasEntregaConfig({ taxas: data.taxas || {}, lojaLat: data.loja_lat || null, lojaLng: data.loja_lng || null });
+      }
     });
 
     const configImpressorasRef = ref(db, 'configuracoes/impressoras');
@@ -1600,6 +1624,13 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     if (totalPdv > 0 && pagamentosValidos.length === 0) return showToast('Informe uma forma de pagamento.', 'error');
     if (Math.abs(restantePdv) > 0.05) return showToast(`O valor pago deve ser exatamente R$ ${totalPdv.toFixed(2)} para liberar a mesa/venda.`, 'error');
     if (pdvTipoPedido === 'Entrega' && !pdvCliente) return showToast('Para entregas, é obrigatório selecionar o cliente.', 'error');
+
+    if (pdvTipoPedido === 'Entrega' && !pdvIsRetirada && pdvTaxaEntregaFixa === null) {
+      const calcFee = calculateDeliveryFee(pdvCliente?.lat, pdvCliente?.lng);
+      if (calcFee === null) {
+        return showToast('O endereço do cliente está fora da área de entrega. Edite o cliente ou altere o tipo para retirada.', 'error');
+      }
+    }
 
     try {
       let valorLiquidoTotal = 0;

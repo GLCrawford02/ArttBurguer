@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ref, onValue, set, update } from 'firebase/database';
 import { db } from '../firebase';
-import { MapPin, Save, CheckCircle, AlertTriangle, Navigation, Wand2, Map, Plus, Trash2 } from 'lucide-react';
+import { MapPin, Save, CheckCircle, AlertTriangle, Navigation, Wand2, Map, Plus, Trash2, DollarSign } from 'lucide-react';
 import { MapContainer, TileLayer, Polygon, useMapEvents, useMap, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -12,6 +12,13 @@ export interface ZonaRestrita {
   id: string;
   nome: string;
   coords: [number, number][];
+}
+
+export interface ZonaValor {
+  id: string;
+  nome: string;
+  coords: [number, number][];
+  valor: number;
 }
 
 function MapClickHandler({ onClick }: { onClick: (latlng: [number, number]) => void }) {
@@ -37,10 +44,12 @@ export default function TaxasEntregaManager() {
   const [autoBase, setAutoBase] = useState('');
   const [autoPerKm, setAutoPerKm] = useState('');
   const [zonasRestritas, setZonasRestritas] = useState<ZonaRestrita[]>([]);
+  const [zonasValor, setZonasValor] = useState<ZonaValor[]>([]);
   const [currentZona, setCurrentZona] = useState<[number, number][]>([]);
-  const [isDrawing, setIsDrawing] = useState(false);
+  const [drawingMode, setDrawingMode] = useState<'restrita' | 'valor' | null>(null);
   const [lojaCoords, setLojaCoords] = useState<{lat: number, lng: number} | null>(null);
   const [editingZonaId, setEditingZonaId] = useState<string | null>(null);
+  const [editingZonaTipo, setEditingZonaTipo] = useState<'restrita' | 'valor' | null>(null);
   const [renamingZonaId, setRenamingZonaId] = useState<string | null>(null);
   const [nomeEdit, setNomeEdit] = useState('');
 
@@ -72,6 +81,11 @@ export default function TaxasEntregaManager() {
           setZonasRestritas([]);
         }
       }
+      if (data.zonasValor) {
+        setZonasValor(Object.values(data.zonasValor));
+      } else {
+        setZonasValor([]);
+      }
       if (data.loja_lat && data.loja_lng) {
          setLojaCoords({ lat: data.loja_lat, lng: data.loja_lng });
       }
@@ -87,7 +101,8 @@ export default function TaxasEntregaManager() {
       }
       await update(ref(db, 'configuracoes/taxas_entrega'), { 
         taxas: taxasNum,
-        zonasRestritas
+        zonasRestritas,
+        zonasValor
       });
       setSaved(true);
       setTimeout(() => setSaved(false), 2500);
@@ -230,32 +245,42 @@ export default function TaxasEntregaManager() {
             Zonas de Não-Entrega (Áreas Restritas)
           </h4>
           <div className="flex items-center gap-2 w-full sm:w-auto">
-            {isDrawing ? (
+            {drawingMode ? (
               <>
-                <button onClick={() => { setIsDrawing(false); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
-                <button onClick={() => { 
-                  if (currentZona.length >= 3) { 
-                    if (editingZonaId) {
-                      setZonasRestritas(prev => prev.map(z => z.id === editingZonaId ? { ...z, coords: currentZona } : z));
-                    } else {
-                      setZonasRestritas([...zonasRestritas, { id: `zona_${Date.now()}`, nome: `Área Restrita ${zonasRestritas.length + 1}`, coords: currentZona }]); 
-                    }
-                    setIsDrawing(false); setCurrentZona([]); setEditingZonaId(null);
-                  } 
-                }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">Salvar Área</button>
+                <button onClick={() => { setDrawingMode(null); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-gray-100 text-gray-600 rounded-lg text-xs font-bold hover:bg-gray-200 transition-colors">Cancelar Desenho</button>
+                {drawingMode === 'restrita' && (
+                  <button onClick={() => { 
+                    if (currentZona.length < 3) return;
+                    if (editingZonaId) setZonasRestritas(prev => prev.map(z => z.id === editingZonaId ? { ...z, coords: currentZona } : z));
+                    else setZonasRestritas([...zonasRestritas, { id: `zona_${Date.now()}`, nome: `Área Restrita ${zonasRestritas.length + 1}`, coords: currentZona }]); 
+                    setDrawingMode(null); setCurrentZona([]); setEditingZonaId(null);
+                  }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-red-600 text-white rounded-lg text-xs font-bold hover:bg-red-700 disabled:opacity-50 transition-colors">Salvar Área Restrita</button>
+                )}
+                {drawingMode === 'valor' && (
+                  <button onClick={() => {
+                    if (currentZona.length < 3) return;
+                    const valor = prompt('Qual o valor da taxa de entrega para esta área? (Ex: 5.50)');
+                    if (valor === null) return;
+                    const valorNum = parseFloat(valor.replace(',', '.'));
+                    if (isNaN(valorNum) || valorNum <= 0) { alert('Valor inválido.'); return; }
+                    if (editingZonaId) setZonasValor(prev => prev.map(z => z.id === editingZonaId ? { ...z, coords: currentZona, valor: valorNum } : z));
+                    else setZonasValor([...zonasValor, { id: `zona_valor_${Date.now()}`, nome: `Área com Valor ${zonasValor.length + 1}`, coords: currentZona, valor: valorNum }]);
+                    setDrawingMode(null); setCurrentZona([]); setEditingZonaId(null);
+                  }} disabled={currentZona.length < 3} className="px-3 py-1.5 bg-green-600 text-white rounded-lg text-xs font-bold hover:bg-green-700 disabled:opacity-50 transition-colors">Salvar Área com Valor</button>
+                )}
               </>
             ) : (
               <>
                 <button onClick={() => {if(confirm('Tem certeza que deseja apagar TODAS as áreas?')) setZonasRestritas([]);}} disabled={zonasRestritas.length === 0} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center"><Trash2 size={14} className="mr-1"/> Limpar Áreas</button>
-                <button onClick={() => { setIsDrawing(true); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-blue-50 text-blue-600 rounded-lg text-xs font-bold hover:bg-blue-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Nova Área</button>
+                <button onClick={() => { setDrawingMode('restrita'); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Área Restrita</button>
               </>
             )}
           </div>
         </div>
         
-        {isDrawing && <p className="text-xs text-orange-600 font-bold mb-3 animate-pulse">Clique no mapa para adicionar os pontos. Arraste as bolinhas para ajustar. Clique em uma bolinha para ver a opção de remover. No mínimo 3 pontos.</p>}
+        {drawingMode && <p className="text-xs text-orange-600 font-bold mb-3 animate-pulse">Clique no mapa para adicionar os pontos. Arraste as bolinhas para ajustar. Clique em uma bolinha para ver a opção de remover. No mínimo 3 pontos.</p>}
         
-        <div className="border border-gray-200 rounded-xl overflow-hidden relative" style={{ height: 400, zIndex: 0 }}>
+        <div className="border border-gray-200 rounded-xl overflow-hidden relative" style={{ height: 800, zIndex: 0 }}>
           <MapContainer 
             center={lojaCoords ? [lojaCoords.lat, lojaCoords.lng] : [-18.7580961, -44.4333648]} 
             zoom={13} 
@@ -269,15 +294,20 @@ export default function TaxasEntregaManager() {
               </Marker>
             )}
 
-            {isDrawing && <MapClickHandler onClick={(latlng) => setCurrentZona([...currentZona, latlng])} />}
+            {drawingMode && <MapClickHandler onClick={(latlng) => setCurrentZona([...currentZona, latlng])} />}
             
             {zonasRestritas.map(zona => {
               if (editingZonaId === zona.id) return null;
               return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.5, weight: 2 }} />
             })}
+
+            {zonasValor.map(zona => {
+              if (editingZonaId === zona.id) return null;
+              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#22c55e', fillColor: '#86efac', fillOpacity: 0.5, weight: 2 }} />
+            })}
             
             {currentZona.length > 0 && (
-              <Polygon positions={currentZona} pathOptions={{ color: '#f59e0b', dashArray: '5, 5', fillOpacity: 0.2 }} />
+              <Polygon positions={currentZona} pathOptions={{ color: drawingMode === 'restrita' ? '#ef4444' : '#22c55e', dashArray: '5, 5', fillOpacity: 0.2 }} />
             )}
             
             {currentZona.map((pt, idx) => (
@@ -285,7 +315,7 @@ export default function TaxasEntregaManager() {
                 key={idx} 
                 position={pt} 
               draggable={true}
-              icon={L.divIcon({html: '<div style="background:#f59e0b;width:14px;height:14px;border-radius:50%;border:2px solid white;cursor:grab;box-shadow:0 0 5px rgba(0,0,0,0.5);"></div>', className: ''})}
+              icon={L.divIcon({html: `<div style="background:${drawingMode === 'restrita' ? '#ef4444' : '#22c55e'};width:14px;height:14px;border-radius:50%;border:2px solid white;cursor:grab;box-shadow:0 0 5px rgba(0,0,0,0.5);"></div>`, className: ''})}
                 eventHandlers={{
                 dragend: (e) => {
                   const newPos = e.target.getLatLng();
@@ -328,8 +358,8 @@ export default function TaxasEntregaManager() {
               
               {!renamingZonaId && (
                 <div className="flex items-center gap-2 w-full sm:w-auto">
-                  <button onClick={() => { setRenamingZonaId(zona.id); setNomeEdit(zona.nome); }} className="flex-1 sm:flex-none text-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Renomear</button>
-                  <button onClick={() => { setIsDrawing(true); setEditingZonaId(zona.id); setCurrentZona(zona.coords); window.scrollTo({top: 0, behavior: 'smooth'}) }} className="flex-1 sm:flex-none text-center text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Editar Área no Mapa</button>
+                  <button onClick={() => { setRenamingZonaId(zona.id); setNomeEdit(zona.nome); setEditingZonaTipo('restrita'); }} className="flex-1 sm:flex-none text-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Renomear</button>
+                  <button onClick={() => { setDrawingMode('restrita'); setEditingZonaId(zona.id); setCurrentZona(zona.coords); window.scrollTo({top: 0, behavior: 'smooth'}) }} className="flex-1 sm:flex-none text-center text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Editar Área no Mapa</button>
                   <button onClick={() => { if(confirm('Deseja excluir esta área?')) setZonasRestritas(prev => prev.filter(z => z.id !== zona.id)); }} className="flex-1 sm:flex-none text-center text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Excluir</button>
                 </div>
               )}
@@ -338,6 +368,49 @@ export default function TaxasEntregaManager() {
           {zonasRestritas.length === 0 && (
             <p className="text-xs text-gray-400 italic mt-4">Nenhuma zona de não-entrega configurada.</p>
           )}
+        </div>
+      </div>
+
+      {/* Zonas com Valor */}
+      <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center border-b border-gray-100 pb-3 mb-4 gap-4">
+          <h4 className="text-sm font-bold text-gray-700 flex items-center">
+            <DollarSign size={15} className="mr-2 text-green-500" />
+            Zonas de Entrega com Valor Fixo
+          </h4>
+          {!drawingMode && (
+            <div className="flex items-center gap-2 w-full sm:w-auto">
+              <button onClick={() => {if(confirm('Tem certeza que deseja apagar TODAS as áreas com valor?')) setZonasValor([]);}} disabled={zonasValor.length === 0} className="px-3 py-1.5 bg-red-50 text-red-600 rounded-lg text-xs font-bold hover:bg-red-100 disabled:opacity-50 transition-colors flex items-center"><Trash2 size={14} className="mr-1"/> Limpar Áreas</button>
+              <button onClick={() => { setDrawingMode('valor'); setCurrentZona([]); setEditingZonaId(null); }} className="px-3 py-1.5 bg-green-50 text-green-600 rounded-lg text-xs font-bold hover:bg-green-100 transition-colors flex items-center"><Plus size={14} className="mr-1"/> Desenhar Área com Valor</button>
+            </div>
+          )}
+        </div>
+        <div className="space-y-3">
+          {zonasValor.map(zona => (
+            <div key={zona.id} className="flex flex-col sm:flex-row justify-between items-start sm:items-center p-3 border border-gray-200 rounded-lg bg-gray-50 gap-3">
+              {renamingZonaId === zona.id ? (
+                <div className="flex gap-2 w-full sm:w-auto flex-1">
+                  <input type="text" value={nomeEdit} onChange={e => setNomeEdit(e.target.value)} className="p-1.5 border border-gray-300 rounded text-sm w-full outline-none focus:border-blue-500" autoFocus />
+                  <button onClick={() => { setZonasValor(prev => prev.map(z => z.id === zona.id ? { ...z, nome: nomeEdit || z.nome } : z)); setRenamingZonaId(null); }} className="text-green-600 font-bold text-sm bg-green-50 px-2 rounded">Salvar</button>
+                  <button onClick={() => setRenamingZonaId(null)} className="text-gray-500 font-bold text-sm bg-gray-200 px-2 rounded">Cancelar</button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <DollarSign size={16} className="text-green-500" />
+                  <span className="font-bold text-gray-700">{zona.nome}</span>
+                  <span className="text-xs font-black bg-green-100 text-green-700 px-2 py-0.5 rounded-full">R$ {zona.valor.toFixed(2)}</span>
+                </div>
+              )}
+              {!renamingZonaId && (
+                <div className="flex items-center gap-2 w-full sm:w-auto">
+                  <button onClick={() => { setRenamingZonaId(zona.id); setNomeEdit(zona.nome); setEditingZonaTipo('valor'); }} className="flex-1 sm:flex-none text-center text-blue-600 hover:text-blue-800 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Renomear</button>
+                  <button onClick={() => { setDrawingMode('valor'); setEditingZonaId(zona.id); setCurrentZona(zona.coords); window.scrollTo({top: 0, behavior: 'smooth'}) }} className="flex-1 sm:flex-none text-center text-orange-600 hover:text-orange-800 bg-orange-50 hover:bg-orange-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Editar Área no Mapa</button>
+                  <button onClick={() => { if(confirm('Deseja excluir esta área?')) setZonasValor(prev => prev.filter(z => z.id !== zona.id)); }} className="flex-1 sm:flex-none text-center text-red-600 hover:text-red-800 bg-red-50 hover:bg-red-100 px-3 py-1.5 rounded text-xs font-bold transition-colors">Excluir</button>
+                </div>
+              )}
+            </div>
+          ))}
+          {zonasValor.length === 0 && <p className="text-xs text-gray-400 italic mt-4">Nenhuma zona com valor fixo configurada.</p>}
         </div>
       </div>
 

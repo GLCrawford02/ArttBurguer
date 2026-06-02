@@ -39,11 +39,11 @@ const getStateCode = (stateName: string) => {
 };
 
 const isPointInPolygon = (point: [number, number], vs: number[][]) => {
-  let x = point[0], y = point[1];
+  let x = Number(point[0]), y = Number(point[1]);
   let inside = false;
   for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
-    let xi = vs[i][0], yi = vs[i][1];
-    let xj = vs[j][0], yj = vs[j][1];
+    let xi = Number(vs[i][0]), yi = Number(vs[i][1]);
+    let xj = Number(vs[j][0]), yj = Number(vs[j][1]);
     let intersect = ((yi > y) != (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
     if (intersect) inside = !inside;
   }
@@ -112,6 +112,7 @@ export default function DeliveryApp() {
   const [tipoEntregaApp, setTipoEntregaApp] = useState<'delivery' | 'retirada'>('delivery');
   const [taxas, setTaxas] = useState<any[]>([]);
   const [zonasRestritas, setZonasRestritas] = useState<any[]>([]);
+  const [zonasValor, setZonasValor] = useState<any[]>([]);
   const [taxasEntregaConfig, setTaxasEntregaConfig] = useState<any>({ taxas: {}, lojaLat: null, lojaLng: null });
   const [entregasAbertas, setEntregasAbertas] = useState<any[]>([]);
   const [vendasPdv, setVendasPdv] = useState<any[]>([]);
@@ -176,6 +177,9 @@ export default function DeliveryApp() {
         let z = snap.val().zonasRestritas;
         if (z && !Array.isArray(z)) z = Object.values(z);
         setZonasRestritas(z || []);
+        let zv = snap.val().zonasValor;
+        if (zv && !Array.isArray(zv)) zv = Object.values(zv);
+        setZonasValor(zv || []);
         setTaxasEntregaConfig({ taxas: snap.val().taxas || {}, lojaLat: snap.val().loja_lat || null, lojaLng: snap.val().loja_lng || null });
       }
     });
@@ -286,14 +290,34 @@ export default function DeliveryApp() {
   };
 
   const calculateDeliveryFee = (endereco: any) => {
-    if (!endereco || !endereco.lat || !endereco.lng || !taxasEntregaConfig.lojaLat || !taxasEntregaConfig.lojaLng) return null;
-    const dist = getDistanceFromLatLonInKm(taxasEntregaConfig.lojaLat, taxasEntregaConfig.lojaLng, endereco.lat, endereco.lng);
-    const km = Math.ceil(dist);
-    if (km > 20 || !taxasEntregaConfig.taxas[km]) return null;
-    return Number(taxasEntregaConfig.taxas[km]);
+    if (!endereco || !endereco.lat || !endereco.lng) return null;
+
+    // 1. Checa se está em zona com valor fixo (MAIS ESPECÍFICO)
+    const zonaComValor = zonasValor.find(zona => isPointInPolygon([Number(endereco.lat), Number(endereco.lng)], zona.coords || zona));
+    if (zonaComValor) {
+      return Number(zonaComValor.valor);
+    }
+
+    // 2. Se não, checa se está em zona restrita
+    if (zonasRestritas.some(zona => isPointInPolygon([Number(endereco.lat), Number(endereco.lng)], zona.coords || zona))) {
+      return 'restrita';
+    }
+
+    // 3. Calcula por distância (fallback)
+    if (taxasEntregaConfig.lojaLat && taxasEntregaConfig.lojaLng) {
+      const dist = getDistanceFromLatLonInKm(taxasEntregaConfig.lojaLat, taxasEntregaConfig.lojaLng, endereco.lat, endereco.lng);
+      const km = Math.ceil(dist);
+      if (km <= 20 && taxasEntregaConfig.taxas[km] && taxasEntregaConfig.taxas[km] > 0) {
+        return Number(taxasEntregaConfig.taxas[km]);
+      }
+    }
+    
+    // 4. Se não se encaixa em nenhuma regra, é fora da área.
+    return 'restrita';
   };
 
-  const taxaEntrega = tipoEntregaApp === 'delivery' && enderecos[selectedEnderecoIndex] ? calculateDeliveryFee(enderecos[selectedEnderecoIndex]) : 0;
+  const taxaEntregaCalculada = tipoEntregaApp === 'delivery' && enderecos[selectedEnderecoIndex] ? calculateDeliveryFee(enderecos[selectedEnderecoIndex]) : 0;
+  const taxaEntrega = typeof taxaEntregaCalculada === 'number' ? taxaEntregaCalculada : 0;
   const subtotalCarrinho = Object.values(carrinho).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
   const valorTotalCarrinho = subtotalCarrinho + (taxaEntrega || 0);
 
@@ -643,7 +667,8 @@ export default function DeliveryApp() {
   const handleEnviarPedido = async () => {
     if (Object.keys(carrinho).length === 0) return alert('Carrinho vazio.');
     if (!formaPagamento) return alert('Selecione a forma de pagamento.');
-
+    
+    let taxaFinal = taxaEntregaCalculada;
     if (tipoEntregaApp === 'delivery') {
       const enderecoSelecionado = enderecos[selectedEnderecoIndex];
       if (!enderecoSelecionado) return alert('Selecione um endereço de entrega.');
@@ -656,14 +681,20 @@ export default function DeliveryApp() {
         try {
           const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
           const data = await res.json();
-          if (data && data.length > 0) { lat = parseFloat(data[0].lat); lng = parseFloat(data[0].lon); } 
-          else return alert('Não conseguimos localizar o seu endereço no mapa para validar a área de entrega. Por favor, ajuste ou use a localização atual.');
+          if (data && data.length > 0) {
+            lat = parseFloat(data[0].lat);
+            lng = parseFloat(data[0].lon);
+            // Recalcula a taxa com as coordenadas encontradas
+            taxaFinal = calculateDeliveryFee({ ...enderecoSelecionado, lat, lng });
+          } else {
+            return alert('Não conseguimos localizar o seu endereço no mapa para validar a área de entrega. Por favor, ajuste ou use a localização atual.');
+          }
         } catch (e) {
           return alert('Erro ao validar a área de entrega com o mapa.');
         }
       }
 
-      if (zonasRestritas.some(zona => isPointInPolygon([lat, lng], zona.coords || zona))) {
+      if (taxaFinal === 'restrita') {
         return alert('Desculpe, este endereço está em uma área fora da nossa área de entregas. Por favor, escolha a opção "Retirar na loja".');
       }
     }
@@ -716,7 +747,21 @@ export default function DeliveryApp() {
 
     try {
       await set(ref(db, `pedidos_cozinha/${dedupKey}`), pedidoPayload);
-      await set(ref(db, `entregas_abertas/${id}`), { clienteId: cliente!.id, clienteNome: cliente!.nome, clienteTelefone: cliente!.telefone, enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex], isRetirada: tipoEntregaApp === 'retirada', carrinho: novoCarrinho, numeroDiario: numDiario, timestamp: Date.now(), sessaoId, formaPagamentoStr: nomePagamento, statusEntrega: 'Pendente', origem: 'App Cliente' });
+      await set(ref(db, `entregas_abertas/${id}`), { 
+        clienteId: cliente!.id, 
+        clienteNome: cliente!.nome, 
+        clienteTelefone: cliente!.telefone, 
+        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex], 
+        isRetirada: tipoEntregaApp === 'retirada', 
+        carrinho: novoCarrinho, 
+        numeroDiario: numDiario, 
+        timestamp: Date.now(), 
+        sessaoId, 
+        formaPagamentoStr: nomePagamento, 
+        statusEntrega: 'Pendente', 
+        origem: 'App Cliente',
+        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0))
+      });
 
       setCarrinho({});
       setIsCartOpen(false);
@@ -770,7 +815,21 @@ export default function DeliveryApp() {
   );
 
   if (loading) {
-    return <div className="min-h-screen bg-gray-50 flex items-center justify-center font-bold text-gray-500">Carregando cardápio...</div>;
+    return (
+      <div className="min-h-screen bg-orange-500 flex flex-col items-center justify-center p-4" translate="no">
+        <div className="flex flex-col items-center animate-in zoom-in-95 duration-500">
+          <div className="bg-white p-6 rounded-[2rem] shadow-2xl mb-6 relative">
+            <div className="absolute inset-0 bg-white rounded-[2rem] animate-ping opacity-20"></div>
+            <img src={logoImg} alt="ArttBurger" className="h-32 w-auto object-contain relative z-10 animate-pulse" />
+          </div>
+          <h2 className="text-2xl font-black text-white mb-2 drop-shadow-md">ArttBurger</h2>
+          <div className="flex items-center gap-2 text-orange-100 font-bold tracking-wide">
+            <div className="w-4 h-4 border-4 border-orange-200 border-t-white rounded-full animate-spin"></div>
+            Carregando cardápio...
+          </div>
+        </div>
+      </div>
+    );
   }
 
   // TELA DE LOGIN DO CLIENTE
@@ -1410,7 +1469,7 @@ export default function DeliveryApp() {
             <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center mt-3">
               <span className="font-bold text-orange-800 text-sm">Taxa de Entrega</span>
               <span className="font-black text-orange-600">
-                {taxaEntrega === null ? 'A Calcular' : `+ R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`}
+                {taxaEntregaCalculada === null ? 'A Calcular' : taxaEntregaCalculada === 'restrita' ? 'Área Restrita' : `+ R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`}
               </span>
             </div>
           )}

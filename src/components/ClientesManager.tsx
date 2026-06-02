@@ -1,8 +1,11 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
-import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X, User } from 'lucide-react';
+import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X, User, Map } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
 
 export interface Cliente {
   id: string;
@@ -68,7 +71,9 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   const [loading, setLoading] = useState(true);
   const [perfilClienteModal, setPerfilClienteModal] = useState<Cliente | null>(null);
   const [showForm, setShowForm] = useState(false);
+  const [showMap, setShowMap] = useState(false);
 
+  const [showSemCoordenadas, setShowSemCoordenadas] = useState(false);
   const [isSelectionMode, setIsSelectionMode] = useState(false);
   const [selectedClientesIds, setSelectedClientesIds] = useState<string[]>([]);
   const [showBulkCategoryModal, setShowBulkCategoryModal] = useState(false);
@@ -403,6 +408,12 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     normalizeString(c.nome).includes(normalizeString(searchTerm)) ||
     (c.telefone || '').includes(searchTerm) ||
     (c.cpf || '').includes(searchTerm)
+  ).filter(c => {
+    if (showSemCoordenadas) {
+      return !c.lat || !c.lng;
+    }
+    return true;
+  }
   );
 
   const todasCategorias = Array.from(new Set([...clientes.flatMap(c => c.categorias || []), ...categoriasSelecionadas])).sort();
@@ -577,6 +588,22 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                 </div>
               </div>
               <p className="text-[10px] text-gray-400">Deixe em branco para buscar automaticamente pelo endereço. Para pegar as coordenadas: abra o Google Maps, clique com o botão direito no local exato e copie os números.</p>
+              <button
+                type="button"
+                onClick={() => {
+                  if (latInput && lngInput) {
+                    window.open(`https://www.google.com/maps?layer=c&cbll=${latInput},${lngInput}`, '_blank');
+                  } else {
+                    const enderecoCompleto = `${logradouro}, ${numero}, ${bairro}, ${cidade}, ${uf}`;
+                    window.open(`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(enderecoCompleto)}`, '_blank');
+                  }
+                }}
+                disabled={!logradouro && !cidade && (!latInput || !lngInput)}
+                className="w-full text-center text-xs font-bold bg-white border border-gray-200 text-gray-700 hover:bg-gray-50 py-2 rounded-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <MapPin size={14} />
+                {latInput && lngInput ? 'Conferir no Street View' : 'Buscar no Google Maps'}
+              </button>
             </div>
 
             {/* Avisos de geocoding */}
@@ -585,7 +612,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                 <AlertTriangle size={15} className="text-yellow-600 mr-2 shrink-0 mt-0.5"/>
                 <div>
                   <p className="text-xs text-yellow-800 font-bold">Endereço exato não encontrado — localização aproximada.</p>
-                  <p className="text-xs text-yellow-700 mt-0.5">As coordenadas foram preenchidas automaticamente com o local mais próximo encontrado. Você pode corrigi-las manualmente acima ou clicar em <strong>Confirmar e Salvar</strong> para aceitar.</p>
+                  <p className="text-xs text-yellow-700 mt-0.5">As coordenadas foram preenchidas com o local mais próximo. Corrija manualmente ou clique em <strong>Confirmar e Salvar</strong> para aceitar.</p>
                 </div>
               </div>
             )}
@@ -594,7 +621,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                 <AlertTriangle size={15} className="text-red-500 mr-2 shrink-0 mt-0.5"/>
                 <div>
                   <p className="text-xs text-red-700 font-bold">Nenhuma localização encontrada para este endereço.</p>
-                  <p className="text-xs text-red-600 mt-0.5">Insira as coordenadas manualmente acima, ou clique em <strong>Salvar sem Localização</strong> para continuar.</p>
+                  <p className="text-xs text-red-600 mt-0.5">Insira as coordenadas manualmente ou clique em <strong>Salvar sem Localização</strong>.</p>
                 </div>
               </div>
             )}
@@ -735,6 +762,17 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={18} />
             <input type="text" placeholder="Buscar por nome ou telefone..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="pl-10 pr-4 py-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-indigo-500 text-sm w-full" />
           </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setShowSemCoordenadas(!showSemCoordenadas)} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 ${showSemCoordenadas ? 'bg-yellow-100 text-yellow-700 border border-yellow-200' : 'bg-gray-100 text-gray-600 border border-gray-200'}`}>
+              <MapPin size={16} />
+              {showSemCoordenadas
+                ? `Mostrando ${filteredClientes.length} sem GPS`
+                : 'Filtrar sem GPS'}
+            </button>
+            <button onClick={() => setShowMap(true)} className="px-4 py-2 rounded-lg font-bold text-sm transition-colors flex items-center gap-2 bg-indigo-100 text-indigo-700 border border-indigo-200 hover:bg-indigo-200">
+              <Map size={16} /> Ver no Mapa
+            </button>
+          </div>
           {!isSelectionMode && canEdit && (
             <button onClick={() => setIsSelectionMode(true)} className="bg-gray-100 text-gray-700 px-4 py-2 rounded-lg font-bold hover:bg-gray-200 transition-colors shadow-sm text-sm">
               Selecionar Múltiplos
@@ -742,6 +780,25 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
           )}
         </div>
 
+        {showMap ? (
+          <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 animate-in fade-in">
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-bold text-gray-800 flex items-center"><Map size={20} className="mr-2 text-indigo-600"/> Mapa de Clientes ({clientes.filter(c => c.lat && c.lng).length})</h3>
+              <button onClick={() => setShowMap(false)} className="px-4 py-2 bg-gray-100 text-gray-700 font-bold text-sm rounded-lg hover:bg-gray-200">Voltar para Lista</button>
+            </div>
+            <div className="h-[600px] rounded-lg overflow-hidden border border-gray-200">
+              <MapContainer center={[-18.758, -44.433]} zoom={13} style={{ height: '100%', width: '100%' }}>
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+                {clientes.filter(c => c.lat && c.lng).map(c => (
+                  <Marker key={c.id} position={[c.lat!, c.lng!]}>
+                    <Popup>{c.nome}</Popup>
+                  </Marker>
+                ))}
+              </MapContainer>
+            </div>
+          </div>
+        ) : (
+          <>
         {isSelectionMode && (
           <div className="bg-indigo-50 border border-indigo-200 p-4 rounded-xl flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
             <span className="font-bold text-indigo-800">{selectedClientesIds.length} clientes selecionados</span>
@@ -805,6 +862,8 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
             </div>
           ))}
         </div>
+        </>
+        )}
       </div>
 
       {perfilClienteModal && (
