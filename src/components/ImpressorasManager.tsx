@@ -88,23 +88,36 @@ export default function ImpressorasManager() {
       showToast('Os testes diretos funcionam melhor no app Windows (.exe).', 'error');
       return;
     }
+
+    const isIp = /^[0-9\.]+$/.test(ipOuNome);
     
     try {
       const electron = (window as any).electronAPI;
-      if (electron && electron.imprimirTicketIP) {
-        await electron.imprimirTicketIP(
-          ipOuNome, 
-          [{ qtd: 1, nome: '==== TESTE DE COMUNICACAO ====' }, { qtd: 1, nome: 'IMPRESSORA OK' }], 
-          dest === 'cozinha' ? 'COZINHA (TESTE)' : 'BALCÃO (TESTE)', 
-          'TESTE-001', 
-          'Sistema'
-        );
+      if (electron) {
+        if (isIp && electron.imprimirTicketIP) {
+          await electron.imprimirTicketIP(
+            ipOuNome, 
+            [{ qtd: 1, nome: '==== TESTE DE COMUNICACAO ====' }, { qtd: 1, nome: 'IMPRESSORA OK' }], 
+            dest === 'cozinha' ? 'COZINHA (TESTE)' : 'BALCÃO (TESTE)', 
+            'TESTE-001', 
+            'Sistema'
+          );
+        } else if (!isIp && electron.imprimir) {
+          const html = `<!DOCTYPE html><html><body style="font-family: monospace; text-align: center; width: 74mm; margin: 0 auto;">
+            <h2>*** ${dest === 'cozinha' ? 'COZINHA' : 'BALCÃO'} (TESTE) ***</h2>
+            <hr style="border: 1px dashed black;" />
+            <p>==== TESTE DE COMUNICACAO ====</p>
+            <p>IMPRESSORA OK</p>
+            <hr style="border: 1px dashed black;" />
+          </body></html>`;
+          await electron.imprimir(ipOuNome, html);
+        }
         showToast(`Teste enviado para ${ipOuNome}!`, 'success');
       } else {
         showToast('Integração de impressão não encontrada.', 'error');
       }
     } catch (err) {
-      showToast(`Falha ao testar a impressora ${dest}. Verifique a conexão.`, 'error');
+      showToast(`Falha ao testar a impressora ${dest}. Verifique a conexão/nome.`, 'error');
     }
   };
 

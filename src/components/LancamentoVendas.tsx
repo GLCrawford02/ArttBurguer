@@ -856,7 +856,9 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     if (itens.length === 0) return;
 
     const electron = (window as any).electronAPI;
-    if (electron && printerIp) {
+    const isIp = printerIp ? /^[0-9\.]+$/.test(printerIp) : false;
+
+    if (electron && printerIp && isIp) {
       try {
         await electron.imprimirTicketIP(printerIp, itens, destLabel, identificador, lancadoPor);
         return;
@@ -866,7 +868,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       }
     }
 
-    if (printerIp) {
+    if (printerIp && isIp) {
       await queueImpressao({
         type: 'ticket',
         printerIp,
@@ -935,6 +937,16 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 <div class="sep"></div>
 <div class="footer">Data ${dataStr}  Hora: ${horaStr}</div>
 </body></html>`;
+
+    if (electron && electron.imprimir && printerIp && !isIp) {
+      try {
+        await electron.imprimir(printerIp, html);
+        return;
+      } catch (e: any) {
+        console.error('Erro ao imprimir via USB:', e);
+        showToast('Erro na impressão USB. Verifique a impressora.', 'error');
+      }
+    }
 
     if (!electron) {
       const win = window.open('', '_blank');
@@ -1390,7 +1402,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
     // Electron + IP configurado: imprime ESC/POS direto na impressora do balcão
     const electron = (window as any).electronAPI;
-    if (electron && impressorasIPs.balcao) {
+    const isIp = impressorasIPs.balcao ? /^[0-9\.]+$/.test(impressorasIPs.balcao) : false;
+
+    if (electron && impressorasIPs.balcao && isIp) {
       try {
         await electron.imprimirReciboIP(impressorasIPs.balcao, {
           itens: viewComanda.itens || [],
@@ -1409,7 +1423,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       }
     }
 
-    if (impressorasIPs.balcao) {
+    if (impressorasIPs.balcao && isIp) {
       await queueImpressao({
         type: 'recibo',
         printerIp: impressorasIPs.balcao,
