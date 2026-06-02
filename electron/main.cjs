@@ -283,7 +283,12 @@ ipcMain.handle('imprimir-ticket', async (_event, { printerName, html }) => {
     printWin.webContents.once('did-finish-load', () => {
       setTimeout(() => {
         printWin.webContents.print(
-          { silent: true, printBackground: true, deviceName: printerName },
+          { 
+            silent: true, 
+            printBackground: true, 
+            deviceName: printerName,
+            margins: { marginType: 'none' }
+          },
           (success, errorType) => {
             printWin.destroy();
             if (success) resolve({ ok: true });
