@@ -911,7 +911,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 <style>
   @page { margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
-  body { font-family: 'Courier New', monospace; font-size: 13px; width: 100%; margin: 0; padding: 4mm 8mm 4mm 4mm; line-height: 1.5; color: black; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; width: 72mm; margin: 0 auto; padding: 4mm 0; line-height: 1.5; color: black; }
   .dest { font-size: 22px; font-weight: bold; letter-spacing: 3px; text-align: center; padding: 4px 0; }
   .sep { border: none; border-top: 1px solid #000; margin: 5px 0; }
   .ident { font-size: 14px; font-weight: bold; margin: 2px 0; }
@@ -1455,7 +1455,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   <style>
     @page { margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 100%; margin: 0; padding: 4mm 8mm 4mm 4mm; line-height: 1.5; color: black; }
+    body { font-family: 'Courier New', Courier, monospace; font-size: 12px; width: 72mm; margin: 0 auto; padding: 4mm 0; line-height: 1.5; color: black; }
     .center { text-align: center; }
     .store-name { font-size: 14px; font-weight: bold; margin-bottom: 2px; }
     .cnpj { font-size: 11px; margin-bottom: 2px; }
@@ -1477,7 +1477,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     .no-fiscal { text-align: center; font-size: 11px; font-weight: bold; margin: 2px 0; }
     .data-hora { text-align: center; font-size: 11px; margin: 2px 0; }
     .footer-msg { text-align: center; font-size: 11px; margin: 1px 0; }
-    @media print { @page { margin: 0; } body { width: 100%; } }
+    @media print { @page { margin: 0; } body { width: 72mm; } }
   </style>
 </head>
 <body>
