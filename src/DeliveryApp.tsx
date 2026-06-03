@@ -1,8 +1,20 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, push, set, update, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from './firebase';
-import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart } from 'lucide-react';
+import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart, WifiOff, RefreshCw, Download } from 'lucide-react';
 import logoImg from './assets/logo.png';
+
+export const APP_CLIENTE_VERSION = '1.2.13';
+
+const isVersionOutdated = (server: string, local: string) => {
+  const sv = server.split('.').map(Number);
+  const lv = local.split('.').map(Number);
+  for (let i = 0; i < 3; i++) {
+    if ((sv[i] || 0) > (lv[i] || 0)) return true;
+    if ((sv[i] || 0) < (lv[i] || 0)) return false;
+  }
+  return false;
+};
 
 interface Cliente {
   id: string;
@@ -55,6 +67,10 @@ export default function DeliveryApp() {
     const saved = localStorage.getItem('arttburger_cliente_session');
     return saved ? JSON.parse(saved) : null;
   });
+
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [updateConfig, setUpdateConfig] = useState<{ versao: string; linkDownload: string; forcar: boolean; mensagem: string } | null>(null);
+  const [updateDismissed, setUpdateDismissed] = useState(false);
 
   const [otpTelefone, setOtpTelefone] = useState('');
   const [otpCodigo, setOtpCodigo] = useState('');
@@ -128,6 +144,41 @@ export default function DeliveryApp() {
   const [editLat, setEditLat] = useState<number | null>(null);
   const [editLng, setEditLng] = useState<number | null>(null);
   const [isFetchingEditLocation, setIsFetchingEditLocation] = useState(false);
+
+  // Detecção offline
+  useEffect(() => {
+    const onOnline = () => setIsOnline(true);
+    const onOffline = () => setIsOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
+  }, []);
+
+  // Permissões (localização + notificações)
+  useEffect(() => {
+    const requestPerms = async () => {
+      try {
+        const { Geolocation } = await import('@capacitor/geolocation');
+        await Geolocation.requestPermissions();
+      } catch {
+        try { navigator.geolocation.getCurrentPosition(() => {}); } catch {}
+      }
+      try {
+        const { PushNotifications } = await import('@capacitor/push-notifications');
+        const result = await PushNotifications.requestPermissions();
+        if (result.receive === 'granted') PushNotifications.register();
+      } catch {
+        try { await (Notification as any).requestPermission(); } catch {}
+      }
+    };
+    requestPerms();
+  }, []);
+
+  // Verificar atualização do app cliente
+  useEffect(() => {
+    const r = ref(db, 'configuracoes/app_update_cliente');
+    return onValue(r, snap => { if (snap.val()) setUpdateConfig(snap.val()); });
+  }, []);
 
   useEffect(() => {
     document.title = 'ArttBurger - Pedir Delivery';
@@ -781,20 +832,71 @@ export default function DeliveryApp() {
     );
   }
 
+  // TELA SEM INTERNET
+  if (!isOnline) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8 text-center" translate="no">
+        <div className="bg-white rounded-3xl p-10 max-w-sm w-full shadow-2xl flex flex-col items-center gap-6">
+          <img src={logoImg} alt="ArttBurger" className="h-24 w-auto object-contain" />
+          <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center">
+            <WifiOff size={32} className="text-red-500" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-gray-800 mb-2">Sem conexão com a internet</h2>
+            <p className="text-sm text-gray-500 leading-relaxed">Conecte-se ao Wi-Fi ou ative seus dados móveis para continuar pedindo.</p>
+          </div>
+          <div className="w-full bg-orange-50 border border-orange-200 rounded-2xl px-4 py-3 text-xs text-orange-700 font-medium">
+            ⚠️ Pedidos sem internet não chegam ao restaurante. Não faça pedidos nessa situação.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // TELA DE ATUALIZAÇÃO OBRIGATÓRIA
+  const needsUpdate = updateConfig && isVersionOutdated(updateConfig.versao, APP_CLIENTE_VERSION);
+  if (needsUpdate && updateConfig!.forcar) {
+    return (
+      <div className="min-h-screen bg-gray-900 flex flex-col items-center justify-center p-8 text-center" translate="no">
+        <div className="bg-white rounded-3xl p-10 max-w-sm w-full shadow-2xl flex flex-col items-center gap-6">
+          <img src={logoImg} alt="ArttBurger" className="h-24 w-auto object-contain" />
+          <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center">
+            <RefreshCw size={32} className="text-indigo-500" />
+          </div>
+          <div>
+            <h2 className="text-xl font-black text-gray-800 mb-2">Nova versão disponível</h2>
+            <p className="text-sm text-gray-500 leading-relaxed">
+              {updateConfig!.mensagem || 'Uma atualização obrigatória está disponível. Baixe a nova versão para continuar.'}
+            </p>
+            <p className="text-xs text-gray-400 mt-2">Versão atual: {APP_CLIENTE_VERSION} → Nova: {updateConfig!.versao}</p>
+          </div>
+          {updateConfig!.linkDownload && (
+            <a href={updateConfig!.linkDownload} target="_blank" rel="noreferrer"
+              className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg">
+              <Download size={20} /> Baixar Atualização
+            </a>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   // TELA DE LOGIN DO CLIENTE
   if (!cliente) {
     return (
-      <div className="min-h-screen bg-orange-500 flex flex-col items-center justify-center p-4" translate="no">
-        <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center animate-in zoom-in-95 duration-300">
-          <img src={logoImg} alt="ArttBurger" className="h-32 w-auto object-contain mb-6" />
-          <h2 className="text-2xl font-black text-gray-800 mb-2">Delivery ArttBurger</h2>
+      <div className="min-h-screen bg-gray-900 flex items-center justify-center p-4" translate="no">
+        <div className="bg-white rounded-2xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center animate-in zoom-in-95 duration-300">
+          <div className="flex justify-center mb-6">
+            <img src={logoImg} alt="ArttBurger" className="h-36 w-auto object-contain" />
+          </div>
+          <h2 className="text-2xl font-black text-gray-800 mb-1 text-center">ArttBurger Delivery</h2>
 
           {otpStep === 'telefone' && (
-            <form onSubmit={handleEnviarOtp} className="w-full space-y-4 mt-4">
+            <form onSubmit={handleEnviarOtp} className="w-full space-y-4 mt-5">
               <p className="text-sm text-gray-500 text-center">Informe seu WhatsApp para receber o código de acesso.</p>
               <div className="relative">
                 <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="tel" required value={otpTelefone} onChange={e => setOtpTelefone(formatPhone(e.target.value))} placeholder="(00) 00000-0000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
+                <input type="tel" required value={otpTelefone} onChange={e => setOtpTelefone(formatPhone(e.target.value))} placeholder="(00) 00000-0000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700 text-lg" />
               </div>
               {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
               <button type="submit" disabled={otpLoading} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
@@ -804,14 +906,14 @@ export default function DeliveryApp() {
           )}
 
           {otpStep === 'codigo' && (
-            <form onSubmit={handleVerificarOtp} className="w-full space-y-4 mt-4">
+            <form onSubmit={handleVerificarOtp} className="w-full space-y-4 mt-5">
               <div className="text-center">
-                <p className="text-gray-600 text-sm">Código enviado para</p>
-                <p className="font-bold text-gray-800">{otpTelefone}</p>
+                <p className="text-gray-500 text-sm">Código enviado para</p>
+                <p className="font-black text-gray-800 text-lg">{otpTelefone}</p>
               </div>
               <div className="relative">
                 <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="number" required value={otpCodigo} onChange={e => setOtpCodigo(e.target.value.slice(0, 6))} placeholder="000000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700 tracking-widest text-center text-2xl" />
+                <input type="number" required value={otpCodigo} onChange={e => setOtpCodigo(e.target.value.slice(0, 6))} placeholder="000000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700 tracking-widest text-center text-3xl" />
               </div>
               {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
               <button type="submit" disabled={otpLoading || otpCodigo.length !== 6} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
@@ -824,11 +926,11 @@ export default function DeliveryApp() {
           )}
 
           {otpStep === 'nome' && (
-            <form onSubmit={handleCompletarCadastro} className="w-full space-y-4 mt-4">
+            <form onSubmit={handleCompletarCadastro} className="w-full space-y-4 mt-5">
               <p className="text-sm text-gray-500 text-center">Bem-vindo! Como podemos te chamar?</p>
               <div className="relative">
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="text" required value={otpNome} onChange={e => setOtpNome(e.target.value)} placeholder="Seu nome completo" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
+                <input type="text" required autoFocus value={otpNome} onChange={e => setOtpNome(e.target.value)} placeholder="Seu nome completo" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
               </div>
               {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
               <button type="submit" disabled={otpLoading} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
@@ -837,7 +939,7 @@ export default function DeliveryApp() {
             </form>
           )}
 
-          <button type="button" onClick={handleForgotPassword} className="text-gray-400 text-sm hover:underline mt-6">Precisa de ajuda?</button>
+          <button type="button" onClick={handleForgotPassword} className="text-gray-400 text-xs hover:underline mt-6">Precisa de ajuda?</button>
         </div>
       </div>
     );
@@ -846,6 +948,24 @@ export default function DeliveryApp() {
   // TELA DE CARDÁPIO
   return (
     <>
+      {/* Banner de atualização disponível (não obrigatória) */}
+      {needsUpdate && !updateConfig!.forcar && !updateDismissed && updateConfig!.linkDownload && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-indigo-600 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
+          <div className="flex items-center gap-2 text-sm font-medium min-w-0">
+            <RefreshCw size={16} className="shrink-0" />
+            <span className="truncate">Nova versão {updateConfig!.versao} disponível!</span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <a href={updateConfig!.linkDownload} target="_blank" rel="noreferrer"
+              className="bg-white text-indigo-700 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1">
+              <Download size={12} /> Atualizar
+            </a>
+            <button onClick={() => setUpdateDismissed(true)} className="text-indigo-200 hover:text-white">
+              <XIcon size={18} />
+            </button>
+          </div>
+        </div>
+      )}
       <div className="min-h-screen bg-animated-gradient flex flex-col font-sans pb-24" translate="no">
       <style>{`
         @keyframes gradientMove {

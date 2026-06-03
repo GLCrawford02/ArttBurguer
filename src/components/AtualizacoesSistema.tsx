@@ -3,9 +3,11 @@ import { ref, onValue, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Rocket, Star, CheckCircle, Flame, Map, Zap, TrendingUp, Package, Calculator, Users, Shield, Smartphone, Save, AlertTriangle, Navigation, Printer, ScanFace } from 'lucide-react';
 import { APP_VERSION } from '../App';
+import { APP_CLIENTE_VERSION } from '../DeliveryApp';
 
 export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: any }) {
   const [appUpdate, setAppUpdate] = useState({ versao: APP_VERSION, linkDownload: '', forcar: false, mensagem: '' });
+  const [appUpdateCliente, setAppUpdateCliente] = useState({ versao: APP_CLIENTE_VERSION, linkDownload: '', forcar: false, mensagem: '' });
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
 
   const canEdit = temPermissao ? temPermissao('atualizacoes_sistema', 'aba_configuracoes', 'editar') : true;
@@ -17,10 +19,25 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
     });
   }, []);
 
+  useEffect(() => {
+    const r = ref(db, 'configuracoes/app_update_cliente');
+    return onValue(r, snap => { if (snap.val()) setAppUpdateCliente(snap.val()); });
+  }, []);
+
   const handleSaveUpdate = async () => {
     try {
       await update(ref(db, 'configuracoes/app_update'), appUpdate);
       setToast({ message: 'Alerta de atualização configurado com sucesso!', type: 'success' });
+      setTimeout(() => setToast(null), 3000);
+    } catch (err) {
+      setToast({ message: 'Erro ao salvar configurações.', type: 'error' });
+    }
+  };
+
+  const handleSaveUpdateCliente = async () => {
+    try {
+      await update(ref(db, 'configuracoes/app_update_cliente'), appUpdateCliente);
+      setToast({ message: 'Configurações do app de clientes salvas!', type: 'success' });
       setTimeout(() => setToast(null), 3000);
     } catch (err) {
       setToast({ message: 'Erro ao salvar configurações.', type: 'error' });
@@ -335,6 +352,43 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
           <div className="flex justify-end pt-3 border-t border-gray-100 mt-4">
             <button onClick={handleSaveUpdate} className="bg-indigo-600 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-indigo-700 transition-colors shadow-sm flex items-center">
               <Save size={18} className="mr-2"/> Ativar Alerta de Versão
+            </button>
+          </div>
+        </div>
+      )}
+
+      {canEdit && (
+        <div className="bg-white p-6 rounded-xl shadow-sm border border-orange-100 space-y-4">
+          <div className="flex items-center mb-2">
+            <Smartphone className="text-orange-500 mr-2" size={24}/>
+            <div>
+              <h3 className="text-lg font-bold text-gray-800">App de Clientes — Atualização</h3>
+              <p className="text-sm text-gray-500">Controle a versão do APK de delivery dos clientes. Se a versão abaixo for maior que a do celular do cliente, ele verá o aviso.</p>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div>
+              <label className="text-xs font-bold text-gray-500 uppercase">Versão Atual</label>
+              <input type="text" value={appUpdateCliente.versao} onChange={e => setAppUpdateCliente({...appUpdateCliente, versao: e.target.value})} placeholder={`Ex: ${APP_CLIENTE_VERSION}`} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 font-mono font-bold" />
+            </div>
+            <div className="lg:col-span-2">
+              <label className="text-xs font-bold text-gray-500 uppercase">Link do APK (Drive, Firebase Storage, etc)</label>
+              <input type="text" value={appUpdateCliente.linkDownload} onChange={e => setAppUpdateCliente({...appUpdateCliente, linkDownload: e.target.value})} placeholder="https://link-do-apk-clientes..." className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm" />
+            </div>
+            <div className="flex items-center pt-5">
+              <label className="flex items-center space-x-2 cursor-pointer bg-red-50 p-2.5 rounded-lg border border-red-100 w-full">
+                <input type="checkbox" checked={appUpdateCliente.forcar} onChange={e => setAppUpdateCliente({...appUpdateCliente, forcar: e.target.checked})} className="rounded text-red-600 focus:ring-red-500 w-4 h-4 cursor-pointer" />
+                <span className="text-sm font-bold text-red-700">Obrigatório (Trava Tela)</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs font-bold text-gray-500 uppercase">Mensagem para o cliente (Opcional)</label>
+            <input type="text" value={appUpdateCliente.mensagem} onChange={e => setAppUpdateCliente({...appUpdateCliente, mensagem: e.target.value})} placeholder="Ex: Melhorias no cardápio e correção no pedido!" className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm" />
+          </div>
+          <div className="flex justify-end pt-3 border-t border-gray-100 mt-4">
+            <button onClick={handleSaveUpdateCliente} className="bg-orange-500 text-white px-6 py-2.5 rounded-lg font-bold hover:bg-orange-600 transition-colors shadow-sm flex items-center">
+              <Save size={18} className="mr-2"/> Salvar Config. do App Clientes
             </button>
           </div>
         </div>
