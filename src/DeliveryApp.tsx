@@ -65,8 +65,13 @@ const isPointInPolygon = (point: [number, number], vs: number[][]) => {
 
 export default function DeliveryApp() {
   const [cliente, setCliente] = useState<Cliente | null>(() => {
-    const saved = localStorage.getItem('arttburger_cliente_session');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      const saved = localStorage.getItem('arttburger_cliente_session');
+      return saved ? JSON.parse(saved) : null;
+    } catch {
+      localStorage.removeItem('arttburger_cliente_session');
+      return null;
+    }
   });
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
@@ -1143,7 +1148,7 @@ export default function DeliveryApp() {
                  {carrosselImagens.length > 0 && (
                    <div className="relative w-full aspect-square rounded-3xl overflow-hidden shadow-sm border border-gray-100">
                      {carrosselImagens.map((img, idx) => (
-                       <img key={idx} src={img} className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${idx === currentImgIndex ? 'opacity-100' : 'opacity-0'}`} />
+                       <img key={idx} src={img} onError={e => { (e.target as HTMLImageElement).style.display = 'none'; }} className={`absolute inset-0 w-full h-full object-cover transition-opacity duration-1000 ${idx === currentImgIndex ? 'opacity-100' : 'opacity-0'}`} />
                      ))}
                    </div>
                  )}
