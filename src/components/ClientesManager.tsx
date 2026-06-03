@@ -3,6 +3,7 @@ import { ref, onValue, push, set, update, remove } from 'firebase/database';
 import { db } from '../firebase';
 import { Users, MapPin, Phone, Search, Save, Trash2, Pencil, CheckCircle, AlertTriangle, ChevronDown, ChevronUp, ShoppingBag, Heart, Plus, X, User, Map } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { logInfo, logError, startTimer } from '../utils/logger';
 import { MapContainer, TileLayer, Marker, Popup } from 'react-leaflet';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -323,19 +324,22 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       ...coordsData,
     };
 
+    const timer = startTimer();
     try {
       if (editId) {
         await update(ref(db, `clientes/${editId}`), clienteData);
+        logInfo('Clientes', 'Cliente atualizado', { nome, telefone, cidade }, timer());
         showToast('Cliente atualizado com sucesso!', 'success');
         setEditId(null);
       } else {
         const pinAleatorio = Math.floor(100000 + Math.random() * 900000).toString();
-        
+
         await set(push(ref(db, 'clientes')), {
           ...clienteData,
           pin: pinAleatorio,
           dataCadastro: Date.now()
         });
+        logInfo('Clientes', 'Novo cliente cadastrado', { nome, telefone, cidade }, timer());
         
         // Enviar mensagem de boas vindas / fidelidade se tiver telefone
         if (telefone) {
@@ -357,6 +361,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
       resetForm();
       setShowForm(false);
     } catch (error: any) {
+      logError('Clientes', 'Erro ao salvar cliente', { nome, telefone, erro: error.message }, timer());
       console.error('Erro ao salvar cliente:', error);
       showToast('Erro ao salvar cliente: ' + (error.message || 'Erro desconhecido'), 'error');
     }

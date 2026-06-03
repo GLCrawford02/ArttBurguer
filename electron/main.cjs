@@ -93,9 +93,11 @@ function buildEscPosTicket({ items, destLabel, identificador, lancadoPor }) {
   const b  = (...bytes) => buf.push(Buffer.from(bytes));
   const t  = (s)        => buf.push(Buffer.from(String(s), 'utf8'));
   const nl = ()         => buf.push(Buffer.from([0x0a]));
-  const SEP = '-'.repeat(40);
+  const SEP = '-'.repeat(42);
 
-  b(0x1b, 0x40);               // ESC @ — inicializa
+  b(0x1b, 0x53);               // ESC S — força modo padrão (sai do modo página se ativo)
+  b(0x1b, 0x40);               // ESC @ — inicializa / reseta
+  b(0x1d, 0x4c, 0x00, 0x00);  // GS L 0 — margem esquerda = 0
   b(0x1b, 0x61, 0x01);         // centralizado
   b(0x1d, 0x21, 0x11);         // fonte 2x (largura + altura)
   b(0x1b, 0x45, 0x01);         // negrito

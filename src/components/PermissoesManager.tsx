@@ -70,10 +70,13 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
       ]
     },
     {
-      id: 'aba_tarefas', nome: 'Tarefas',
+      id: 'aba_tarefas', nome: 'Comunicação',
       modulos: [
+        { id: 'mensageiro', nome: 'Mensageiro Interno (WhatsApp)', admin: false },
+        { id: 'fila_mensagens', nome: 'Fila de Envio (Monitorar e Gerenciar)', admin: true },
         { id: 'tarefas', nome: 'Gerenciamento de Tarefas', admin: true },
-        { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal', admin: true }
+        { id: 'bloco_notas', nome: 'Bloco de Notas Pessoal', admin: true },
+        { id: 'marketing', nome: 'Marketing e Cupons de Desconto', admin: true }
       ]
     },
     {
@@ -89,12 +92,6 @@ export default function PermissoesManager({ currentUser }: { currentUser?: any }
         { id: 'fechamento_caixa', nome: 'Fechamento do Dia', admin: true },
         { id: 'dashboard_financeiro', nome: 'Dashboard de Receitas', admin: true },
         { id: 'relatorios', nome: 'Relatórios de Movimentações', admin: true }
-      ]
-    },
-    {
-      id: 'aba_marketing', nome: 'Marketing',
-      modulos: [
-        { id: 'marketing', nome: 'Marketing e Cupons de Desconto', admin: true }
       ]
     },
     {

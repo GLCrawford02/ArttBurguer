@@ -4,6 +4,7 @@ import { db } from '../firebase';
 import { Insumo, Funcionario } from '../types';
 import { ArrowRight, Search, CheckCircle, AlertTriangle, History, User, Clock, Package, Scan } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { logInfo, logWarn, logError, startTimer } from '../utils/logger';
 
 export default function TransferenciaManager({ currentUser: _currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -221,7 +222,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
 
   async function handleBulkPinConfirm() {
     const func = funcionarios.find(f => String(f.pin) === bulkPin);
-    if (!func) { showToast('PIN inválido!', 'error'); return; }
+    if (!func) {
+      showToast('PIN inválido!', 'error');
+      logWarn('Transferencia', 'PIN inválido no lote de transferências');
+      return;
+    }
+    logInfo('Transferencia', 'PIN autorizado para lote', { operador: func.nome, itens: Object.keys(selecionados).length });
     setBulkPinModal(false);
     setBulkPin('');
     for (const [id, tipo] of Object.entries(selecionados)) {
@@ -244,6 +250,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     const grandParent = parent ? findParent(parent) : null; // ex: Caixa
 
     setLoadingIds(prev => new Set(prev).add(insumo.id));
+    const timerVar = startTimer();
     try {
       if (ownStock >= qty) {
         // Sem container pai — debita do próprio estacionado
@@ -325,10 +332,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
         funcionarioNome: funcionario.nome,
         timestamp: Date.now(),
       });
+      logInfo('Transferencia', 'Transferência variável concluída', { operador: funcionario.nome, insumo: insumo.nome, qty }, timerVar());
 
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
       setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
+      logError('Transferencia', 'Erro na transferência variável', { insumo: insumo.nome, qty, err: String(err) }, timerVar());
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
     } finally {
@@ -375,6 +384,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     }
 
     setLoadingIds(prev => new Set(prev).add(insumo.id));
+    const timerCont = startTimer();
     try {
       // 1. Abater do container pai (auto-quebra)
       if (autoBreakCaixas > 0 && parent) {
@@ -422,10 +432,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       const msgOk = autoBreakCaixas > 0
         ? `${autoBreakCaixas}× ${parent!.nome} aberta(s). ${qty} ${insumo.unidade} → +${unitsToAdd} ${baseUnit.unidade} no rotativo de "${baseUnit.nome}".`
         : `${qty} ${insumo.unidade} de ${insumo.nome} → +${unitsToAdd} ${baseUnit.unidade} no rotativo de "${baseUnit.nome}".\nVeja na aba Rotativo do Balanço.`;
+      logInfo('Transferencia', 'Transferência (container) concluída', { operador: funcionario.nome, insumo: insumo.nome, qty, unitsToAdd, autoBreakCaixas }, timerCont());
       showToast(msgOk);
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
       setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
+      logError('Transferencia', 'Erro na transferência (container)', { insumo: insumo.nome, qty, err: String(err) }, timerCont());
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
     } finally {
@@ -442,6 +454,7 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
       return;
     }
     setLoadingIds(prev => new Set(prev).add(insumo.id));
+    const timerSimp = startTimer();
     try {
       await runTransaction(ref(db, `insumos/${insumo.id}`), data => {
         if (data) {
@@ -464,10 +477,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
         funcionarioNome: funcionario.nome,
         timestamp: Date.now(),
       });
+      logInfo('Transferencia', 'Transferência simples concluída', { operador: funcionario.nome, insumo: insumo.nome, qty }, timerSimp());
       showToast(`+${qty} ${insumo.unidade} adicionadas ao rotativo de ${insumo.nome}.`);
       setQuantities(prev => ({ ...prev, [insumo.id]: '' }));
       setSelecionados(prev => { const n = { ...prev }; delete n[insumo.id]; return n; });
     } catch (err) {
+      logError('Transferencia', 'Erro na transferência simples', { insumo: insumo.nome, qty, err: String(err) }, timerSimp());
       console.error(err);
       showToast('Erro ao transferir. Tente novamente.', 'error');
     } finally {
@@ -477,7 +492,12 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
 
   function handlePinConfirm() {
     const func = funcionarios.find(f => String(f.pin) === pin);
-    if (!func) { showToast('PIN inválido!', 'error'); return; }
+    if (!func) {
+      showToast('PIN inválido!', 'error');
+      logWarn('Transferencia', 'PIN inválido digitado na transferência', { insumo: pendingTransfer?.insumo?.nome });
+      return;
+    }
+    logInfo('Transferencia', 'PIN autorizado', { operador: func.nome, insumo: pendingTransfer?.insumo?.nome, qty: pendingTransfer?.qty, tipo: pendingTransfer?.tipo });
     setPinModal(false);
     if (pendingTransfer?.tipo === 'variavel') {
       executeVariavelTransfer(func);

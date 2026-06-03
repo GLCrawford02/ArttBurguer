@@ -7,7 +7,7 @@ import ComprasManager from './components/ComprasManager';
 import ProducaoManager from './components/ProducaoManager';
 import RelatoriosManager from './components/RelatoriosManager';
 import FechamentoManager from './components/FechamentoManager';
-import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, ScanFace, KeyRound } from 'lucide-react';
+import { LayoutDashboard, Package, Utensils, Menu, X, CheckCircle, Scale, Wallet, ArrowRightLeft, Users, LogOut, Lock, Truck, ShoppingCart, Settings, CheckSquare, Megaphone, Download, ScanFace, KeyRound, MessageCircle } from 'lucide-react';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from './faceApiUtils';
 import BalancoManager from './components/BalancoManager';
 import TarefasManager from './components/TarefasManager';
@@ -27,6 +27,8 @@ import ImpressorasManager from './components/ImpressorasManager';
 import ClientesManager from './components/ClientesManager';
 import DespachoManager from './components/DespachoManager';
 import MarketingManager from './components/MarketingManager';
+import MensageiroManager from './components/MensageiroManager';
+import FilaMensagensManager from './components/FilaMensagensManager';
 import BlocoNotasManager from './components/BlocoNotasManager';
 import EmbalagensPadraoManager from './components/EmbalagensPadraoManager';
 import TaxasEntregaManager from './components/TaxasEntregaManager';
@@ -36,6 +38,8 @@ import FidelidadeManager from './components/FidelidadeManager';
 import EscalaManager from './components/EscalaManager';
 import AppDeliveryConfig from './components/AppDeliveryConfig';
 import UltimosCadastros from './components/UltimosCadastros';
+import LogViewer from './components/LogViewer';
+import { logInfo, logWarn, logError } from './utils/logger';
 import { ref, onValue, set, push, update } from 'firebase/database';
 import { db } from './firebase';
 import { Funcionario } from './types';
@@ -79,7 +83,8 @@ const validarCPF = (cpf: string): boolean => {
 };
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'comunicacao'>('dashboard');
+  const [subTabComunicacao, setSubTabComunicacao] = useState<'mensageiro' | 'tarefas' | 'notas' | 'disparo' | 'fila'>('mensageiro');
   const [subTabCadastros, setSubTabCadastros] = useState<'insumos' | 'fornecedores' | 'embalagens'>('insumos');
   const [subTabCardapio, setSubTabCardapio] = useState<'produtos' | 'promocoes'>('produtos');
   const [subTabMovimentacoes, setSubTabMovimentacoes] = useState<'compras' | 'transferencia' | 'visibilidade' | 'descartes' | 'balanco'>('compras');
@@ -218,8 +223,9 @@ export default function App() {
       const hash = window.location.hash.replace('#', '') as any; 
       console.log('🔗 URL mudou para a aba:', hash);
       
-      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'logistica', 'configuracoes', 'tarefas', 'marketing'].includes(hash)) {
-        setActiveTab(hash as any);
+      const validHash = (hash === 'marketing' || hash === 'tarefas') ? 'comunicacao' : hash;
+      if (['dashboard', 'pdv', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'logistica', 'configuracoes', 'comunicacao'].includes(validHash)) {
+        setActiveTab(validHash as any);
       }
       setIsMobileMenuOpen(false);
     };
@@ -279,7 +285,7 @@ export default function App() {
     return onValue(licRef, snap => setLicenca(snap.val() ?? {}));
   }, []);
 
-  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'tarefas' | 'marketing') => {
+  const handleTabChange = (tab: 'dashboard' | 'pdv' | 'cadastros' | 'cardapio' | 'movimentacoes' | 'producao' | 'financeiro' | 'funcionarios' | 'logistica' | 'configuracoes' | 'comunicacao') => {
     window.location.hash = tab;
     setIsMobileMenuOpen(false); // Fecha o menu no mobile após o clique
   };
@@ -306,7 +312,7 @@ export default function App() {
     const isEntregadorOnly = cargos.length > 0 && cargos.every((c: string) => c.toLowerCase().includes('entregador') || c.toLowerCase().includes('motoboy'));
     if (isEntregadorOnly) return ['logistica'];
 
-    if (cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'logistica', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'configuracoes', 'tarefas', 'marketing'];
+    if (cargos.includes('Dono') || cargos.includes('TI')) return ['dashboard', 'pdv', 'logistica', 'cadastros', 'cardapio', 'movimentacoes', 'producao', 'financeiro', 'funcionarios', 'configuracoes', 'comunicacao'];
 
     const allowed: string[] = [];
     
@@ -329,8 +335,7 @@ export default function App() {
     if (hasPerm('relatorios', 'aba_financeiro') || hasPerm('fechamento_caixa', 'aba_financeiro') || hasPerm('calendario_contas', 'aba_financeiro') || hasPerm('dashboard_financeiro', 'aba_financeiro')) allowed.push('financeiro');
     if (hasPerm('funcionarios', 'aba_funcionarios') || hasPerm('gestao_equipe', 'aba_funcionarios') || hasPerm('gestor_ia', 'aba_funcionarios') || hasPerm('permissoes_acesso', 'aba_funcionarios')) allowed.push('funcionarios');
     if (hasPerm('configuracoes', 'aba_configuracoes') || hasPerm('bancos_taxas', 'aba_configuracoes') || hasPerm('atualizacoes_sistema', 'aba_configuracoes') || hasPerm('app_delivery', 'aba_configuracoes')) allowed.push('configuracoes');
-    if (hasPerm('tarefas', 'aba_tarefas') || hasPerm('bloco_notas', 'aba_tarefas')) allowed.push('tarefas');
-    if (hasPerm('marketing', 'aba_marketing')) allowed.push('marketing');
+    if (hasPerm('mensageiro', 'aba_tarefas') || hasPerm('fila_mensagens', 'aba_tarefas') || hasPerm('tarefas', 'aba_tarefas') || hasPerm('bloco_notas', 'aba_tarefas') || hasPerm('marketing', 'aba_tarefas')) allowed.push('comunicacao');
 
     if (allowed.length === 0) allowed.push('pdv'); // fallback mínimo
     return allowed;
@@ -360,13 +365,6 @@ export default function App() {
       }
 
 
-      const allowedTarefasSubTabs: ('gerenciamento' | 'notas')[] = [];
-      if (temPermissao('tarefas', 'aba_tarefas')) allowedTarefasSubTabs.push('gerenciamento');
-      if (temPermissao('bloco_notas', 'aba_tarefas')) allowedTarefasSubTabs.push('notas');
-      if (activeTab === 'tarefas' && !allowedTarefasSubTabs.includes(subTabTarefas) && allowedTarefasSubTabs.length > 0) {
-          setSubTabTarefas(allowedTarefasSubTabs[0]);
-      }
-
       const allowedLogisticaSubTabs: ('clientes' | 'fidelidade' | 'despacho' | 'minhas_entregas')[] = [];
       if (temPermissao('clientes', 'aba_logistica')) allowedLogisticaSubTabs.push('clientes');
       if (temPermissao('fidelidade', 'aba_logistica')) allowedLogisticaSubTabs.push('fidelidade');
@@ -388,6 +386,16 @@ export default function App() {
       }
       setSubTabFinanceiro(prev => (!temPermissao('calendario_contas', 'aba_financeiro') && prev === 'calendario') ? 'relatorios_gerais' : prev);
       setSubSubTabRelatorios(prev => (!temPermissao('dashboard_financeiro', 'aba_financeiro') && prev === 'dashboard_fin') ? 'fechamento' : prev);
+
+      const allowedComunicacaoSubTabs: ('mensageiro' | 'tarefas' | 'notas' | 'disparo' | 'fila')[] = [];
+      if (temPermissao('mensageiro', 'aba_tarefas')) allowedComunicacaoSubTabs.push('mensageiro');
+      if (temPermissao('tarefas', 'aba_tarefas')) allowedComunicacaoSubTabs.push('tarefas');
+      if (temPermissao('bloco_notas', 'aba_tarefas')) allowedComunicacaoSubTabs.push('notas');
+      if (temPermissao('marketing', 'aba_tarefas')) allowedComunicacaoSubTabs.push('disparo');
+      if (temPermissao('fila_mensagens', 'aba_tarefas')) allowedComunicacaoSubTabs.push('fila');
+      if (activeTab === 'comunicacao' && !allowedComunicacaoSubTabs.includes(subTabComunicacao) && allowedComunicacaoSubTabs.length > 0) {
+        setSubTabComunicacao(allowedComunicacaoSubTabs[0]);
+      }
     }
   }, [currentUser, activeTab, permissoes]);
 
@@ -399,6 +407,7 @@ export default function App() {
       if (timeoutId) clearTimeout(timeoutId);
       const timeMs = 3 * 60 * 1000; // 3 minutos fixos cravados no código
       timeoutId = setTimeout(() => {
+        logInfo('Login', 'Logout automático por inatividade (3 min)', { nome: currentUser?.nome });
         setCurrentUser(null);
       }, timeMs);
     };
@@ -505,11 +514,16 @@ export default function App() {
           if (match.label !== 'unknown' && !aborted) {
             const user = funcionariosRef.current.find(f => f.id === match.label);
             if (user) {
-              if ((user as any).ativo === false) { setFaceStatus('Usuário inativo. Acesso negado.'); return; }
+              if ((user as any).ativo === false) {
+                setFaceStatus('Usuário inativo. Acesso negado.');
+                logWarn('Login', 'Acesso negado — usuário inativo (facial)', { nome: user.nome });
+                return;
+              }
               stopCamera();
               setLoginMode('pin');
               setCurrentUser(user);
               setLoginError('');
+              logInfo('Login', 'Login por reconhecimento facial', { nome: user.nome, cargo: Array.isArray(user.cargo) ? user.cargo.join(', ') : user.cargo });
             }
           }
         } catch { /* frame error, continue */ }
@@ -547,10 +561,12 @@ export default function App() {
     if (user) {
       if ((user as any).ativo === false) {
         setLoginError('Usuário inativo. Acesso negado.');
+        logWarn('Login', 'Acesso negado — usuário inativo', { nome: user.nome, cargo: user.cargo });
       } else {
         setCurrentUser(user);
         setPinInput('');
         setLoginError('');
+        logInfo('Login', 'Login realizado por PIN', { nome: user.nome, cargo: Array.isArray(user.cargo) ? user.cargo.join(', ') : user.cargo });
 
         // Rotação automática de PIN a cada 15 dias para cargos admin
         const cargosUser: string[] = Array.isArray(user.cargo) ? user.cargo : [user.cargo || ''];
@@ -566,6 +582,7 @@ export default function App() {
             } while (funcionarios.some(f => String(f.pin) === newPin && f.id !== user.id));
             await update(ref(db, `funcionarios/${user.id}`), { pin: newPin, pinLastChanged: agora });
             setPinRotacaoNotif({ pin: newPin, nome: user.nome });
+            logInfo('Login', 'PIN rotacionado automaticamente (15 dias)', { nome: user.nome, novoPIN: newPin });
           }
         }
 
@@ -581,6 +598,7 @@ export default function App() {
       }
     } else {
       setLoginError('PIN incorreto ou usuário não encontrado.');
+      logWarn('Login', 'PIN incorreto digitado', { pinDigitado: '****' });
     }
   };
 
@@ -994,17 +1012,6 @@ export default function App() {
           </button>
           )}
 
-          {allowedTabs.includes('tarefas') && (
-          <button
-            onClick={() => handleTabChange('tarefas')}
-            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
-              activeTab === 'tarefas' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-            }`}
-          >
-            <CheckSquare size={20} />
-            <span>Tarefas</span>
-          </button>
-          )}
 
           {allowedTabs.includes('producao') && (
           <button
@@ -1030,15 +1037,15 @@ export default function App() {
           </button>
           )}
 
-          {allowedTabs.includes('marketing') && (
+          {allowedTabs.includes('comunicacao') && (
           <button
-            onClick={() => handleTabChange('marketing')}
+            onClick={() => handleTabChange('comunicacao')}
             className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
-              activeTab === 'marketing' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
+              activeTab === 'comunicacao' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
             }`}
           >
-            <Megaphone size={20} />
-            <span>Marketing</span>
+            <MessageCircle size={20} />
+            <span>Comunicação</span>
           </button>
           )}
 
@@ -1092,7 +1099,7 @@ export default function App() {
                <p className="text-sm font-bold text-gray-800">{currentUser.nome}</p>
                <p className="text-xs text-gray-500">{Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : (currentUser.cargo || 'Atendente')}</p>
              </div>
-             <button onClick={() => setCurrentUser(null)} className="w-10 h-10 bg-gray-200 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors" title="Sair do Sistema">
+             <button onClick={() => { logInfo('Login', 'Logout manual', { nome: currentUser.nome, cargo: Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : currentUser.cargo }); setCurrentUser(null); }} className="w-10 h-10 bg-gray-200 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors" title="Sair do Sistema">
                 <LogOut size={18} />
              </button>
           </div>
@@ -1102,16 +1109,6 @@ export default function App() {
           {activeTab === 'dashboard' && <Dashboard currentUser={currentUser} />}
 
           
-          {activeTab === 'tarefas' && (
-            <div className="space-y-6">
-              <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
-                {temPermissao('tarefas', 'aba_tarefas') && <button onClick={() => setSubTabTarefas('gerenciamento')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'gerenciamento' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Gerenciamento de Tarefas</button>}
-                {temPermissao('bloco_notas', 'aba_tarefas') && <button onClick={() => setSubTabTarefas('notas')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabTarefas === 'notas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bloco de Notas</button>}
-              </div>
-              {subTabTarefas === 'gerenciamento' && <TarefasManager currentUser={currentUser} temPermissao={temPermissao} />}
-              {subTabTarefas === 'notas' && <BlocoNotasManager currentUser={currentUser} />}
-            </div>
-          )}
           
           {activeTab === 'cadastros' && (
             <div className="space-y-6">
@@ -1196,7 +1193,22 @@ export default function App() {
             </div>
           )}
 
-          {activeTab === 'marketing' && <MarketingManager currentUser={currentUser} temPermissao={temPermissao} />}
+          {activeTab === 'comunicacao' && (
+            <div className="space-y-6">
+              <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
+                {temPermissao('mensageiro', 'aba_tarefas') && <button onClick={() => setSubTabComunicacao('mensageiro')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabComunicacao === 'mensageiro' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Mensageiro</button>}
+                {temPermissao('tarefas', 'aba_tarefas') && <button onClick={() => setSubTabComunicacao('tarefas')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabComunicacao === 'tarefas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Tarefas</button>}
+                {temPermissao('bloco_notas', 'aba_tarefas') && <button onClick={() => setSubTabComunicacao('notas')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabComunicacao === 'notas' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Bloco de Notas</button>}
+                {temPermissao('marketing', 'aba_tarefas') && <button onClick={() => setSubTabComunicacao('disparo')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabComunicacao === 'disparo' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Disparo em Massa</button>}
+                {temPermissao('fila_mensagens', 'aba_tarefas') && <button onClick={() => setSubTabComunicacao('fila')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabComunicacao === 'fila' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fila de Envio</button>}
+              </div>
+              {subTabComunicacao === 'mensageiro' && temPermissao('mensageiro', 'aba_tarefas') && <MensageiroManager currentUser={currentUser} />}
+              {subTabComunicacao === 'tarefas' && temPermissao('tarefas', 'aba_tarefas') && <TarefasManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabComunicacao === 'notas' && temPermissao('bloco_notas', 'aba_tarefas') && <BlocoNotasManager currentUser={currentUser} />}
+              {subTabComunicacao === 'disparo' && temPermissao('marketing', 'aba_tarefas') && <MarketingManager currentUser={currentUser} temPermissao={temPermissao} />}
+              {subTabComunicacao === 'fila' && temPermissao('fila_mensagens', 'aba_tarefas') && <FilaMensagensManager />}
+            </div>
+          )}
 
           {activeTab === 'funcionarios' && (
             <div className="space-y-6">
@@ -1326,6 +1338,8 @@ export default function App() {
       )}
 
       {/* Tela de Atualização do App */}
+      <LogViewer isTI={!!isTI} />
+
       {appUpdateConfig && appUpdateConfig.versao && appUpdateConfig.versao !== APP_VERSION && !isTI && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[200] p-4">
           <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full text-center animate-in zoom-in-95 duration-200">

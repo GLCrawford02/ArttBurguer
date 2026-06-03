@@ -3,6 +3,7 @@ import { ref, onValue, update, set, push } from 'firebase/database';
 import { db } from '../firebase';
 import { Truck, CheckCircle, MapPin, Navigation, ExternalLink, AlertTriangle, PhoneOff, Map, X, ChevronDown, ChevronUp } from 'lucide-react';
 import ReportarProblemaModal from './modals/ReportarProblemaModal';
+import { logInfo, startTimer } from '../utils/logger';
 import { Capacitor, registerPlugin } from '@capacitor/core';
 import { PushNotifications } from '@capacitor/push-notifications';
 import { Geolocation } from '@capacitor/geolocation';
@@ -229,6 +230,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
      const parada = activeRoute.paradas[paradaIndex];
      const confirmacao = window.confirm(`Confirmar entrega para ${parada.clienteNome}?`);
      if (!confirmacao) return;
+     const timer = startTimer();
 
      const obs = window.prompt(`Deseja adicionar uma observação para ajudar os próximos entregadores?\nEx: "Casa verde", "Campainha quebrada"\n(Deixe em branco se não quiser adicionar)`);
      if (obs && obs.trim()) {
@@ -299,6 +301,8 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
            }
         }
      }
+
+     logInfo('Entrega', 'Entrega marcada como concluída', { cliente: parada.clienteNome, endereco: parada.endereco, todasConcluidas, proximoAvisado: proxAvisado }, timer());
 
      if (proxAvisado) {
        showToast('Entrega confirmada! O próximo cliente foi avisado via WhatsApp.', 'success');

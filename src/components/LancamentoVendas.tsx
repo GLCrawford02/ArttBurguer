@@ -3,6 +3,7 @@ import { ref, onValue, push, set, remove, update, runTransaction, query, orderBy
 import { db } from '../firebase';
 import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2, Filter } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { logInfo, logWarn, logError, startTimer } from '../utils/logger';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
 import DescontoModal from './modals/DescontoModal';
 import QuickClientModal from './modals/QuickClientModal';
@@ -16,6 +17,7 @@ import AlertPedidoConcluidoModal from './modals/AlertPedidoConcluidoModal';
 import MapaView from './views/MapaView';
 import ConferenciaView from './views/ConferenciaView';
 import ComandasView from './views/ComandasView';
+import logoImg from '../assets/logo.png';
 
 const CARGOS_EDIT_AUTORIZADO = ['Dono', 'TI', 'Admin', 'Administrador', 'Gerente', 'Caixa'];
 const AUTH_SESSION_MS = 30 * 1000;
@@ -136,6 +138,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [showQuickClientModal, setShowQuickClientModal] = useState(false);
   const [quickClientName, setQuickClientName] = useState('');
   const [quickClientPhone, setQuickClientPhone] = useState('');
+  const [logoBase64, setLogoBase64] = useState<string>('');
 
   const showToast = (msg: string, type: 'success' | 'error' = 'success') => {
     setToast({ message: msg, type });
@@ -498,6 +501,22 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
   useEffect(() => { funcionariosRef.current = funcionarios; }, [funcionarios]);
 
+  useEffect(() => {
+    const img = new Image();
+    img.crossOrigin = 'Anonymous';
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.width;
+      canvas.height = img.height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0);
+        setLogoBase64(canvas.toDataURL('image/png'));
+      }
+    };
+    img.src = logoImg;
+  }, []);
+
   // Face auth for cart lock
   useEffect(() => {
     if (!authEditModal) {
@@ -775,10 +794,19 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const handleAutorizarEdicaoPorPin = () => {
     if (!authEditModal) return;
     const func = funcionarios.find(f => String(f.pin) === authEditPin);
-    if (!func) return showToast('PIN inválido.', 'error');
+    if (!func) {
+      showToast('PIN inválido.', 'error');
+      logWarn('PDV', 'PIN inválido na autorização de edição de item', { item: pdvCarrinho[authEditModal.itemId]?.nome });
+      return;
+    }
     const cargos = Array.isArray(func.cargo) ? func.cargo : [func.cargo || ''];
     const isAuthorized = cargos.some((cargo: string) => CARGOS_EDIT_AUTORIZADO.includes(cargo));
-    if (!isAuthorized) return showToast('Autorização negada! Requer Caixa, Gerente ou superior.', 'error');
+    if (!isAuthorized) {
+      showToast('Autorização negada! Requer Caixa, Gerente ou superior.', 'error');
+      logWarn('PDV', 'Autorização negada — cargo insuficiente', { tentou: func.nome, cargo: cargos.join(', '), item: pdvCarrinho[authEditModal.itemId]?.nome });
+      return;
+    }
+    logInfo('PDV', 'Edição autorizada por PIN', { autorizador: func.nome, item: pdvCarrinho[authEditModal.itemId]?.nome, delta: authEditModal.delta > 0 ? '+1' : '-1', operador: currentUser?.nome });
     aplicarEdicaoAutorizada(authEditModal.itemId, authEditModal.delta, func.nome);
   };
 
@@ -1205,7 +1233,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
   const handleSalvarMesa = async () => {
     if (!pdvCliente) return showToast('É obrigatório vincular um cliente à mesa.', 'error');
-    
+    const timer = startTimer();
     // Se o carrinho tá vazio mas tem cliente vinculado, a gente salva a mesa aberta (reserva)
     if (Object.keys(pdvCarrinho).length === 0) {
       if (mesaSelecionada) {
@@ -1219,6 +1247,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         });
         await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
         showToast(`Mesa ${mesaSelecionada} vinculada a ${pdvCliente.nome}!`, 'success');
+        logInfo('Mesa', 'Mesa reservada/vinculada', { mesa: mesaSelecionada, cliente: pdvCliente.nome, operador: currentUser?.nome }, timer());
         registrarLogX9(pdvSessaoId, getMesaIdentificador(mesaSelecionada, pdvCliente.nome), 'abertura', `Mesa reservada/vinculada ao cliente`, currentUser?.nome || 'Sistema');
       }
     } else {
@@ -1238,6 +1267,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       });
       await remove(ref(db, `mesas_abertas/${mesaSelecionada}`));
       showToast(`Pedido salvo na Mesa ${mesaSelecionada}!`, 'success');
+      logInfo('Mesa', 'Pedido salvo/enviado à cozinha', { mesa: mesaSelecionada, cliente: pdvCliente?.nome, itens: Object.keys(pdvCarrinho).length, operador: currentUser?.nome }, timer());
       setPdvDescontoAplicado(null);
       registrarLogX9(pdvSessaoId, getMesaIdentificador(mesaSelecionada, pdvCliente?.nome), 'abertura', `Mesa com pedidos atualizada/salva na produção`, currentUser?.nome || 'Sistema');
     }
@@ -1275,6 +1305,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
   const handleSalvarEntrega = async () => {
     if (!pdvCliente) return showToast('Selecione um cliente para o Delivery.', 'error');
+    const timer = startTimer();
     if (Object.keys(pdvCarrinho).length === 0) {
       if (entregaSelecionada) await remove(ref(db, `entregas_abertas/${entregaSelecionada}`));
       showToast('Delivery cancelado/removido!', 'success');
@@ -1295,6 +1326,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         sessaoId: pdvSessaoId
       });
       showToast('Pedido de Delivery salvo!', 'success');
+      logInfo('Delivery', entregaSelecionada ? 'Delivery atualizado/reenviado à cozinha' : 'Novo delivery registrado', { cliente: pdvCliente.nome, itens: Object.keys(pdvCarrinho).length, retirada: pdvIsRetirada, operador: currentUser?.nome }, timer());
       setPdvDescontoAplicado(null);
       registrarLogX9(pdvSessaoId, `Delivery: ${pdvCliente.nome}`, 'abertura', `Delivery salvo/enviado para produção`, currentUser?.nome || 'Sistema');
     }
@@ -1482,6 +1514,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 </head>
 <body>
   <div class="center">
+    ${logoBase64 ? `<img src="${logoBase64}" style="max-width: 140px; height: auto; margin-bottom: 4px; filter: grayscale(100%) contrast(150%);" /><br>` : ''}
     <div class="store-name">Artt Burger Curvelo LTDA</div>
     <div class="cnpj">CNPJ: 46.827.745/0001-20</div>
   </div>
@@ -1656,6 +1689,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       }
     }
 
+    const timer = startTimer();
     try {
       let valorLiquidoTotal = 0;
       const pagamentosProcessados = pagamentosValidos.map(p => {
@@ -1773,8 +1807,12 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setIsCartExpanded(false);
       setPdvView('mapa');
       setPdvSessaoId(`sessao_${Date.now()}`);
+      const totalItens = Object.values(pdvCarrinho).reduce((acc: number, i: any) => acc + i.qtd, 0);
+      const formasPag = pagamentosValidos.map(p => taxasComPadroes.find(t => t.id === p.taxaId)?.nome || p.taxaId).join(', ');
+      logInfo('Venda', 'Venda finalizada', { tipo: pdvTipoPedido, total: `R$ ${totalPdv.toFixed(2)}`, itens: totalItens, pagamento: formasPag, cliente: pdvCliente?.nome || 'Balcão', operador: currentUser?.nome, desconto: pdvDescontoAplicado ? `R$ ${pdvDescontoAplicado.valor.toFixed(2)}` : null }, timer());
       showToast('Venda finalizada com sucesso!', 'success');
     } catch (error: any) {
+      logError('Venda', 'Erro ao finalizar venda', { tipo: pdvTipoPedido, total: totalPdv, operador: currentUser?.nome, erro: error.message }, timer());
       showToast('Erro ao finalizar venda: ' + error.message, 'error');
       console.error(error);
     }
@@ -1783,6 +1821,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   const handleConfSalvar = async () => {
     if (totalConf <= 0) return showToast('Adicione produtos ao lançamento.', 'error');
     const pagamentosValidos = confPagamentos.filter(p => p.taxaId && Number(p.valor) > 0);
+    const timer = startTimer();
     if (pagamentosValidos.length === 0) return showToast('Selecione a forma de pagamento.', 'error');
     if (Math.abs(restanteConf) > 0.05) return showToast(`O valor pago deve ser exatamente igual ao total.`, 'error');
 
@@ -1816,9 +1855,11 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
     if (editConfId) {
       await update(ref(db, `lancamentos_vendas/${editConfId}`), lancamentoData);
+      logInfo('Conferencia', 'Lançamento de conferência editado', { descricao: lancamentoData.descricao, total: `R$ ${lancamentoData.valor.toFixed(2)}`, operador: currentUser?.nome }, timer());
       showToast('Conferência atualizada com sucesso!', 'success');
     } else {
       await set(push(ref(db, 'lancamentos_vendas')), lancamentoData);
+      logInfo('Conferencia', 'Lançamento de conferência registrado', { descricao: lancamentoData.descricao, total: `R$ ${lancamentoData.valor.toFixed(2)}`, operador: currentUser?.nome }, timer());
       showToast('Conferência registrada com sucesso!', 'success');
     }
 

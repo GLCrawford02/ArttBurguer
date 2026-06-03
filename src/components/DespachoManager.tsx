@@ -5,6 +5,7 @@ import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
 import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X, Clock } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { logInfo, logError, startTimer } from '../utils/logger';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
@@ -330,6 +331,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
     if (!motoboy) return;
 
     setIsSubmitting(true);
+    const timer = startTimer();
     try {
       await set(push(ref(db, 'despachos')), {
         motoboyId: motoboy.id,
@@ -363,10 +365,12 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
         }
       }
 
+      logInfo('Despacho', 'Despacho registrado — rota iniciada', { motoboy: motoboy.nome, paradas: rotaAtual.length, clientes: rotaAtual.map(p => p.clienteNome).join(', ') }, timer());
       showToast('Despacho registrado! Rota iniciada e clientes notificados.', 'success');
       setRotaAtual([]);
       setSelectedMotoboy('');
     } catch (error: any) {
+      logError('Despacho', 'Erro ao registrar despacho', { motoboy: motoboy.nome, erro: error.message }, timer());
       console.error(error);
       showToast('Erro ao registrar despacho: ' + error.message, 'error');
     } finally {
@@ -376,10 +380,13 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
 
   const handleConcluirDespacho = async (id: string) => {
     if (confirm('Confirmar que o entregador retornou desta rota?')) {
+      const timer = startTimer();
       await update(ref(db, `despachos/${id}`), {
         status: 'Concluído',
         timestampRetorno: Date.now()
       });
+      const despachoConc = despachos.find(d => d.id === id);
+      logInfo('Despacho', 'Rota concluída — entregador retornou', { motoboy: despachoConc?.motoboyNome, paradas: despachoConc?.paradas?.length }, timer());
 
       // Atualiza o status dos pedidos para 'Concluído'
       const despacho = despachos.find(d => d.id === id);
