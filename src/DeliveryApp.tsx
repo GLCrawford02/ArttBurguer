@@ -467,8 +467,8 @@ export default function DeliveryApp() {
         origem: 'login_cliente',
       });
       setOtpStep('codigo');
-    } catch {
-      setOtpErro('Erro ao enviar código. Tente novamente.');
+    } catch (e: any) {
+      setOtpErro('Erro ao enviar código: ' + (e?.message || e?.code || 'Tente novamente.'));
     }
     setOtpLoading(false);
   };
