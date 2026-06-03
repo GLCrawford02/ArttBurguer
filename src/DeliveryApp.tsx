@@ -4,7 +4,8 @@ import { db } from './firebase';
 import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart, WifiOff, RefreshCw, Download } from 'lucide-react';
 import logoImg from './assets/logo.png';
 
-export const APP_CLIENTE_VERSION = '1.2.13';
+declare const __APP_CLIENTE_VERSION__: string;
+export const APP_CLIENTE_VERSION = __APP_CLIENTE_VERSION__;
 
 const isVersionOutdated = (server: string, local: string) => {
   const sv = server.split('.').map(Number);
@@ -71,6 +72,9 @@ export default function DeliveryApp() {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [updateConfig, setUpdateConfig] = useState<{ versao: string; linkDownload: string; forcar: boolean; mensagem: string } | null>(null);
   const [updateDismissed, setUpdateDismissed] = useState(false);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [isDownloading, setIsDownloading] = useState(false);
+  const [downloadDone, setDownloadDone] = useState(false);
 
   const [otpTelefone, setOtpTelefone] = useState('');
   const [otpCodigo, setOtpCodigo] = useState('');
@@ -499,6 +503,47 @@ export default function DeliveryApp() {
     setNewEndLat(null); setNewEndLng(null);
   };
 
+  const handleDownloadUpdate = async () => {
+    if (!updateConfig?.linkDownload || isDownloading) return;
+    const url = updateConfig.linkDownload;
+    setIsDownloading(true);
+    setDownloadProgress(0);
+    setDownloadDone(false);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok || !resp.body) throw new Error('Falha na resposta');
+      const total = parseInt(resp.headers.get('content-length') || '0');
+      const reader = resp.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let received = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          chunks.push(value);
+          received += value.length;
+          if (total > 0) setDownloadProgress(Math.round((received / total) * 100));
+          else setDownloadProgress(prev => Math.min(prev + 2, 90));
+        }
+      }
+      const blob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = 'ArttBurger-Delivery.apk';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 15000);
+      setDownloadProgress(100);
+      setDownloadDone(true);
+    } catch {
+      // CORS ou rede — abre no navegador do sistema como fallback
+      setIsDownloading(false);
+      window.open(url, '_blank');
+    }
+  };
+
   const handleEnviarOtp = async (e: React.FormEvent) => {
     e.preventDefault();
     const tel = otpTelefone.replace(/\D/g, '');
@@ -870,11 +915,30 @@ export default function DeliveryApp() {
             </p>
             <p className="text-xs text-gray-400 mt-2">Versão atual: {APP_CLIENTE_VERSION} → Nova: {updateConfig!.versao}</p>
           </div>
-          {updateConfig!.linkDownload && (
-            <a href={updateConfig!.linkDownload} target="_blank" rel="noreferrer"
+          {updateConfig!.linkDownload && !downloadDone && !isDownloading && (
+            <button onClick={handleDownloadUpdate}
               className="w-full bg-indigo-600 text-white py-4 rounded-2xl font-black text-lg flex items-center justify-center gap-2 hover:bg-indigo-700 transition-colors shadow-lg">
               <Download size={20} /> Baixar Atualização
-            </a>
+            </button>
+          )}
+          {isDownloading && !downloadDone && (
+            <div className="w-full space-y-3">
+              <div className="w-full bg-gray-100 rounded-full h-4 overflow-hidden">
+                <div className="bg-indigo-600 h-4 rounded-full transition-all duration-300"
+                  style={{ width: `${downloadProgress > 0 ? downloadProgress : 10}%` }} />
+              </div>
+              <p className="text-sm text-gray-500 text-center font-medium">
+                {downloadProgress > 0 ? `Baixando... ${downloadProgress}%` : 'Iniciando download...'}
+              </p>
+            </div>
+          )}
+          {downloadDone && (
+            <div className="w-full space-y-3">
+              <div className="flex items-center justify-center gap-2 text-green-600 font-bold">
+                <CheckCircle size={24} /> Download completo!
+              </div>
+              <p className="text-xs text-gray-500 text-center">Abra a barra de notificações e toque em <strong>ArttBurger-Delivery.apk</strong> para instalar.</p>
+            </div>
           )}
         </div>
       </div>
@@ -950,20 +1014,46 @@ export default function DeliveryApp() {
     <>
       {/* Banner de atualização disponível (não obrigatória) */}
       {needsUpdate && !updateConfig!.forcar && !updateDismissed && updateConfig!.linkDownload && (
-        <div className="fixed top-0 left-0 right-0 z-50 bg-indigo-600 text-white px-4 py-3 flex items-center justify-between gap-3 shadow-lg">
-          <div className="flex items-center gap-2 text-sm font-medium min-w-0">
-            <RefreshCw size={16} className="shrink-0" />
-            <span className="truncate">Nova versão {updateConfig!.versao} disponível!</span>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <a href={updateConfig!.linkDownload} target="_blank" rel="noreferrer"
-              className="bg-white text-indigo-700 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1">
-              <Download size={12} /> Atualizar
-            </a>
-            <button onClick={() => setUpdateDismissed(true)} className="text-indigo-200 hover:text-white">
-              <XIcon size={18} />
-            </button>
-          </div>
+        <div className="fixed top-0 left-0 right-0 z-50 bg-indigo-600 text-white px-4 py-3 shadow-lg">
+          {!isDownloading && !downloadDone && (
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-2 text-sm font-medium min-w-0">
+                <RefreshCw size={16} className="shrink-0" />
+                <span className="truncate">Versão {updateConfig!.versao} disponível!</span>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button onClick={handleDownloadUpdate}
+                  className="bg-white text-indigo-700 font-bold text-xs px-3 py-1.5 rounded-lg hover:bg-indigo-50 flex items-center gap-1">
+                  <Download size={12} /> Atualizar
+                </button>
+                <button onClick={() => setUpdateDismissed(true)} className="text-indigo-200 hover:text-white">
+                  <XIcon size={18} />
+                </button>
+              </div>
+            </div>
+          )}
+          {isDownloading && !downloadDone && (
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-medium">
+                <span>Baixando atualização...</span>
+                <span>{downloadProgress > 0 ? `${downloadProgress}%` : ''}</span>
+              </div>
+              <div className="w-full bg-indigo-400 rounded-full h-2">
+                <div className="bg-white h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${downloadProgress > 0 ? downloadProgress : 10}%` }} />
+              </div>
+            </div>
+          )}
+          {downloadDone && (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-sm font-medium">
+                <CheckCircle size={16} /> Download completo! Toque na notificação para instalar.
+              </div>
+              <button onClick={() => setUpdateDismissed(true)} className="text-indigo-200 hover:text-white shrink-0">
+                <XIcon size={18} />
+              </button>
+            </div>
+          )}
         </div>
       )}
       <div className="min-h-screen bg-animated-gradient flex flex-col font-sans pb-24" translate="no">

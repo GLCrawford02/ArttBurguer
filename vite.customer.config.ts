@@ -2,7 +2,11 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import fs from 'fs';
 import path from 'path';
+import { createRequire } from 'module';
 import { defineConfig, type Plugin } from 'vite';
+
+const require = createRequire(import.meta.url);
+const pkg = require('./package.json');
 
 function renameOutputHtml(): Plugin {
   return {
@@ -20,6 +24,9 @@ function renameOutputHtml(): Plugin {
 export default defineConfig({
   plugins: [react(), tailwindcss(), renameOutputHtml()],
   base: './',
+  define: {
+    __APP_CLIENTE_VERSION__: JSON.stringify(pkg.versionCliente),
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, '.'),

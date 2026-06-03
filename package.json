@@ -3,6 +3,7 @@
   "productName": "ArttBurger",
   "private": true,
   "version": "1.2.13",
+  "versionCliente": "1.0.0",
   "type": "module",
   "main": "electron/main.cjs",
   "scripts": {

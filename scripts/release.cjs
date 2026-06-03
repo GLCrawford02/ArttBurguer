@@ -3,6 +3,7 @@ const pkg = require('../package.json');
 const fs = require('fs');
 
 const version = process.argv[2] || pkg.version;
+const versionCliente = process.argv[3] || pkg.versionCliente;
 const step = { current: 0, total: 10 };
 
 function run(cmd, opts = {}) {
@@ -17,7 +18,7 @@ function tryRun(cmd, opts = {}) {
 }
 
 console.log(`\n${'─'.repeat(50)}`);
-console.log(`  🚀  Release  V${version}`);
+console.log(`  🚀  Release  Sistema V${version}  |  Clientes V${versionCliente}`);
 console.log(`${'─'.repeat(50)}`);
 
 // ── 1. Ícone ────────────────────────────────────────
@@ -94,8 +95,8 @@ if (fs.existsSync('android-cliente')) {
 }
 
 console.log(`\n${'─'.repeat(50)}`);
-console.log(`  ✅  Release V${version} concluído!`);
-console.log(`  📁  .exe        → dist-electron\\ArttBurger-win32-x64\\`);
-console.log(`  📱  APK func.   → android\\  (Funcionários)`);
-console.log(`  📱  APK cliente → android-cliente\\  (Clientes)`);
+console.log(`  ✅  Release concluído!`);
+console.log(`  🖥️   Sistema    V${version}  → dist-electron\\ArttBurger-win32-x64\\`);
+console.log(`  📱  Funcionários V${version}  → android\\`);
+console.log(`  📱  Clientes     V${versionCliente}  → android-cliente\\`);
 console.log(`${'─'.repeat(50)}\n`);
