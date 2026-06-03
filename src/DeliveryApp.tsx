@@ -526,7 +526,7 @@ export default function DeliveryApp() {
           else setDownloadProgress(prev => Math.min(prev + 2, 90));
         }
       }
-      const blob = new Blob(chunks, { type: 'application/vnd.android.package-archive' });
+      const blob = new Blob(chunks as BlobPart[], { type: 'application/vnd.android.package-archive' });
       const blobUrl = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = blobUrl;
