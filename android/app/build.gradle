@@ -1,9 +1,9 @@
 apply plugin: 'com.android.application'
 
 def getAppVersionName() {
-    def appFile = file("../../src/App.tsx")
-    if (appFile.exists()) {
-        def matcher = appFile.text =~ /export const APP_VERSION\s*=\s*['"]([^'"]+)['"]/
+    def pkgFile = file("../../package.json")
+    if (pkgFile.exists()) {
+        def matcher = pkgFile.text =~ /"version"\s*:\s*"([^"]+)"/
         if (matcher.find()) {
             return matcher.group(1)
         }

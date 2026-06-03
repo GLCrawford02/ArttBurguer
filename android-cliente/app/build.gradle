@@ -1,5 +1,25 @@
 apply plugin: 'com.android.application'
 
+def getClienteVersionName() {
+    def pkgFile = file("../../package.json")
+    if (pkgFile.exists()) {
+        def matcher = pkgFile.text =~ /"versionCliente"\s*:\s*"([^"]+)"/
+        if (matcher.find()) {
+            return matcher.group(1)
+        }
+    }
+    return "1.0.0"
+}
+
+def getClienteVersionCode() {
+    def versionName = getClienteVersionName()
+    def parts = versionName.split('\\.')
+    if (parts.length >= 3) {
+        return (parts[0].toInteger() * 10000) + (parts[1].toInteger() * 100) + parts[2].toInteger()
+    }
+    return 1
+}
+
 android {
     namespace = "com.arttburger.cliente"
     compileSdk = rootProject.ext.compileSdkVersion
@@ -7,8 +27,8 @@ android {
         applicationId "com.arttburger.cliente"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 1
-        versionName "1.0"
+        versionCode getClienteVersionCode()
+        versionName getClienteVersionName()
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
