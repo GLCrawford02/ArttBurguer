@@ -50,9 +50,10 @@
     "historico_balancos": { ".write": true },
     "escalas": { ".write": true },
     "confirmacoes_x9": { ".write": true },
-    "logs_x9": { 
+    "logs_x9": {
       ".write": true,
       ".indexOn": "timestamp"
-    }
+    },
+    "otp_codigos": { ".read": true, ".write": true }
   }
 }

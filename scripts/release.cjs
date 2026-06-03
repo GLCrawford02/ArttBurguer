@@ -3,7 +3,7 @@ const pkg = require('../package.json');
 const fs = require('fs');
 
 const version = process.argv[2] || pkg.version;
-const step = { current: 0, total: 8 };
+const step = { current: 0, total: 10 };
 
 function run(cmd, opts = {}) {
   step.current++;
@@ -52,9 +52,27 @@ run(
   { label: 'Empacotando .exe' }
 );
 
-// ── 3. Build Web/APK (base: '/') ────────────────────
-run('cross-env NODE_OPTIONS="--max-old-space-size=4096" npx vite build', { label: 'Build Web/APK (base: /)' });
-run('npx cap sync',   { label: 'Capacitor sync' });
+// ── 3. Build Web/APK Funcionários (base: '/') ───────
+run('cross-env NODE_OPTIONS="--max-old-space-size=4096" npx vite build', { label: 'Build Web/APK Funcionários (base: /)' });
+run('npx cap sync', { label: 'Capacitor sync Funcionários' });
+
+// ── 3.5. Build Web/APK Clientes ─────────────────────
+run('cross-env NODE_OPTIONS="--max-old-space-size=4096" npx vite build --config vite.customer.config.ts', { label: 'Build Web/APK Clientes' });
+
+// cap sync não suporta --config; faz swap temporário do capacitor.config.json
+step.current++;
+console.log(`\n[${step.current}/${step.total}] Capacitor sync Clientes`);
+if (fs.existsSync('android-cliente')) {
+  const origCap = fs.readFileSync('capacitor.config.json', 'utf-8');
+  fs.writeFileSync('capacitor.config.json', fs.readFileSync('capacitor.customer.config.json', 'utf-8'));
+  try {
+    execSync('npx cap sync', { stdio: 'inherit', cwd: process.cwd() });
+  } finally {
+    fs.writeFileSync('capacitor.config.json', origCap);
+  }
+} else {
+  console.log('  ⚠ android-cliente/ não encontrado — rode npx cap add android com o config do cliente primeiro.');
+}
 
 // ── 4. Git ──────────────────────────────────────────
 run('git add .',                      { label: 'git add .' });
@@ -62,9 +80,22 @@ tryRun(`git commit -m "V${version}"`, { label: `git commit "V${version}"` });
 tryRun('git push',                    { label: 'git push' });
 
 // ── 5. Abrir Android Studio ─────────────────────────
-tryRun('npx cap open android', { label: 'Abrindo Android Studio' });
+tryRun('npx cap open android', { label: 'Abrindo Android Studio (Funcionários)' });
+if (fs.existsSync('android-cliente')) {
+  step.current++;
+  console.log(`\n[${step.current}/${step.total}] Abrindo Android Studio (Clientes)`);
+  const origCap = fs.readFileSync('capacitor.config.json', 'utf-8');
+  fs.writeFileSync('capacitor.config.json', fs.readFileSync('capacitor.customer.config.json', 'utf-8'));
+  try {
+    execSync('npx cap open android', { stdio: 'inherit', cwd: process.cwd() });
+  } finally {
+    fs.writeFileSync('capacitor.config.json', origCap);
+  }
+}
 
 console.log(`\n${'─'.repeat(50)}`);
 console.log(`  ✅  Release V${version} concluído!`);
-console.log(`  📁  .exe → dist-electron\\ArttBurger-win32-x64\\`);
+console.log(`  📁  .exe        → dist-electron\\ArttBurger-win32-x64\\`);
+console.log(`  📱  APK func.   → android\\  (Funcionários)`);
+console.log(`  📱  APK cliente → android-cliente\\  (Clientes)`);
 console.log(`${'─'.repeat(50)}\n`);

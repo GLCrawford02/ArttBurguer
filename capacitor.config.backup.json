@@ -1,0 +1,6 @@
+{
+  "appId": "com.arttburger.app",
+  "appName": "ArttBurger",
+  "webDir": "dist",
+  "bundledWebRuntime": false
+}

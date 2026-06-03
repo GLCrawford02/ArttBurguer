@@ -1,0 +1,9 @@
+{
+  "appId": "com.arttburger.cliente",
+  "appName": "ArttBurger Delivery",
+  "webDir": "dist-cliente",
+  "bundledWebRuntime": false,
+  "android": {
+    "path": "android-cliente"
+  }
+}

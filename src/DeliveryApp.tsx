@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, update, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, onValue, push, set, update, get, query, orderByChild, equalTo } from 'firebase/database';
 import { db } from './firebase';
 import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart } from 'lucide-react';
 import logoImg from './assets/logo.png';
@@ -56,26 +56,12 @@ export default function DeliveryApp() {
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
-  const [loginPhone, setLoginPhone] = useState('');
-  const [loginPin, setLoginPin] = useState('');
-
-  const [regNome, setRegNome] = useState('');
-  const [regTelefone, setRegTelefone] = useState('');
-  const [regCpf, setRegCpf] = useState('');
-  const [regDataNascimento, setRegDataNascimento] = useState('');
-  const [regCep, setRegCep] = useState('');
-  const [regLogradouro, setRegLogradouro] = useState('');
-  const [regNumero, setRegNumero] = useState('');
-  const [regBairro, setRegBairro] = useState('');
-  const [regComplemento, setRegComplemento] = useState('');
-  const [regCidade, setRegCidade] = useState('');
-  const [regUf, setRegUf] = useState('');
-  const [regPin, setRegPin] = useState('');
-
-  const [regLat, setRegLat] = useState<number | null>(null);
-  const [regLng, setRegLng] = useState<number | null>(null);
-  const [isFetchingLocation, setIsFetchingLocation] = useState(false);
+  const [otpTelefone, setOtpTelefone] = useState('');
+  const [otpCodigo, setOtpCodigo] = useState('');
+  const [otpStep, setOtpStep] = useState<'telefone' | 'codigo' | 'nome'>('telefone');
+  const [otpNome, setOtpNome] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpErro, setOtpErro] = useState('');
 
   // Endereços Adicionais
   const [enderecos, setEnderecos] = useState<any[]>([]);
@@ -330,68 +316,6 @@ export default function DeliveryApp() {
     return v;
   };
 
-  const handleCepChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = formatCEP(e.target.value);
-    setRegCep(val);
-    const justNumbers = val.replace(/\D/g, '');
-    
-    if (justNumbers.length === 8) {
-      try {
-        const response = await fetch(`https://viacep.com.br/ws/${justNumbers}/json/`);
-        const data = await response.json();
-        if (!data.erro) {
-          setRegLogradouro(data.logradouro || '');
-          setRegBairro(data.bairro || '');
-          setRegCidade(data.localidade || '');
-          setRegUf(data.uf || '');
-        }
-      } catch (error) {
-        console.error(error);
-      }
-    }
-  };
-
-  const handleGetLocation = () => {
-    setIsFetchingLocation(true);
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(async (position) => {
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        setRegLat(lat);
-        setRegLng(lng);
-        
-        try {
-          const response = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
-            headers: { 'Accept-Language': 'pt-BR' }
-          });
-          const data = await response.json();
-          
-          if (data && data.address) {
-            setRegCep(data.address.postcode ? data.address.postcode.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2') : '');
-            setRegLogradouro(data.address.road || data.address.pedestrian || '');
-            setRegBairro(data.address.suburb || data.address.neighbourhood || data.address.city_district || '');
-            setRegCidade(data.address.city || data.address.town || data.address.village || data.address.municipality || '');
-            setRegUf(data.address.state ? getStateCode(data.address.state) : '');
-            setRegNumero('');
-            document.getElementById('reg_numero')?.focus();
-          }
-        } catch (error) {
-          console.error("Erro ao buscar endereço:", error);
-          alert("Não foi possível preencher o endereço automaticamente.");
-        } finally {
-          setIsFetchingLocation(false);
-        }
-      }, (error) => {
-        console.error(error);
-        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
-        setIsFetchingLocation(false);
-      }, { enableHighAccuracy: true });
-    } else {
-      alert("Geolocalização não suportada.");
-      setIsFetchingLocation(false);
-    }
-  };
-
   const handleNewEndGetLocation = () => {
     setIsFetchingNewLocation(true);
     if ('geolocation' in navigator) {
@@ -524,76 +448,84 @@ export default function DeliveryApp() {
     setNewEndLat(null); setNewEndLng(null);
   };
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleEnviarOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPhone = loginPhone.replace(/\D/g, '');
-    if (cleanPhone.length < 10) return alert('Por favor, digite um telefone válido com DDD.');
-
-    const normalizePhoneForComparison = (p: string) => {
-      const digits = p.replace(/\D/g, '');
-      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
-      return digits;
-    };
-    const targetPhone = normalizePhoneForComparison(cleanPhone);
-    const existe = clientesDb.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone);
-
-    if (existe) {
-      if (existe.pin && existe.pin !== loginPin) {
-        return alert('PIN incorreto.');
-      }
-      if (!existe.pin) {
-        await update(ref(db, `clientes/${existe.id}`), { pin: loginPin });
-        existe.pin = loginPin;
-      }
-      setCliente(existe);
-      localStorage.setItem('arttburger_cliente_session', JSON.stringify(existe));
-    } else {
-      alert('Cliente não encontrado. Por favor, cadastre-se.');
-      setAuthMode('register');
-      setRegTelefone(loginPhone);
+    const tel = otpTelefone.replace(/\D/g, '');
+    if (tel.length < 10) { setOtpErro('Telefone inválido. Inclua o DDD.'); return; }
+    setOtpLoading(true);
+    setOtpErro('');
+    try {
+      const codigo = Math.floor(100000 + Math.random() * 900000).toString();
+      const expiresAt = Date.now() + 5 * 60 * 1000;
+      await set(ref(db, `otp_codigos/${tel}`), { code: codigo, expiresAt, usado: false });
+      const mensagem = `🍔 *ArttBurger*\n\nSeu código de verificação: *${codigo}*\n\nVálido por 5 minutos.`;
+      await set(ref(db, `fila_mensagens/${Date.now()}_otp_${tel}`), {
+        telefone: tel,
+        mensagem,
+        status: 'pendente',
+        timestamp: Date.now(),
+        origem: 'login_cliente',
+      });
+      setOtpStep('codigo');
+    } catch {
+      setOtpErro('Erro ao enviar código. Tente novamente.');
     }
+    setOtpLoading(false);
   };
 
-  const handleRegister = async (e: React.FormEvent) => {
+  const handleVerificarOtp = async (e: React.FormEvent) => {
     e.preventDefault();
-    const cleanPhone = regTelefone.replace(/\D/g, '');
-    if (cleanPhone.length < 10) return alert('Por favor, digite um telefone válido.');
-    if (regPin.length !== 6) return alert('A senha deve ter 6 dígitos.');
-
-    const normalizePhoneForComparison = (p: string) => {
-      const digits = p.replace(/\D/g, '');
-      if (digits.length === 11) return digits.substring(0, 2) + digits.substring(3);
-      return digits;
-    };
-    const targetPhone = normalizePhoneForComparison(cleanPhone);
-    const existe = clientesDb.find(c => normalizePhoneForComparison(c.telefone || '') === targetPhone);
-
-    if (existe) {
-      return alert('Este telefone já está cadastrado. Por favor, faça login.');
+    const tel = otpTelefone.replace(/\D/g, '');
+    setOtpLoading(true);
+    setOtpErro('');
+    try {
+      const snap = await get(ref(db, `otp_codigos/${tel}`));
+      const data = snap.val();
+      if (!data) { setOtpErro('Código expirado. Solicite um novo.'); setOtpLoading(false); return; }
+      if (data.usado) { setOtpErro('Código já utilizado. Solicite um novo.'); setOtpLoading(false); return; }
+      if (Date.now() > data.expiresAt) { setOtpErro('Código expirado. Solicite um novo.'); setOtpLoading(false); return; }
+      if (data.code !== otpCodigo.trim()) { setOtpErro('Código incorreto.'); setOtpLoading(false); return; }
+      await set(ref(db, `otp_codigos/${tel}/usado`), true);
+      const normalizePhone = (p: string) => { const d = p.replace(/\D/g, ''); return d.length === 11 ? d.substring(0, 2) + d.substring(3) : d; };
+      const existe = clientesDb.find(c => normalizePhone(c.telefone || '') === normalizePhone(tel));
+      if (existe) {
+        setCliente(existe);
+        localStorage.setItem('arttburger_cliente_session', JSON.stringify(existe));
+      } else {
+        setOtpStep('nome');
+      }
+    } catch {
+      setOtpErro('Erro ao verificar código. Tente novamente.');
     }
+    setOtpLoading(false);
+  };
 
-    const clienteData: any = { nome: regNome.trim(), telefone: regTelefone, cpf: regCpf, dataNascimento: regDataNascimento, cep: regCep, logradouro: regLogradouro.trim(), numero: regNumero.trim(), bairro: regBairro.trim(), complemento: regComplemento.trim(), cidade: regCidade.trim(), uf: regUf.trim(), pin: regPin, dataCadastro: Date.now() };
-    
-    if (regLat !== null && regLng !== null) {
-      clienteData.lat = regLat;
-      clienteData.lng = regLng;
-      clienteData.coordAproximada = false;
+  const handleCompletarCadastro = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!otpNome.trim()) { setOtpErro('Por favor, informe seu nome.'); return; }
+    setOtpLoading(true);
+    setOtpErro('');
+    try {
+      const tel = otpTelefone.replace(/\D/g, '');
+      const clienteData = { nome: otpNome.trim(), telefone: tel, dataCadastro: Date.now() };
+      const newRef = push(ref(db, 'clientes'));
+      await set(newRef, clienteData);
+      const clienteFinal = { id: newRef.key!, ...clienteData };
+      setCliente(clienteFinal);
+      localStorage.setItem('arttburger_cliente_session', JSON.stringify(clienteFinal));
+    } catch {
+      setOtpErro('Erro ao finalizar cadastro. Tente novamente.');
     }
-
-    const newRef = push(ref(db, 'clientes'));
-    await set(newRef, clienteData);
-    const clienteFinal = { id: newRef.key!, ...clienteData };
-    
-    setCliente(clienteFinal);
-    localStorage.setItem('arttburger_cliente_session', JSON.stringify(clienteFinal));
+    setOtpLoading(false);
   };
 
   const handleLogout = () => {
     setCliente(null);
     localStorage.removeItem('arttburger_cliente_session');
-    setLoginPhone('');
-    setLoginPin('');
-    setAuthMode('login');
+    setOtpTelefone('');
+    setOtpCodigo('');
+    setOtpStep('telefone');
+    setOtpErro('');
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -747,20 +679,37 @@ export default function DeliveryApp() {
 
     try {
       await set(ref(db, `pedidos_cozinha/${dedupKey}`), pedidoPayload);
-      await set(ref(db, `entregas_abertas/${id}`), { 
-        clienteId: cliente!.id, 
-        clienteNome: cliente!.nome, 
-        clienteTelefone: cliente!.telefone, 
-        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex], 
-        isRetirada: tipoEntregaApp === 'retirada', 
-        carrinho: novoCarrinho, 
-        numeroDiario: numDiario, 
-        timestamp: Date.now(), 
-        sessaoId, 
-        formaPagamentoStr: nomePagamento, 
-        statusEntrega: 'Pendente', 
+      await set(ref(db, `entregas_abertas/${id}`), {
+        clienteId: cliente!.id,
+        clienteNome: cliente!.nome,
+        clienteTelefone: cliente!.telefone,
+        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex],
+        isRetirada: tipoEntregaApp === 'retirada',
+        carrinho: novoCarrinho,
+        numeroDiario: numDiario,
+        timestamp: Date.now(),
+        sessaoId,
+        formaPagamentoStr: nomePagamento,
+        statusEntrega: 'Pendente',
         origem: 'App Cliente',
         taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0))
+      });
+      await set(ref(db, `despachos/${id}`), {
+        id,
+        clienteId: cliente!.id,
+        clienteNome: cliente!.nome,
+        clienteTelefone: cliente!.telefone,
+        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex],
+        isRetirada: tipoEntregaApp === 'retirada',
+        itens: itensParaEnviar,
+        numeroDiario: numDiario,
+        timestamp: Date.now(),
+        sessaoId,
+        formaPagamentoStr: nomePagamento,
+        status: 'aguardando',
+        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0)),
+        total: valorTotalCarrinho,
+        origem: 'App Cliente',
       });
 
       setCarrinho({});
@@ -839,66 +788,56 @@ export default function DeliveryApp() {
         <div className="bg-white rounded-3xl shadow-2xl p-8 w-full max-w-sm flex flex-col items-center animate-in zoom-in-95 duration-300">
           <img src={logoImg} alt="ArttBurger" className="h-32 w-auto object-contain mb-6" />
           <h2 className="text-2xl font-black text-gray-800 mb-2">Delivery ArttBurger</h2>
-          
-          {authMode === 'login' ? (
-            <form onSubmit={handleLogin} className="w-full space-y-4 mt-4">
+
+          {otpStep === 'telefone' && (
+            <form onSubmit={handleEnviarOtp} className="w-full space-y-4 mt-4">
+              <p className="text-sm text-gray-500 text-center">Informe seu WhatsApp para receber o código de acesso.</p>
               <div className="relative">
                 <Phone className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="tel" required value={loginPhone} onChange={e => setLoginPhone(formatPhone(e.target.value))} placeholder="(00) 00000-0000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
+                <input type="tel" required value={otpTelefone} onChange={e => setOtpTelefone(formatPhone(e.target.value))} placeholder="(00) 00000-0000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
               </div>
-              <div className="relative">
-                <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
-                <input type="password" required maxLength={6} value={loginPin} onChange={e => setLoginPin(e.target.value.replace(/\D/g, ''))} placeholder="Senha (6 dígitos)" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700 tracking-widest text-center" />
-              </div>
-              <button type="submit" className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 transition-colors shadow-lg flex items-center justify-center gap-2 mt-4">
-                Entrar <ChevronRight size={20} />
-              </button>
-              <div className="flex flex-col gap-2 mt-4 text-center">
-                <button type="button" onClick={() => setAuthMode('register')} className="text-orange-600 font-bold hover:underline">Ainda não tem conta? Cadastre-se</button>
-                <button type="button" onClick={handleForgotPassword} className="text-gray-400 text-sm hover:underline mt-2">Esqueci minha senha</button>
-              </div>
-            </form>
-          ) : (
-            <form onSubmit={handleRegister} className="w-full space-y-3 mt-4 max-h-[60vh] overflow-y-auto px-1 pb-4">
-              <input type="text" required value={regNome} onChange={e => setRegNome(e.target.value)} placeholder="Nome Completo *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <input type="tel" required value={regTelefone} onChange={e => setRegTelefone(formatPhone(e.target.value))} placeholder="Telefone / WhatsApp *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <input type="password" required maxLength={6} value={regPin} onChange={e => setRegPin(e.target.value.replace(/\D/g, ''))} placeholder="Criar Senha (6 números) *" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm tracking-widest text-center" />
-              <input type="text" value={regCpf} onChange={e => setRegCpf(formatCPF(e.target.value))} placeholder="CPF (Opcional)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <div>
-                <p className="text-xs text-orange-600 font-bold mb-1 ml-1">Por favor, informe sua data de nascimento! 🎂</p>
-                <input type="date" value={regDataNascimento} onChange={e => setRegDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
-              </div>
-              
-              <button 
-                type="button" 
-                onClick={handleGetLocation} 
-                disabled={isFetchingLocation}
-                className="w-full bg-blue-50 text-blue-600 py-3 rounded-xl font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-sm disabled:opacity-50 border border-blue-200"
-              >
-                <MapPin size={18} />
-                {isFetchingLocation ? 'Buscando localização...' : 'Usar minha localização atual'}
-              </button>
-
-              <div className="flex gap-2">
-                <input type="text" value={regCep} onChange={handleCepChange} placeholder="CEP *" required className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-                <input type="text" value={regUf} onChange={e => setRegUf(e.target.value)} placeholder="UF *" required maxLength={2} className="w-16 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm uppercase text-center" />
-              </div>
-              <input type="text" value={regLogradouro} onChange={e => setRegLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <div className="flex gap-2">
-                <input type="text" id="reg_numero" value={regNumero} onChange={e => setRegNumero(e.target.value)} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-                <input type="text" value={regBairro} onChange={e => setRegBairro(e.target.value)} placeholder="Bairro *" required className="w-2/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              </div>
-              <input type="text" value={regCidade} onChange={e => setRegCidade(e.target.value)} placeholder="Cidade *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              <input type="text" value={regComplemento} onChange={e => setRegComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-              
-              <button type="submit" className="w-full bg-orange-500 text-white py-4 rounded-xl font-black text-base hover:bg-orange-600 transition-colors shadow-md mt-4">
-                Finalizar Cadastro
-              </button>
-              <button type="button" onClick={() => setAuthMode('login')} className="w-full text-gray-500 py-3 font-bold hover:bg-gray-100 rounded-xl transition-colors">
-                Voltar para o Login
+              {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
+              <button type="submit" disabled={otpLoading} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
+                {otpLoading ? 'Enviando...' : <><ChevronRight size={20} /> Receber código no WhatsApp</>}
               </button>
             </form>
           )}
+
+          {otpStep === 'codigo' && (
+            <form onSubmit={handleVerificarOtp} className="w-full space-y-4 mt-4">
+              <div className="text-center">
+                <p className="text-gray-600 text-sm">Código enviado para</p>
+                <p className="font-bold text-gray-800">{otpTelefone}</p>
+              </div>
+              <div className="relative">
+                <KeyRound className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input type="number" required value={otpCodigo} onChange={e => setOtpCodigo(e.target.value.slice(0, 6))} placeholder="000000" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700 tracking-widest text-center text-2xl" />
+              </div>
+              {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
+              <button type="submit" disabled={otpLoading || otpCodigo.length !== 6} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
+                {otpLoading ? 'Verificando...' : <><ChevronRight size={20} /> Entrar</>}
+              </button>
+              <button type="button" onClick={() => { setOtpStep('telefone'); setOtpErro(''); setOtpCodigo(''); }} className="w-full text-orange-500 font-bold py-2 text-sm hover:underline">
+                Trocar número
+              </button>
+            </form>
+          )}
+
+          {otpStep === 'nome' && (
+            <form onSubmit={handleCompletarCadastro} className="w-full space-y-4 mt-4">
+              <p className="text-sm text-gray-500 text-center">Bem-vindo! Como podemos te chamar?</p>
+              <div className="relative">
+                <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
+                <input type="text" required value={otpNome} onChange={e => setOtpNome(e.target.value)} placeholder="Seu nome completo" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
+              </div>
+              {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
+              <button type="submit" disabled={otpLoading} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
+                {otpLoading ? 'Salvando...' : <><ChevronRight size={20} /> Continuar</>}
+              </button>
+            </form>
+          )}
+
+          <button type="button" onClick={handleForgotPassword} className="text-gray-400 text-sm hover:underline mt-6">Precisa de ajuda?</button>
         </div>
       </div>
     );
