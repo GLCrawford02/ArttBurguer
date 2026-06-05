@@ -163,7 +163,7 @@ export default function DeliveryApp() {
     return () => { window.removeEventListener('online', onOnline); window.removeEventListener('offline', onOffline); };
   }, []);
 
-  // Permissões (localização + notificações)
+  // Permissão de localização
   useEffect(() => {
     const requestPerms = async () => {
       try {
@@ -171,13 +171,6 @@ export default function DeliveryApp() {
         await Geolocation.requestPermissions();
       } catch {
         try { navigator.geolocation.getCurrentPosition(() => {}); } catch {}
-      }
-      try {
-        const { PushNotifications } = await import('@capacitor/push-notifications');
-        const result = await PushNotifications.requestPermissions();
-        if (result.receive === 'granted') PushNotifications.register();
-      } catch {
-        try { await (Notification as any).requestPermission(); } catch {}
       }
     };
     requestPerms();
