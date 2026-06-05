@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, update, get, query, orderByChild, equalTo } from 'firebase/database';
+import { ref, onValue, push, set, update, get, query, orderByChild, equalTo, startAt } from 'firebase/database';
 import { db } from './firebase';
 import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart, WifiOff, RefreshCw, Download } from 'lucide-react';
 import logoImg from './assets/logo.png';
@@ -319,7 +319,15 @@ export default function DeliveryApp() {
       if (snap.val()) setEntregasAbertas(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
       else setEntregasAbertas([]);
     });
-    const unsubVendas = onValue(ref(db, 'vendas_pdv'), snap => {
+    const inicioHoje = (() => {
+      const agora = new Date();
+      const limite = new Date(agora);
+      limite.setHours(6, 59, 59, 999);
+      if (agora.getTime() <= limite.getTime()) agora.setDate(agora.getDate() - 1);
+      agora.setHours(7, 0, 0, 0);
+      return agora.getTime();
+    })();
+    const unsubVendas = onValue(query(ref(db, 'vendas_pdv'), orderByChild('timestamp'), startAt(inicioHoje)), snap => {
       if (snap.val()) setVendasPdv(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
       else setVendasPdv([]);
     });
@@ -853,7 +861,12 @@ export default function DeliveryApp() {
       </div>
       {p.imageUrl ? (
         <div className="w-32 h-32 shrink-0 rounded-[20px] overflow-hidden shadow-sm border border-gray-100 relative">
-          <img src={p.imageUrl} alt={p.nome} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+          <img
+            src={p.imageUrl}
+            alt={p.nome}
+            className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+            onError={e => { (e.currentTarget as HTMLImageElement).src = ''; e.currentTarget.style.display = 'none'; }}
+          />
           <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
         </div>
       ) : (

@@ -31,7 +31,7 @@
     "agendamentos": { ".write": true },
     "pedidos_cozinha": { ".write": true },
     "mesas_abertas": { ".write": true },
-    "vendas_pdv": { ".write": true },
+    "vendas_pdv": { ".write": true, ".indexOn": ["timestamp", "clienteId"] },
     "lancamentos_vendas": { ".write": true },
     "historico_vendas": { ".write": true },
     "tarefas": { ".write": true },
