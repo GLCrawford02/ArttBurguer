@@ -5,5 +5,8 @@
   "bundledWebRuntime": false,
   "android": {
     "path": "android-cliente"
+  },
+  "server": {
+    "androidScheme": "https"
   }
 }
