@@ -225,8 +225,16 @@ export default function DeliveryApp() {
 
     const carrosselRef = ref(db, 'configuracoes/app_delivery/carrossel');
     const unsubCar = onValue(carrosselRef, snap => {
-      if (snap.val()) {
-        const list = Object.values(snap.val()).map((c: any) => c.url).filter(Boolean);
+      const val = snap.val();
+      if (val) {
+        let list: string[] = [];
+        if (typeof val === 'string') {
+          list = [val];
+        } else if (Array.isArray(val)) {
+          list = val.map((c: any) => typeof c === 'string' ? c : (c.url || c.imageUrl || '')).filter(Boolean);
+        } else {
+          list = Object.values(val).map((c: any) => typeof c === 'string' ? c : (c.url || c.imageUrl || '')).filter(Boolean);
+        }
         setCarrosselImagens(list);
       } else {
         setCarrosselImagens([]);
