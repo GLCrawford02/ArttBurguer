@@ -5,6 +5,7 @@ import { Insumo, Funcionario } from '../types';
 import { ArrowRight, Search, CheckCircle, AlertTriangle, History, User, Clock, Package, Scan } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
 import { logInfo, logWarn, logError, startTimer } from '../utils/logger';
+import { loadDraft, saveDraft, clearDraft } from '../hooks/useDraftCache';
 
 export default function TransferenciaManager({ currentUser: _currentUser }: { currentUser?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -36,6 +37,23 @@ export default function TransferenciaManager({ currentUser: _currentUser }: { cu
     setToast({ msg, type });
     setTimeout(() => setToast(null), 4000);
   };
+
+  useEffect(() => {
+    const draft = loadDraft<{ quantities: any, selecionados: any }>('transferencia', _currentUser?.id);
+    if (draft) {
+      if (draft.quantities) setQuantities(draft.quantities);
+      if (draft.selecionados) setSelecionados(draft.selecionados);
+    }
+  }, [_currentUser?.id]);
+
+  useEffect(() => {
+    const isEmpty = Object.keys(quantities).length === 0 && Object.keys(selecionados).length === 0;
+    if (isEmpty) {
+      clearDraft('transferencia', _currentUser?.id);
+    } else {
+      saveDraft('transferencia', _currentUser?.id, { quantities, selecionados });
+    }
+  }, [quantities, selecionados, _currentUser?.id]);
 
   useEffect(() => {
     const unsubs = [

@@ -4,8 +4,9 @@ import { db } from '../firebase';
 import { Insumo, Produto, IngredienteReceita } from '../types';
 import { Calculator, Search, CheckCircle, Plus, Trash2, X, Sparkles, Bot, Loader2, Settings, Pencil } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
+import { loadDraft, saveDraft, clearDraft } from '../hooks/useDraftCache';
 
-export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, produtos, categoriasDb, showToast }: any) {
+export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, produtos, categoriasDb, showToast, currentUser }: any) {
   const [nomeProduto, setNomeProduto] = useState('');
   const [categoria, setCategoria] = useState('');
   const [precoVenda, setPrecoVenda] = useState<string>('');
@@ -48,6 +49,16 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
   const [searchCategoria, setSearchCategoria] = useState('');
   const [showCategoriaDropdown, setShowCategoriaDropdown] = useState(false);
   const [editModeIng, setEditModeIng] = useState<Record<number, boolean>>({});
+  const [configOpcoes, setConfigOpcoes] = useState({
+    montagemObrigatoria: false,
+    ocultarMontagem: false,
+    pontoCarneObrigatorio: false,
+    ocultarPontoCarne: false,
+    adicionaisObrigatorio: false,
+    ocultarAdicionais: false,
+    ocultarRestricoes: false,
+    ocultarTamanhos: false
+  });
 
   useEffect(() => {
     if (produtoEdit) {
@@ -62,25 +73,60 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       setAdicionais((produtoEdit as any).opcoes?.adicionais || []);
       setRestricoes((produtoEdit as any).opcoes?.restricoesLivres || []);
       setTamanhos((produtoEdit as any).opcoes?.tamanhos || []);
+      setConfigOpcoes((produtoEdit as any).opcoes?.configOpcoes || {
+        montagemObrigatoria: false, ocultarMontagem: false,
+        pontoCarneObrigatorio: false, ocultarPontoCarne: false,
+        adicionaisObrigatorio: false, ocultarAdicionais: false,
+        ocultarRestricoes: false, ocultarTamanhos: false
+      });
       setCadastroMode('manual');
     } else {
-      setNomeProduto('');
-      setCategoria('');
-      setSearchCategoria('');
-      setPrecoVenda('');
-      setImageUrl('');
-      setIngredientesSelecionados([]);
-      setTiposMontagem([]);
-      setPontosCarne([]);
-      setAdicionais([]);
-      setRestricoes([]);
-      setTamanhos([]);
-      setCadastroMode('manual');
+      const draft = loadDraft<any>('produto', currentUser?.id);
+      if (draft) {
+        setNomeProduto(draft.nomeProduto || '');
+        setCategoria(draft.categoria || '');
+        setSearchCategoria(draft.categoria || '');
+        setPrecoVenda(draft.precoVenda || '');
+        setImageUrl(draft.imageUrl || '');
+        setIngredientesSelecionados(draft.ingredientesSelecionados || []);
+        setTiposMontagem(draft.tiposMontagem || []);
+        setPontosCarne(draft.pontosCarne || []);
+        setAdicionais(draft.adicionais || []);
+        setRestricoes(draft.restricoes || []);
+        setTamanhos(draft.tamanhos || []);
+        setConfigOpcoes(draft.configOpcoes || { montagemObrigatoria: false, ocultarMontagem: false, pontoCarneObrigatorio: false, ocultarPontoCarne: false, adicionaisObrigatorio: false, ocultarAdicionais: false, ocultarRestricoes: false, ocultarTamanhos: false });
+        setCadastroMode(draft.cadastroMode || 'manual');
+      } else {
+        setNomeProduto('');
+        setCategoria('');
+        setSearchCategoria('');
+        setPrecoVenda('');
+        setImageUrl('');
+        setIngredientesSelecionados([]);
+        setTiposMontagem([]);
+        setPontosCarne([]);
+        setAdicionais([]);
+        setRestricoes([]);
+        setTamanhos([]);
+        setConfigOpcoes({ montagemObrigatoria: false, ocultarMontagem: false, pontoCarneObrigatorio: false, ocultarPontoCarne: false, adicionaisObrigatorio: false, ocultarAdicionais: false, ocultarRestricoes: false, ocultarTamanhos: false });
+        setCadastroMode('manual');
+      }
     }
     setSearchProdutoCopia('');
     setProdutoCopiaId('');
     setEditModeIng({});
   }, [produtoEdit, isOpen]);
+
+  useEffect(() => {
+    if (!produtoEdit && isOpen) {
+      saveDraft('produto', currentUser?.id, {
+        nomeProduto, categoria, precoVenda, imageUrl, ingredientesSelecionados,
+        tiposMontagem, pontosCarne, adicionais, restricoes, tamanhos, configOpcoes, cadastroMode
+      });
+    }
+  }, [nomeProduto, categoria, precoVenda, imageUrl, ingredientesSelecionados, tiposMontagem, pontosCarne, adicionais, restricoes, tamanhos, configOpcoes, cadastroMode, produtoEdit, isOpen, currentUser?.id]);
+
+  const handleClose = () => { if (!produtoEdit) clearDraft('produto', currentUser?.id); onClose(); };
 
   if (!isOpen) return null;
 
@@ -198,7 +244,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
     if (duplicado) return showToast('Já existe um produto cadastrado com este nome.', 'error');
     
     try {
-      const opcoesData = { tiposMontagem, pontosCarne, adicionais, restricoesLivres: restricoes, tamanhos };
+      const opcoesData = { tiposMontagem, pontosCarne, adicionais, restricoesLivres: restricoes, tamanhos, configOpcoes };
       const produtosRef = ref(db, 'produtos');
       
       if (produtoEdit && produtoEdit.id) {
@@ -213,7 +259,8 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
         });
       }
       showToast(produtoEdit ? 'Produto atualizado com sucesso!' : 'Produto salvo com sucesso!', 'success');
-      onClose();
+      if (!produtoEdit) clearDraft('produto', currentUser?.id);
+      handleClose();
     } catch (error: any) {
       showToast('Erro ao salvar produto: ' + error.message, 'error');
     }
@@ -234,7 +281,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
                 <button onClick={() => setCadastroMode('ia')} className={`px-3 py-1.5 text-xs font-bold rounded-md transition-colors flex items-center ${cadastroMode === 'ia' ? 'bg-white text-purple-600 shadow-sm' : 'text-gray-500'}`}><Sparkles size={12} className="mr-1"/> IA</button>
               </div>
             )}
-            <button onClick={onClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-500 transition-colors"><X size={20} /></button>
+            <button onClick={handleClose} className="p-2 bg-gray-100 rounded-full hover:bg-gray-200 text-gray-500 transition-colors"><X size={20} /></button>
           </div>
         </div>
         
@@ -320,12 +367,12 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
                 </div>
               </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Tipos de Montagem</p><div className="flex space-x-2 mb-3"><input type="text" value={novaMontagem} onChange={e => setNovaMontagem(e.target.value)} placeholder="Ex: No Prato" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddMontagem} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{tiposMontagem.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><div className="flex space-x-1"><button onClick={() => { setNovaMontagem(t.nome); handleRemoveMontagem(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveMontagem(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
-                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Ponto da Carne</p><div className="flex space-x-2 mb-3"><input type="text" value={novoPonto} onChange={e => setNovoPonto(e.target.value)} placeholder="Ex: Mal Passada" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddPonto} className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{pontosCarne.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><div className="flex space-x-1"><button onClick={() => { setNovoPonto(t.nome); handleRemovePonto(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemovePonto(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
-                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Adicionais (Cobrados)</p><div className="flex flex-col gap-2 mb-3"><div className="relative"><input type="text" value={novoAdicionalNome} onChange={e => { setNovoAdicionalNome(e.target.value); setNovoAdicionalInsumoId(''); setShowAdicionalDropdown(true); }} onFocus={() => setShowAdicionalDropdown(true)} onBlur={() => setTimeout(() => setShowAdicionalDropdown(false), 200)} placeholder="Ex: Bacon" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showAdicionalDropdown && novoAdicionalNome && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => normalizeString(i.nome).includes(normalizeString(novoAdicionalNome))).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovoAdicionalNome(i.nome); setNovoAdicionalInsumoId(i.id); setShowAdicionalDropdown(false); }} className="p-2 text-xs hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center"><span className="font-medium text-gray-800">{i.nome}</span><span className="text-gray-400 text-[10px]">{i.unidade}</span></div>))}<div onMouseDown={() => setShowAdicionalDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-green-600 font-bold italic">Usar texto livre: "{novoAdicionalNome}"</div></div>)}</div><div className="flex space-x-2"><input type="number" value={novoAdicionalPreco} onChange={e => setNovoAdicionalPreco(e.target.value)} placeholder="R$ 0,00" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><input type="number" step="any" value={novoAdicionalQtd} onChange={e => setNovoAdicionalQtd(e.target.value)} placeholder="Qtd" title="Quantidade consumida do insumo" className="w-16 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddAdicional} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"><Plus size={16}/></button></div></div><div className="space-y-1 max-h-32 overflow-y-auto">{adicionais.map((t: any) => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><div><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-green-100 text-green-600 px-1 rounded-sm ml-1">Estoque ({t.quantidade})</span>}</span><strong className="text-green-600 block mt-0.5">R$ {t.preco.toFixed(2)}</strong></div><div className="flex space-x-1 items-start"><button onClick={() => { setNovoAdicionalNome(t.nome); setNovoAdicionalPreco(t.preco); setNovoAdicionalQtd(t.quantidade || ''); setNovoAdicionalInsumoId(t.insumoId || ''); handleRemoveAdicional(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveAdicional(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
-            <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><p className="text-xs font-bold text-gray-700 uppercase mb-2">Restrições (Sem)</p><div className="flex space-x-2 mb-3"><div className="relative flex-1"><input type="text" value={novaRestricao} onChange={e => { setNovaRestricao(e.target.value); setNovaRestricaoInsumoId(''); setShowRestricaoDropdown(true); }} onFocus={() => setShowRestricaoDropdown(true)} onBlur={() => setTimeout(() => setShowRestricaoDropdown(false), 200)} placeholder="Ex: Cebola" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showRestricaoDropdown && novaRestricao && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => normalizeString(i.nome).includes(normalizeString(novaRestricao))).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovaRestricao(i.nome); setNovaRestricaoInsumoId(i.id); setShowRestricaoDropdown(false); }} className="p-2 text-xs hover:bg-orange-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{i.nome}</span></div>))}<div onMouseDown={() => setShowRestricaoDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-orange-600 font-bold italic">Usar texto livre: "{novaRestricao}"</div></div>)}</div><button onClick={handleAddRestricao} className="bg-orange-500 text-white p-2 rounded-lg hover:bg-orange-600"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{restricoes.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-orange-100 text-orange-600 px-1 rounded-sm ml-1" title="Vinculado ao Estoque">Estoque</span>}</span><div className="flex space-x-1 items-start"><button onClick={() => { setNovaRestricao(t.nome); setNovaRestricaoInsumoId(t.insumoId || ''); handleRemoveRestricao(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveRestricao(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-gray-700 uppercase">Tipos de Montagem</p><div className="flex gap-2"><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.montagemObrigatoria} onChange={e => setConfigOpcoes({...configOpcoes, montagemObrigatoria: e.target.checked})} /> Obrigatório</label><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.ocultarMontagem} onChange={e => setConfigOpcoes({...configOpcoes, ocultarMontagem: e.target.checked})} /> Ocultar no App</label></div></div><div className="flex space-x-2 mb-3"><input type="text" value={novaMontagem} onChange={e => setNovaMontagem(e.target.value)} placeholder="Ex: No Prato" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddMontagem} className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{tiposMontagem.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><div className="flex space-x-1"><button onClick={() => { setNovaMontagem(t.nome); handleRemoveMontagem(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveMontagem(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-gray-700 uppercase">Ponto da Carne</p><div className="flex gap-2"><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.pontoCarneObrigatorio} onChange={e => setConfigOpcoes({...configOpcoes, pontoCarneObrigatorio: e.target.checked})} /> Obrigatório</label><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.ocultarPontoCarne} onChange={e => setConfigOpcoes({...configOpcoes, ocultarPontoCarne: e.target.checked})} /> Ocultar no App</label></div></div><div className="flex space-x-2 mb-3"><input type="text" value={novoPonto} onChange={e => setNovoPonto(e.target.value)} placeholder="Ex: Mal Passada" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddPonto} className="bg-red-600 text-white p-2 rounded-lg hover:bg-red-700"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{pontosCarne.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome}</span><div className="flex space-x-1"><button onClick={() => { setNovoPonto(t.nome); handleRemovePonto(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemovePonto(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
+                <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-gray-700 uppercase">Adicionais (Cobrados)</p><div className="flex gap-2"><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.adicionaisObrigatorio} onChange={e => setConfigOpcoes({...configOpcoes, adicionaisObrigatorio: e.target.checked})} /> Obrigatório</label><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.ocultarAdicionais} onChange={e => setConfigOpcoes({...configOpcoes, ocultarAdicionais: e.target.checked})} /> Ocultar no App</label></div></div><div className="flex flex-col gap-2 mb-3"><div className="relative"><input type="text" value={novoAdicionalNome} onChange={e => { setNovoAdicionalNome(e.target.value); setNovoAdicionalInsumoId(''); setShowAdicionalDropdown(true); }} onFocus={() => setShowAdicionalDropdown(true)} onBlur={() => setTimeout(() => setShowAdicionalDropdown(false), 200)} placeholder="Ex: Bacon" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showAdicionalDropdown && novoAdicionalNome && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => normalizeString(i.nome).includes(normalizeString(novoAdicionalNome))).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovoAdicionalNome(i.nome); setNovoAdicionalInsumoId(i.id); setShowAdicionalDropdown(false); }} className="p-2 text-xs hover:bg-green-50 cursor-pointer border-b border-gray-50 flex justify-between items-center"><span className="font-medium text-gray-800">{i.nome}</span><span className="text-gray-400 text-[10px]">{i.unidade}</span></div>))}<div onMouseDown={() => setShowAdicionalDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-green-600 font-bold italic">Usar texto livre: "{novoAdicionalNome}"</div></div>)}</div><div className="flex space-x-2"><input type="number" value={novoAdicionalPreco} onChange={e => setNovoAdicionalPreco(e.target.value)} placeholder="R$ 0,00" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><input type="number" step="any" value={novoAdicionalQtd} onChange={e => setNovoAdicionalQtd(e.target.value)} placeholder="Qtd" title="Quantidade consumida do insumo" className="w-16 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" /><button onClick={handleAddAdicional} className="bg-green-600 text-white p-2 rounded-lg hover:bg-green-700"><Plus size={16}/></button></div></div><div className="space-y-1 max-h-32 overflow-y-auto">{adicionais.map((t: any) => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><div><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-green-100 text-green-600 px-1 rounded-sm ml-1">Estoque ({t.quantidade})</span>}</span><strong className="text-green-600 block mt-0.5">R$ {t.preco.toFixed(2)}</strong></div><div className="flex space-x-1 items-start"><button onClick={() => { setNovoAdicionalNome(t.nome); setNovoAdicionalPreco(t.preco); setNovoAdicionalQtd(t.quantidade || ''); setNovoAdicionalInsumoId(t.insumoId || ''); handleRemoveAdicional(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveAdicional(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
+            <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg"><div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-gray-700 uppercase">Restrições (Sem)</p><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.ocultarRestricoes} onChange={e => setConfigOpcoes({...configOpcoes, ocultarRestricoes: e.target.checked})} /> Ocultar no App</label></div><div className="flex space-x-2 mb-3"><div className="relative flex-1"><input type="text" value={novaRestricao} onChange={e => { setNovaRestricao(e.target.value); setNovaRestricaoInsumoId(''); setShowRestricaoDropdown(true); }} onFocus={() => setShowRestricaoDropdown(true)} onBlur={() => setTimeout(() => setShowRestricaoDropdown(false), 200)} placeholder="Ex: Cebola" className="w-full p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />{showRestricaoDropdown && novaRestricao && (<div className="absolute z-50 w-full mt-1 bg-white border border-gray-200 rounded shadow-xl max-h-48 overflow-y-auto">{insumos.filter((i: Insumo) => normalizeString(i.nome).includes(normalizeString(novaRestricao))).map((i: Insumo) => (<div key={i.id} onMouseDown={() => { setNovaRestricao(i.nome); setNovaRestricaoInsumoId(i.id); setShowRestricaoDropdown(false); }} className="p-2 text-xs hover:bg-orange-50 cursor-pointer border-b border-gray-50"><span className="font-medium text-gray-800">{i.nome}</span></div>))}<div onMouseDown={() => setShowRestricaoDropdown(false)} className="p-2 text-[10px] hover:bg-gray-50 cursor-pointer text-orange-600 font-bold italic">Usar texto livre: "{novaRestricao}"</div></div>)}</div><button onClick={handleAddRestricao} className="bg-orange-500 text-white p-2 rounded-lg hover:bg-orange-600"><Plus size={16}/></button></div><div className="space-y-1 max-h-32 overflow-y-auto">{restricoes.map(t => (<div key={t.id} className="flex justify-between items-center bg-white p-2 rounded text-xs border border-gray-100"><span>{t.nome} {t.insumoId && <span className="text-[9px] bg-orange-100 text-orange-600 px-1 rounded-sm ml-1" title="Vinculado ao Estoque">Estoque</span>}</span><div className="flex space-x-1 items-start"><button onClick={() => { setNovaRestricao(t.nome); setNovaRestricaoInsumoId(t.insumoId || ''); handleRemoveRestricao(t.id); }} className="text-blue-500 hover:bg-blue-100 p-1 rounded h-fit" title="Editar"><Pencil size={12}/></button><button onClick={() => handleRemoveRestricao(t.id)} className="text-red-500 hover:bg-red-100 p-1 rounded h-fit" title="Excluir"><Trash2 size={12}/></button></div></div>))}</div></div>
                 <div className="bg-gray-50 p-3 border border-gray-200 rounded-lg">
-                  <p className="text-xs font-bold text-gray-700 uppercase mb-2">Tamanhos / Variações</p>
+                  <div className="flex justify-between items-center mb-2"><p className="text-xs font-bold text-gray-700 uppercase">Tamanhos / Variações</p><label className="text-[10px] flex items-center gap-1 cursor-pointer"><input type="checkbox" checked={configOpcoes.ocultarTamanhos} onChange={e => setConfigOpcoes({...configOpcoes, ocultarTamanhos: e.target.checked})} /> Ocultar no App</label></div>
                   <div className="flex space-x-2 mb-3">
                     <input type="text" value={novoTamanhoNome} onChange={e => setNovoTamanhoNome(e.target.value)} placeholder="Ex: G" className="flex-1 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />
                     <input type="number" step="any" value={novoTamanhoPreco} onChange={e => setNovoTamanhoPreco(e.target.value)} placeholder="R$ 0,00" className="w-20 p-2 border border-gray-200 rounded-lg text-xs outline-none bg-white" />
@@ -352,7 +399,7 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
                 <p className="text-2xl font-bold text-green-600">R$ {custoTotalFicha.toFixed(2)}</p>
               </div>
               <div className="flex gap-2">
-                <button onClick={onClose} className="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>
+                <button onClick={handleClose} className="bg-gray-200 text-gray-700 px-6 py-3 rounded-lg font-bold hover:bg-gray-300 transition-colors shadow-sm">Cancelar</button>
                 <button onClick={salvarProduto} disabled={!nomeProduto || ingredientesSelecionados.length === 0} className="bg-blue-600 text-white px-8 py-3 rounded-lg font-bold hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm">{produtoEdit && produtoEdit.id ? 'Atualizar Produto' : 'Salvar Produto'}</button>
               </div>
             </div>

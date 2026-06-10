@@ -47,6 +47,7 @@
     "sistema": { ".write": true },
     "fidelidade_config": { ".write": true },
     "fidelidade_pontos": { ".write": true },
+    "fidelidade_missoes_pendentes": { ".write": true, ".indexOn": ["clienteId"] },
     "historico_balancos": { ".write": true },
     "escalas": { ".write": true },
     "confirmacoes_x9": { ".write": true },

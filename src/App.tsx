@@ -45,6 +45,7 @@ import { db } from './firebase';
 import { Funcionario } from './types';
 import logoImg from './assets/logo.png';
 import { Capacitor } from '@capacitor/core';
+import { clearAllDrafts } from './hooks/useDraftCache';
 import { Geolocation } from '@capacitor/geolocation';
 
 declare const __APP_VERSION__: string;
@@ -106,6 +107,7 @@ export default function App() {
   const [missingCpfInput, setMissingCpfInput] = useState('');
   const [appUpdateConfig, setAppUpdateConfig] = useState<any>(null);
   const [licenca, setLicenca] = useState<{ validade?: string; ativo?: boolean } | null>(null);
+  const [missoesPendentesCount, setMissoesPendentesCount] = useState(0);
 
   const [permissoesOk, setPermissoesOk] = useState<boolean>(() => {
     if (!Capacitor.isNativePlatform()) return true;
@@ -140,6 +142,16 @@ export default function App() {
     checarGps();
     gpsIntervalRef.current = setInterval(checarGps, 4000);
     return () => { if (gpsIntervalRef.current) clearInterval(gpsIntervalRef.current); };
+  }, []);
+
+  // Conta missões de fidelidade aguardando verificação, para destacar a aba de Clientes/Fidelidade
+  useEffect(() => {
+    const unsub = onValue(ref(db, 'fidelidade_missoes_pendentes'), snap => {
+      const dados = snap.val() || {};
+      const pendentes = Object.values(dados).filter((mp: any) => mp.status === 'pendente');
+      setMissoesPendentesCount(pendentes.length);
+    });
+    return () => unsub();
   }, []);
 
   // Buzzer: salva último entregador logado e ouve novos despachos para notificá-lo
@@ -965,12 +977,15 @@ export default function App() {
           {allowedTabs.includes('logistica') && (
           <button
             onClick={() => handleTabChange('logistica')}
-            className={`w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
+            className={`relative w-full flex items-center space-x-3 p-3 rounded-lg transition-colors font-medium ${
               activeTab === 'logistica' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:bg-gray-800 hover:text-white'
-            }`}
+            } ${missoesPendentesCount > 0 ? 'animate-pulse' : ''}`}
           >
             <Truck size={20} />
             <span>Clientes e Entregas</span>
+            {missoesPendentesCount > 0 && (
+              <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center">{missoesPendentesCount}</span>
+            )}
           </button>
           )}
 
@@ -1099,7 +1114,7 @@ export default function App() {
                <p className="text-sm font-bold text-gray-800">{currentUser.nome}</p>
                <p className="text-xs text-gray-500">{Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : (currentUser.cargo || 'Atendente')}</p>
              </div>
-             <button onClick={() => { logInfo('Login', 'Logout manual', { nome: currentUser.nome, cargo: Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : currentUser.cargo }); setCurrentUser(null); }} className="w-10 h-10 bg-gray-200 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors" title="Sair do Sistema">
+             <button onClick={() => { logInfo('Login', 'Logout manual', { nome: currentUser.nome, cargo: Array.isArray(currentUser.cargo) ? currentUser.cargo.join(', ') : currentUser.cargo }); setCurrentUser(null); clearAllDrafts(); }} className="w-10 h-10 bg-gray-200 rounded-full border-2 border-white shadow-sm flex items-center justify-center text-gray-600 hover:text-red-600 hover:bg-red-50 transition-colors" title="Sair do Sistema">
                 <LogOut size={18} />
              </button>
           </div>
@@ -1164,7 +1179,14 @@ export default function App() {
               {!isEntregadorOnly && (
                 <div className="flex flex-wrap gap-1 bg-gray-200 p-1 rounded-xl w-fit">
                 {temPermissao('clientes', 'aba_logistica') && <button onClick={() => setSubTabLogistica('clientes')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'clientes' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Clientes</button>}
-                {temPermissao('fidelidade', 'aba_logistica') && <button onClick={() => setSubTabLogistica('fidelidade')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'fidelidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>}
+                {temPermissao('fidelidade', 'aba_logistica') && (
+                  <button onClick={() => setSubTabLogistica('fidelidade')} className={`relative px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'fidelidade' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'} ${missoesPendentesCount > 0 ? 'animate-pulse' : ''}`}>
+                    Fidelidade
+                    {missoesPendentesCount > 0 && (
+                      <span className="absolute -top-1.5 -right-1.5 bg-red-500 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center">{missoesPendentesCount}</span>
+                    )}
+                  </button>
+                )}
                 {temPermissao('despacho', 'aba_logistica') && <button onClick={() => setSubTabLogistica('despacho')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${subTabLogistica === 'despacho' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Despachos e Rotas</button>}
                 {(() => {
                   const cargosArr = Array.isArray(currentUser.cargo) ? currentUser.cargo : [currentUser.cargo || 'Atendente'];

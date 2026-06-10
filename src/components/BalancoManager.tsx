@@ -6,6 +6,7 @@ import { Scale, Save, Download, CalendarClock, CheckCircle, Search, Settings, X,
 import { normalizeString } from '../utils/stringUtils';
 import CalculadoraFlutuante from './CalculadoraFlutuante';
 import ExcelJS from 'exceljs';
+import { loadDraft, saveDraft, clearDraft } from '../hooks/useDraftCache';
 
 interface HistoricoItem {
   id: string;
@@ -46,6 +47,24 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
   const [historicoRegistros, setHistoricoRegistros] = useState<RegistroBalanco[]>([]);
   const [showHistorico, setShowHistorico] = useState(false);
   const [registroExpandido, setRegistroExpandido] = useState<string | null>(null);
+
+  useEffect(() => {
+    const draft = loadDraft<{novosEstoques: any, novosCustos: any, editMode: any}>('balanco', currentUser?.id);
+    if (draft) {
+      if (draft.novosEstoques) setNovosEstoques(draft.novosEstoques);
+      if (draft.novosCustos) setNovosCustos(draft.novosCustos);
+      if (draft.editMode) setEditMode(draft.editMode);
+    }
+  }, [currentUser?.id]);
+
+  useEffect(() => {
+    const isEmpty = Object.keys(novosEstoques).length === 0 && Object.keys(novosCustos).length === 0 && Object.keys(editMode).length === 0;
+    if (isEmpty) {
+      clearDraft('balanco', currentUser?.id);
+    } else {
+      saveDraft('balanco', currentUser?.id, { novosEstoques, novosCustos, editMode });
+    }
+  }, [novosEstoques, novosCustos, editMode, currentUser?.id]);
 
   const handleSort = (key: string) => {
     let direction: 'asc' | 'desc' = 'asc';
@@ -242,6 +261,7 @@ export default function BalancoManager({ currentUser }: { currentUser?: any }) {
     setNovosEstoques({});
     setNovosCustos({});
     setEditMode({});
+    clearDraft('balanco', currentUser?.id);
   };
 
   const isProximoVencimento = (insumo: Insumo) => {

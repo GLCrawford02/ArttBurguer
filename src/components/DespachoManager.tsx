@@ -3,7 +3,7 @@ import { ref, onValue, push, set, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Cliente } from './ClientesManager';
 import { Funcionario } from '../types';
-import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X, Clock } from 'lucide-react';
+import { Map, Navigation, MapPin, Search, Plus, Trash2, CheckCircle, Truck, AlertTriangle, ExternalLink, ArrowUp, ArrowDown, MessageSquare, Package, Flame, X, Clock, Gift } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
 import { logInfo, logError, startTimer } from '../utils/logger';
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
@@ -630,8 +630,10 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                   return relacionados.every(p => p.status === 'Concluído' || p.status === 'Cancelado');
                 })();
 
+                const temRecompensa = (ped.recompensasResgatadas?.length || 0) > 0;
+
                 return (
-                  <div key={ped.id} className={`p-4 rounded-xl border ${isPronto ? 'border-gray-200 bg-white hover:border-indigo-300' : 'border-orange-200 bg-orange-50 opacity-90'} transition-colors shadow-sm flex justify-between items-center group`}>
+                  <div key={ped.id} className={`p-4 rounded-xl border ${temRecompensa ? 'border-green-300 bg-green-50 hover:border-green-400' : isPronto ? 'border-gray-200 bg-white hover:border-indigo-300' : 'border-orange-200 bg-orange-50 opacity-90'} transition-colors shadow-sm flex justify-between items-center group`}>
                     <div className="truncate pr-2">
                       <p className="font-bold text-gray-800">#{ped.numeroDiario || '?'} - {c.nome}</p>
                       <p className="text-sm text-gray-500 truncate mt-1 flex items-center"><MapPin size={14} className="mr-1"/> {formatarEndereco(c, ped) || 'Sem endereço'}</p>
@@ -639,6 +641,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                         {ped.isAberta ? <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold">Falta Pagar</span> : <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[11px] font-bold">Pago</span>}
                         <span className="text-[11px] text-indigo-500 font-bold">Pedido às {new Date(ped.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}</span>
                         {!isPronto && <span className="bg-orange-100 text-orange-700 px-2 py-0.5 rounded text-[11px] font-bold flex items-center"><Flame size={12} className="mr-1" /> Na Cozinha</span>}
+                        {temRecompensa && <span className="bg-green-100 text-green-700 px-2 py-0.5 rounded text-[11px] font-bold flex items-center"><Gift size={12} className="mr-1" /> Recompensa</span>}
                       </div>
                     </div>
                     {canEdit && (

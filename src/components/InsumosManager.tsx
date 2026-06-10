@@ -5,6 +5,7 @@ import { Insumo } from '../types';
 import { Package, Search, Trash2, CheckCircle, AlertTriangle, Pencil, Sparkles, Bot, Loader2, X, Plus, RefreshCw, Link as LinkIcon, ChevronUp, ChevronDown } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
 import TiposUsoModal from './modals/TiposUsoModal';
+import { loadDraft, saveDraft, clearDraft } from '../hooks/useDraftCache';
 
 export default function InsumosManager({ currentUser, temPermissao }: { currentUser?: any, temPermissao?: any }) {
   const [insumos, setInsumos] = useState<Insumo[]>([]);
@@ -108,6 +109,28 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
       setSku('');
     }
   }, [nome, editId]);
+
+  useEffect(() => {
+    if (editId === null && showForm) {
+      const draft = loadDraft<any>('insumo', currentUser?.id);
+      if (draft) {
+        setNome(draft.nome || ''); setSku(draft.sku || ''); setUnidade(draft.unidade || 'un');
+        setPrecoPacote(draft.precoPacote || '0'); setQtdPacote(draft.qtdPacote || '1');
+        setDiasAvisoValidade(draft.diasAvisoValidade || '7'); setAlertaMinimo(draft.alertaMinimo || '');
+        setEstoqueMaximo(draft.estoqueMaximo || ''); setEstoqueAtual(draft.estoqueAtual || '');
+        setTipoUso(draft.tipoUso || ''); setSearchTipoUso(draft.tipoUso || '');
+        setInsumoVinculado(draft.insumoVinculado || ''); setSearchInsumoVinculado(draft.searchInsumoVinculado || '');
+        setIsVariavel(draft.isVariavel || false); setTransferivel(draft.transferivel || false);
+        setCadastroMode(draft.cadastroMode || 'manual');
+      }
+    }
+  }, [editId, showForm, currentUser?.id]);
+
+  useEffect(() => {
+    if (editId === null && showForm) {
+      saveDraft('insumo', currentUser?.id, { nome, sku, unidade, precoPacote, qtdPacote, diasAvisoValidade, alertaMinimo, estoqueMaximo, estoqueAtual, tipoUso, searchTipoUso, insumoVinculado, searchInsumoVinculado, isVariavel, transferivel, cadastroMode });
+    }
+  }, [nome, sku, unidade, precoPacote, qtdPacote, diasAvisoValidade, alertaMinimo, estoqueMaximo, estoqueAtual, tipoUso, searchTipoUso, insumoVinculado, searchInsumoVinculado, isVariavel, transferivel, cadastroMode, editId, showForm, currentUser?.id]);
 
   const handleAddTipo = async () => {
     if (!novoTipoForm.trim()) return;
@@ -253,6 +276,7 @@ export default function InsumosManager({ currentUser, temPermissao }: { currentU
         estoqueEstacionario: estoqueAtual ? Number(estoqueAtual) : 0,
       });
       showToast('Insumo salvo com sucesso!', 'success');
+      clearDraft('insumo', currentUser?.id);
     }
 
 
@@ -387,6 +411,7 @@ Formato esperado para cada objeto:
       
       showToast(`Sucesso! ${adicionados} cadastrados e ${atualizados} atualizados pela IA.`, 'success');
       setAiPrompt('');
+      clearDraft('insumo', currentUser?.id);
       setCadastroMode('manual');
       setShowForm(false);
     } catch (error: any) {
@@ -424,6 +449,7 @@ Formato esperado para cada objeto:
   };
 
   const handleCancelEdit = () => {
+    if (editId === null) clearDraft('insumo', currentUser?.id);
     setEditId(null);
     setNome('');
     setSku('');

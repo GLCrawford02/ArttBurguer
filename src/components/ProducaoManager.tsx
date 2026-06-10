@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2 } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2, Gift } from 'lucide-react';
 import ExpandedOrderModal from './modals/ExpandedOrderModal';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
@@ -357,14 +357,20 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
               if (timeDiff >= 25) { timeColor = 'bg-red-600 text-white animate-pulse'; borderColor = 'border-red-500 ring-2 ring-red-100'; }
               else if (timeDiff >= 20) { timeColor = 'bg-yellow-400 text-yellow-900'; borderColor = 'border-yellow-400'; }
 
+              const temRecompensa = (ped.recompensasResgatadas?.length || 0) > 0;
+              if (temRecompensa && timeDiff < 20) borderColor = 'border-green-500 ring-2 ring-green-100';
+
               const allItemsDone = ped.itensKds.every((ik: any) => ik.concluidoNoKds);
 
               return (
                 <div key={ped.id} className={`bg-white rounded-xl shadow-md border-t-4 flex flex-col overflow-hidden transition-all ${borderColor} snap-start`}>
-                  <div className="p-3 border-b border-gray-100 flex flex-col gap-2 bg-gray-50">
+                  <div className={`p-3 border-b border-gray-100 flex flex-col gap-2 ${temRecompensa ? 'bg-green-50' : 'bg-gray-50'}`}>
                     <div className="flex justify-between items-start">
                       <span className="font-black text-gray-800 text-lg uppercase tracking-tight leading-none">{ped.identificador}</span>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200`}>{ped.origem || 'PDV'}</span>
+                      <div className="flex items-center gap-1">
+                        {temRecompensa && <span className="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-green-100 text-green-800 border border-green-200 flex items-center gap-1"><Gift size={10}/> Recompensa</span>}
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase bg-blue-100 text-blue-800 border border-blue-200`}>{ped.origem || 'PDV'}</span>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center mt-1">
                       <span className="text-xs font-bold text-gray-500">{ped.kdsAceito?.[activeKds] ? 'Em Produção' : 'Aguardando'}</span>

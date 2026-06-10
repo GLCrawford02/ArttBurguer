@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, push, set, update, get, query, orderByChild, equalTo, startAt } from 'firebase/database';
+import { ref, onValue, push, set, update, get, remove, runTransaction, query, orderByChild, equalTo, startAt } from 'firebase/database';
 import { db } from './firebase';
-import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart, WifiOff, RefreshCw, Download } from 'lucide-react';
+import { Utensils, Phone, User, ShoppingBag, LogOut, ChevronRight, ChevronDown, ChevronUp, MapPin, KeyRound, Clock, Star, Gift, History, X as XIcon, Trash2, CheckCircle, Minus, Plus, Heart, WifiOff, RefreshCw, Download, Award, Target } from 'lucide-react';
 import logoImg from './assets/logo.png';
 
 declare const __APP_CLIENTE_VERSION__: string;
@@ -34,6 +34,7 @@ interface Cliente {
   lat?: number;
   lng?: number;
   coordAproximada?: boolean;
+  redesSociais?: Record<string, string>;
   enderecos?: any[];
   favoritos?: string[];
 }
@@ -91,6 +92,7 @@ export default function DeliveryApp() {
   // Endereços Adicionais
   const [enderecos, setEnderecos] = useState<any[]>([]);
   const [selectedEnderecoIndex, setSelectedEnderecoIndex] = useState<number>(0);
+  const [perfilSubTab, setPerfilSubTab] = useState<'dados' | 'enderecos'>('dados');
   const [isAddingAddress, setIsAddingAddress] = useState(false);
   const [newEndCep, setNewEndCep] = useState('');
   const [newEndLogradouro, setNewEndLogradouro] = useState('');
@@ -106,8 +108,7 @@ export default function DeliveryApp() {
   const [clientesDb, setClientesDb] = useState<Cliente[]>([]);
   const [loading, setLoading] = useState(true);
 
-  const [activeTab, setActiveTab] = useState<'cardapio' | 'pedidos' | 'perfil'>('cardapio');
-  const [perfilSubTab, setPerfilSubTab] = useState<'dados' | 'fidelidade'>('dados');
+  const [activeTab, setActiveTab] = useState<'cardapio' | 'pedidos' | 'fidelidade' | 'perfil'>('cardapio');
   const [categoriaExpandida, setCategoriaExpandida] = useState<string | null>(null);
   const [mostrarFavoritos, setMostrarFavoritos] = useState(false);
   const [carrosselImagens, setCarrosselImagens] = useState<string[]>([]);
@@ -137,6 +138,13 @@ export default function DeliveryApp() {
   const [historicoPedidos, setHistoricoPedidos] = useState<any[]>([]);
   const [fidelidadePontos, setFidelidadePontos] = useState<any>(null);
   const [fidelidadeConfig, setFidelidadeConfig] = useState<any>(null);
+  const [missoesPendentes, setMissoesPendentes] = useState<any[]>([]);
+  const [pedidoExpandido, setPedidoExpandido] = useState<string | null>(null);
+  const [modalResgateRecompensa, setModalResgateRecompensa] = useState<any>(null);
+
+  const [socialModal, setSocialModal] = useState<{ missaoId: string, missaoNome: string, pontos: number, categoria: string } | null>(null);
+  const [socialNickname, setSocialNickname] = useState('');
+  const [editRedesSociais, setEditRedesSociais] = useState<Record<string, string>>({});
 
   // Edição de Perfil
   const [editNome, setEditNome] = useState('');
@@ -268,6 +276,7 @@ export default function DeliveryApp() {
       setEditUf(cliente.uf || '');
       setEditLat(cliente.lat ?? null);
       setEditLng(cliente.lng ?? null);
+      setEditRedesSociais(cliente.redesSociais || {});
 
       const pedidosRef = query(ref(db, 'vendas_pdv'), orderByChild('clienteId'), equalTo(cliente.id));
       const unsubPedidos = onValue(pedidosRef, snap => {
@@ -290,7 +299,16 @@ export default function DeliveryApp() {
          setFidelidadeConfig(snap.val() || null);
       });
 
-      return () => { unsubPedidos(); unsubFidelidade(); unsubConfig(); };
+      const missoesPendentesRef = query(ref(db, 'fidelidade_missoes_pendentes'), orderByChild('clienteId'), equalTo(cliente.id));
+      const unsubMissoesPendentes = onValue(missoesPendentesRef, snap => {
+        if (snap.val()) {
+          setMissoesPendentes(Object.entries(snap.val()).map(([id, val]: any) => ({ id, ...val })));
+        } else {
+          setMissoesPendentes([]);
+        }
+      });
+
+      return () => { unsubPedidos(); unsubFidelidade(); unsubConfig(); unsubMissoesPendentes(); };
     }
   }, [cliente]);
 
@@ -371,10 +389,83 @@ export default function DeliveryApp() {
     return 'restrita';
   };
 
+  const geocodeAddress = async (logradouro: string, numero: string, cidade: string, uf?: string): Promise<{ lat: number, lng: number } | null> => {
+    try {
+      const q = encodeURIComponent(`${logradouro}, ${numero}, ${cidade}${uf ? ', ' + uf : ''}, Brasil`);
+      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
+      const data = await res.json();
+      if (data && data.length > 0) {
+        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      }
+    } catch (e) {
+      console.error('Erro ao geocodificar endereço:', e);
+    }
+    return null;
+  };
+
   const taxaEntregaCalculada = tipoEntregaApp === 'delivery' && enderecos[selectedEnderecoIndex] ? calculateDeliveryFee(enderecos[selectedEnderecoIndex]) : 0;
   const taxaEntrega = typeof taxaEntregaCalculada === 'number' ? taxaEntregaCalculada : 0;
   const subtotalCarrinho = Object.values(carrinho).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
-  const valorTotalCarrinho = subtotalCarrinho + (taxaEntrega || 0);
+
+  const pedidosEmAberto = entregasAbertas
+    .filter((e: any) => e.clienteId === cliente?.id)
+    .map((e: any) => {
+      const itensCarrinho = Object.values(e.carrinho || {}) as any[];
+      const taxaEntregaPedido = e.taxaEntrega || 0;
+      return {
+        id: e.id,
+        timestamp: e.timestamp,
+        statusEntrega: e.statusEntrega || 'Pendente',
+        aberto: true,
+        itens: itensCarrinho.map((item: any) => ({ nome: item.nome, qtd: item.qtd, preco: item.preco, opcoes: item.opcoes || null })),
+        taxaEntrega: taxaEntregaPedido,
+        valor: itensCarrinho.reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) + taxaEntregaPedido,
+      };
+    });
+
+  const pedidosExibidos = [
+    ...pedidosEmAberto,
+    ...historicoPedidos.map((p: any) => ({ ...p, aberto: false, taxaEntrega: p.taxaEntrega || 0 })),
+  ].sort((a: any, b: any) => b.timestamp - a.timestamp);
+
+  const getStatusPedido = (pedido: any) => {
+    if (!pedido.aberto) return 'Finalizado';
+    if (pedido.statusEntrega === 'Concluída') return 'Finalizado';
+    if (pedido.statusEntrega === 'Em Rota') return 'Enviado';
+    return 'Pendente';
+  };
+
+  const getPontosPedido = (pedido: any) => {
+    if (!fidelidadeConfig?.ativo) return 0;
+    const pontosPorReal = fidelidadeConfig.pontosPorReal || 100;
+    const valorProdutos = Math.max(0, (pedido.valor || 0) - (pedido.taxaEntrega || 0));
+    return Math.round(valorProdutos * pontosPorReal);
+  };
+
+  const resgatesCliente = fidelidadePontos?.resgates ? Object.entries(fidelidadePontos.resgates).map(([id, r]: any) => ({ id, ...r })) : [];
+  const resgatesDisponiveis = resgatesCliente.filter((r: any) => r.status === 'disponivel');
+  const resgatesAtivos = resgatesCliente.filter((r: any) => r.status === 'ativo');
+
+  const descontoRecompensas = resgatesAtivos.reduce((acc: number, r: any) => {
+    const rec = fidelidadeConfig?.recompensas?.[r.recompensaId];
+    if (rec?.tipo === 'desconto') return acc + Number(rec.valorDesconto || 0);
+    return acc;
+  }, 0);
+  const valorTotalCarrinho = Math.max(0, subtotalCarrinho - descontoRecompensas) + (taxaEntrega || 0);
+
+  const getGeolocationErrorMessage = (error: GeolocationPositionError) => {
+    if (!window.isSecureContext) return "Não foi possível obter sua localização: o app precisa ser acessado via HTTPS (ou localhost) para usar o GPS.";
+    switch (error.code) {
+      case error.PERMISSION_DENIED:
+        return "Permissão de localização negada. Verifique as permissões do navegador/app e tente novamente.";
+      case error.POSITION_UNAVAILABLE:
+        return "Não foi possível determinar sua localização no momento. Verifique se o GPS está ativado e tente novamente.";
+      case error.TIMEOUT:
+        return "Tempo esgotado ao tentar obter sua localização. Tente novamente.";
+      default:
+        return "Não foi possível obter sua localização. Verifique as permissões de GPS.";
+    }
+  };
 
   const formatCEP = (val: string) => val.replace(/\D/g, '').replace(/(\d{5})(\d)/, '$1-$2').substring(0, 9);
   const formatCPF = (val: string) => val.replace(/\D/g, '').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d)/, '$1.$2').replace(/(\d{3})(\d{1,2})$/, '$1-$2').substring(0, 14);
@@ -415,9 +506,9 @@ export default function DeliveryApp() {
         }
       }, (error) => {
         console.error(error);
-        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
+        alert(getGeolocationErrorMessage(error));
         setIsFetchingNewLocation(false);
-      }, { enableHighAccuracy: true });
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     } else {
       alert("Geolocalização não suportada.");
       setIsFetchingNewLocation(false);
@@ -456,9 +547,9 @@ export default function DeliveryApp() {
         }
       }, (error) => {
         console.error(error);
-        alert("Não foi possível obter sua localização. Verifique as permissões de GPS.");
+        alert(getGeolocationErrorMessage(error));
         setIsFetchingEditLocation(false);
-      }, { enableHighAccuracy: true });
+      }, { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 });
     } else {
       alert("Geolocalização não suportada.");
       setIsFetchingEditLocation(false);
@@ -468,8 +559,10 @@ export default function DeliveryApp() {
   const handleEditCepChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = formatCEP(e.target.value);
     setEditCep(val);
+    setEditLat(null);
+    setEditLng(null);
     const justNumbers = val.replace(/\D/g, '');
-    
+
     if (justNumbers.length === 8) {
       try {
         const response = await fetch(`https://viacep.com.br/ws/${justNumbers}/json/`);
@@ -493,10 +586,20 @@ export default function DeliveryApp() {
       alert("Preencha os campos obrigatórios do endereço.");
       return;
     }
+
+    let coordsFinal: { lat: number, lng: number, coordAproximada: boolean } | null = newEndLat && newEndLng
+      ? { lat: newEndLat, lng: newEndLng, coordAproximada: false }
+      : null;
+
+    if (!coordsFinal) {
+      const geo = await geocodeAddress(newEndLogradouro, newEndNumero, newEndCidade, newEndUf);
+      if (geo) coordsFinal = { ...geo, coordAproximada: true };
+    }
+
     const novoEnd = {
       cep: newEndCep, logradouro: newEndLogradouro, numero: newEndNumero, bairro: newEndBairro,
       complemento: newEndComplemento, cidade: newEndCidade, uf: newEndUf,
-      ...(newEndLat && newEndLng ? { lat: newEndLat, lng: newEndLng, coordAproximada: false } : {})
+      ...(coordsFinal ? { lat: coordsFinal.lat, lng: coordsFinal.lng, coordAproximada: coordsFinal.coordAproximada } : {})
     };
     
     const novasEnderecos = [...(cliente?.enderecos || []), novoEnd];
@@ -516,6 +619,57 @@ export default function DeliveryApp() {
     setNewEndComplemento(''); setNewEndCidade(''); setNewEndUf('');
     setNewEndLat(null); setNewEndLng(null);
   };
+
+  const handleRemoveAddress = async (enderecoIndex: number) => {
+    if (!cliente) return;
+    const hasPrincipal = !!cliente.logradouro;
+    const extraIdx = hasPrincipal ? enderecoIndex - 1 : enderecoIndex;
+    if (extraIdx < 0) return;
+    if (!confirm('Remover este endereço?')) return;
+
+    const novasEnderecos = [...(cliente.enderecos || [])];
+    novasEnderecos.splice(extraIdx, 1);
+    await update(ref(db, `clientes/${cliente.id}`), { enderecos: novasEnderecos });
+
+    const updatedCliente = { ...cliente, enderecos: novasEnderecos };
+    setCliente(updatedCliente);
+    localStorage.setItem('arttburger_cliente_session', JSON.stringify(updatedCliente));
+
+    if (selectedEnderecoIndex >= enderecoIndex && selectedEnderecoIndex > 0) {
+      setSelectedEnderecoIndex(selectedEnderecoIndex - 1);
+    }
+  };
+
+  const renderAddAddressForm = () => (
+    <div className="border border-orange-200 rounded-xl p-4 bg-orange-50/50 mt-4 space-y-3">
+      <h4 className="font-bold text-orange-800 text-sm mb-2 flex justify-between items-center">
+        Novo Endereço
+        <button onClick={() => setIsAddingAddress(false)} className="text-gray-400 hover:text-gray-600"><XIcon size={16}/></button>
+      </h4>
+      <button
+        type="button"
+        onClick={handleNewEndGetLocation}
+        disabled={isFetchingNewLocation}
+        className="w-full bg-blue-50 text-blue-600 py-2 rounded-lg font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-xs disabled:opacity-50 border border-blue-200"
+      >
+        <MapPin size={14} />
+        {isFetchingNewLocation ? 'Buscando...' : 'Usar localização atual'}
+      </button>
+
+      <div className="flex gap-2">
+        <input type="text" value={newEndCep} onChange={(e) => { const val = formatCEP(e.target.value); setNewEndCep(val); setNewEndLat(null); setNewEndLng(null); if (val.replace(/\D/g, '').length === 8) { fetch(`https://viacep.com.br/ws/${val.replace(/\D/g, '')}/json/`).then(r=>r.json()).then(d=>{if(!d.erro){setNewEndLogradouro(d.logradouro||'');setNewEndBairro(d.bairro||'');setNewEndCidade(d.localidade||'');setNewEndUf(d.uf||'');}}); } }} placeholder="CEP *" className="flex-1 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+        <input type="text" value={newEndUf} onChange={e => { setNewEndUf(e.target.value); setNewEndLat(null); setNewEndLng(null); }} placeholder="UF *" maxLength={2} className="w-12 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs uppercase text-center" />
+      </div>
+      <input type="text" value={newEndLogradouro} onChange={e => { setNewEndLogradouro(e.target.value); setNewEndLat(null); setNewEndLng(null); }} placeholder="Logradouro (Rua/Av) *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+      <div className="flex gap-2">
+        <input type="text" value={newEndNumero} onChange={e => { setNewEndNumero(e.target.value); setNewEndLat(null); setNewEndLng(null); }} placeholder="Número *" className="w-1/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+        <input type="text" value={newEndBairro} onChange={e => { setNewEndBairro(e.target.value); setNewEndLat(null); setNewEndLng(null); }} placeholder="Bairro *" className="w-2/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+      </div>
+      <input type="text" value={newEndCidade} onChange={e => { setNewEndCidade(e.target.value); setNewEndLat(null); setNewEndLng(null); }} placeholder="Cidade *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+      <input type="text" value={newEndComplemento} onChange={e => setNewEndComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
+      <button onClick={handleAddNewAddress} className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-orange-600 transition-colors shadow-sm">Salvar Endereço</button>
+    </div>
+  );
 
   const handleDownloadUpdate = async () => {
     if (!updateConfig?.linkDownload || isDownloading) return;
@@ -663,14 +817,24 @@ export default function DeliveryApp() {
       numero: editNumero.trim(),
       bairro: editBairro.trim(),
       complemento: editComplemento.trim(),
+      redesSociais: editRedesSociais,
       cidade: editCidade.trim(),
       uf: editUf.trim()
     };
 
-    if (editLat !== null && editLng !== null) {
-      updateData.lat = editLat;
-      updateData.lng = editLng;
-      updateData.coordAproximada = false;
+    let coordsFinal: { lat: number, lng: number, coordAproximada: boolean } | null = editLat !== null && editLng !== null
+      ? { lat: editLat, lng: editLng, coordAproximada: false }
+      : null;
+
+    if (!coordsFinal && editLogradouro && editNumero && editCidade) {
+      const geo = await geocodeAddress(editLogradouro.trim(), editNumero.trim(), editCidade.trim(), editUf.trim());
+      if (geo) coordsFinal = { ...geo, coordAproximada: true };
+    }
+
+    if (coordsFinal) {
+      updateData.lat = coordsFinal.lat;
+      updateData.lng = coordsFinal.lng;
+      updateData.coordAproximada = coordsFinal.coordAproximada;
     }
 
     try {
@@ -682,6 +846,143 @@ export default function DeliveryApp() {
     } catch (err) {
       alert('Erro ao atualizar perfil.');
     }
+  };
+
+  const solicitarVerificacaoMissao = async (missaoId: string, missaoNome: string, pontos: number, categoria?: string, nickname?: string) => {
+    if (!cliente) return;
+    if (missoesPendentes.some(mp => mp.missaoId === missaoId && mp.status === 'pendente')) return;
+    await set(push(ref(db, 'fidelidade_missoes_pendentes')), {
+      clienteId: cliente.id,
+      clienteNome: cliente.nome,
+      missaoId,
+      missaoNome,
+      categoria: categoria || null,
+      nickname: nickname || null,
+      pontos,
+      status: 'pendente',
+      timestamp: Date.now(),
+    });
+    alert('Missão enviada para verificação! Você receberá os pontos assim que for aprovada.');
+  };
+
+  const handleClickVerificacaoMissao = (m: any) => {
+    if (!cliente) return;
+    const isSocial = ['Instagram', 'TikTok', 'Facebook', 'X (Twitter)'].includes(m.categoria);
+    if (isSocial) {
+      if (!cliente.redesSociais?.[m.categoria]) {
+        setSocialModal({ missaoId: m.id, missaoNome: m.nome, pontos: m.pontos, categoria: m.categoria });
+        return;
+      }
+    }
+    solicitarVerificacaoMissao(m.id, m.nome, m.pontos, m.categoria, cliente.redesSociais?.[m.categoria] || '');
+  };
+
+  const confirmarSocialNickname = async () => {
+    if (!socialNickname.trim()) return alert("Informe seu usuário para prosseguir.");
+    const currentRedes = cliente?.redesSociais || {};
+    const newRedes = { ...currentRedes, [socialModal!.categoria]: socialNickname.trim() };
+    await update(ref(db, `clientes/${cliente!.id}`), { redesSociais: newRedes });
+    const updatedCliente = { ...cliente!, redesSociais: newRedes };
+    setCliente(updatedCliente);
+    localStorage.setItem('arttburger_cliente_session', JSON.stringify(updatedCliente));
+    
+    solicitarVerificacaoMissao(socialModal!.missaoId, socialModal!.missaoNome, socialModal!.pontos, socialModal!.categoria, socialNickname.trim());
+    setSocialModal(null);
+    setSocialNickname('');
+  };
+
+  const solicitarResgateRecompensa = async (recompensaId: string, recompensa: any) => {
+    if (!cliente) return;
+    const saldoPontos = fidelidadePontos?.pontos || 0;
+    if (saldoPontos < (recompensa.custoPontos || 0)) return;
+    await set(push(ref(db, `fidelidade_pontos/${cliente.id}/resgates`)), {
+      recompensaId,
+      recompensaNome: recompensa.nome,
+      custoPontos: recompensa.custoPontos || 0,
+      status: 'disponivel',
+      timestamp: Date.now(),
+    });
+    setModalResgateRecompensa(null);
+    alert(`Recompensa "${recompensa.nome}" resgatada! Para usar, ative ela na tela do carrinho.`);
+  };
+
+  const cancelarResgate = async (resgateId: string) => {
+    if (!cliente) return;
+    await remove(ref(db, `fidelidade_pontos/${cliente.id}/resgates/${resgateId}`));
+    setCarrinho(prev => {
+      const novo = { ...prev };
+      Object.keys(novo).forEach(k => { if (novo[k].recompensaResgateId === resgateId) delete novo[k]; });
+      return novo;
+    });
+  };
+
+  const ativarResgate = async (resgate: any) => {
+    if (!cliente) return;
+    let erro = '';
+    const resultado = await runTransaction(ref(db, `fidelidade_pontos/${cliente.id}`), (dados) => {
+      if (!dados) { erro = 'dados'; return; }
+      const r = dados.resgates?.[resgate.id];
+      if (!r || r.status !== 'disponivel') { erro = 'status'; return; }
+      if ((dados.pontos || 0) < (r.custoPontos || 0)) { erro = 'saldo'; return; }
+      dados.pontos = (dados.pontos || 0) - (r.custoPontos || 0);
+      dados.resgates[resgate.id] = { ...r, status: 'ativo', ativadoEm: Date.now() };
+      return dados;
+    });
+
+    if (!resultado.committed) {
+      if (erro === 'status') alert('Esta recompensa já foi utilizada ou está indisponível.');
+      else alert('Pontos insuficientes para ativar esta recompensa.');
+      return;
+    }
+
+    const novoSaldo = resultado.snapshot.val()?.pontos || 0;
+    await set(push(ref(db, `fidelidade_pontos/${cliente.id}/historico`)), {
+      tipo: 'resgate',
+      pontos: -(resgate.custoPontos || 0),
+      descricao: `Recompensa resgatada no app: ${resgate.recompensaNome}`,
+      timestamp: Date.now(),
+      operadorNome: 'App Delivery (Cliente)',
+    });
+
+    const recompensaConfig = fidelidadeConfig?.recompensas?.[resgate.recompensaId];
+    if (recompensaConfig?.tipo === 'produto' && recompensaConfig.produtoId) {
+      const prod = produtos.find((p: any) => p.id === recompensaConfig.produtoId);
+      if (prod) {
+        const cartItemId = `${prod.id}_${Date.now()}`;
+        setCarrinho(prev => ({ ...prev, [cartItemId]: { produtoId: prod.id, nome: `${prod.nome} (Recompensa Grátis)`, preco: 0, qtd: 1, opcoes: null, enviadoCozinha: 0, isRecompensa: true, recompensaResgateId: resgate.id, adicionadoPor: cliente?.nome || 'App Delivery', adicionadoEm: Date.now() } }));
+      }
+    }
+
+    alert(`🎉 Recompensa "${resgate.recompensaNome}" ativada!\n-${(resgate.custoPontos || 0).toLocaleString('pt-BR')} pontos debitados.\nSeu saldo agora é ${novoSaldo.toLocaleString('pt-BR')} pontos.\n\nA recompensa será aplicada ao seu pedido. Finalize a compra normalmente!`);
+  };
+
+  const desativarResgate = async (resgate: any) => {
+    if (!cliente) return;
+    let erro = '';
+    const resultado = await runTransaction(ref(db, `fidelidade_pontos/${cliente.id}`), (dados) => {
+      if (!dados) { erro = 'dados'; return; }
+      const r = dados.resgates?.[resgate.id];
+      if (!r || r.status !== 'ativo') { erro = 'status'; return; }
+      dados.pontos = (dados.pontos || 0) + (r.custoPontos || 0);
+      dados.resgates[resgate.id] = { ...r, status: 'disponivel', ativadoEm: null };
+      return dados;
+    });
+
+    if (!resultado.committed) return;
+
+    await set(push(ref(db, `fidelidade_pontos/${cliente.id}/historico`)), {
+      tipo: 'estorno',
+      pontos: resgate.custoPontos || 0,
+      descricao: `Recompensa removida do carrinho: ${resgate.recompensaNome}`,
+      timestamp: Date.now(),
+      operadorNome: 'App Delivery (Cliente)',
+    });
+
+    setCarrinho(prev => {
+      const novo = { ...prev };
+      Object.keys(novo).forEach(k => { if (novo[k].recompensaResgateId === resgate.id) delete novo[k]; });
+      return novo;
+    });
   };
 
   const toggleFavorito = async (produtoId: string) => {
@@ -719,20 +1020,14 @@ export default function DeliveryApp() {
       let lng = enderecoSelecionado.lng;
 
       if (!lat || !lng) {
-        const q = encodeURIComponent(`${enderecoSelecionado.logradouro}, ${enderecoSelecionado.numero}, ${enderecoSelecionado.cidade}, Brasil`);
-        try {
-          const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
-          const data = await res.json();
-          if (data && data.length > 0) {
-            lat = parseFloat(data[0].lat);
-            lng = parseFloat(data[0].lon);
-            // Recalcula a taxa com as coordenadas encontradas
-            taxaFinal = calculateDeliveryFee({ ...enderecoSelecionado, lat, lng });
-          } else {
-            return alert('Não conseguimos localizar o seu endereço no mapa para validar a área de entrega. Por favor, ajuste ou use a localização atual.');
-          }
-        } catch (e) {
-          return alert('Erro ao validar a área de entrega com o mapa.');
+        const geo = await geocodeAddress(enderecoSelecionado.logradouro, enderecoSelecionado.numero, enderecoSelecionado.cidade, enderecoSelecionado.uf);
+        if (geo) {
+          lat = geo.lat;
+          lng = geo.lng;
+          // Recalcula a taxa com as coordenadas encontradas
+          taxaFinal = calculateDeliveryFee({ ...enderecoSelecionado, lat, lng });
+        } else {
+          return alert('Não conseguimos localizar o seu endereço no mapa para validar a área de entrega. Por favor, ajuste ou use a localização atual.');
         }
       }
 
@@ -764,6 +1059,17 @@ export default function DeliveryApp() {
     });
 
     const dedupKey = `pedido_app_${Date.now()}`;
+    const recompensasParaPedido = resgatesAtivos.map((r: any) => {
+      const rec = fidelidadeConfig?.recompensas?.[r.recompensaId];
+      return {
+        id: r.id,
+        nome: r.recompensaNome,
+        custoPontos: r.custoPontos || 0,
+        tipo: rec?.tipo || 'desconto',
+        valorDesconto: rec?.valorDesconto || 0,
+        produtoNome: rec?.produtoNome || null,
+      };
+    });
     const pedidoPayload = {
       identificador: `Delivery: ${cliente!.nome}`,
       tipo: 'Entrega',
@@ -774,7 +1080,9 @@ export default function DeliveryApp() {
       sessaoId,
       timestamp: Date.now(),
       dedupKey,
-      origem: 'App Cliente'
+      origem: 'App Cliente',
+      recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
+      descontoRecompensas: descontoRecompensas
     };
 
     const novoCarrinho = { ...carrinho };
@@ -802,7 +1110,9 @@ export default function DeliveryApp() {
         formaPagamentoStr: nomePagamento,
         statusEntrega: 'Pendente',
         origem: 'App Cliente',
-        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0))
+        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0)),
+        recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
+        descontoRecompensas: descontoRecompensas
       });
       await set(ref(db, `despachos/${id}`), {
         id,
@@ -820,7 +1130,13 @@ export default function DeliveryApp() {
         taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0)),
         total: valorTotalCarrinho,
         origem: 'App Cliente',
+        recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
+        descontoRecompensas: descontoRecompensas
       });
+
+      for (const r of resgatesAtivos) {
+        await update(ref(db, `fidelidade_pontos/${cliente!.id}/resgates/${r.id}`), { status: 'usado', usadoEm: Date.now(), pedidoId: id });
+      }
 
       setCarrinho({});
       setIsCartOpen(false);
@@ -1196,31 +1512,76 @@ export default function DeliveryApp() {
         {activeTab === 'pedidos' && (
           <div className="space-y-4">
             <h3 className="text-xl font-black text-gray-800 mb-4 flex items-center"><History className="mr-2 text-orange-500"/> Meus Pedidos</h3>
-            {historicoPedidos.length > 0 ? (
-              historicoPedidos.map(pedido => (
-                <div key={pedido.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-100">
-                   <div className="flex justify-between items-center border-b border-gray-100 pb-3 mb-3">
-                     <span className="text-sm font-bold text-gray-500">
-                       {new Date(pedido.timestamp).toLocaleDateString('pt-BR')} às {new Date(pedido.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
-                     </span>
-                     <span className={`text-xs font-black px-2 py-1 rounded-lg ${pedido.statusEntrega === 'Concluída' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                       {pedido.statusEntrega || 'Retirado no Local'}
-                     </span>
-                   </div>
-                   <div className="space-y-2 mb-4">
-                      {(pedido.itens || []).map((item: any, idx: number) => (
-                         <div key={idx} className="flex justify-between text-sm">
-                           <span className="font-medium text-gray-800"><span className="text-gray-400 mr-1 font-bold">{item.qtd}x</span> {item.nome}</span>
-                           <span className="text-gray-600 font-bold">R$ {(item.preco * item.qtd).toFixed(2).replace('.', ',')}</span>
+            {pedidosExibidos.length > 0 ? (
+              pedidosExibidos.map(pedido => {
+                const expandido = pedidoExpandido === pedido.id;
+                const status = getStatusPedido(pedido);
+                const pontos = getPontosPedido(pedido);
+                const statusClasses = status === 'Finalizado' ? 'bg-green-100 text-green-700' : status === 'Enviado' ? 'bg-blue-100 text-blue-700' : 'bg-orange-100 text-orange-700';
+                return (
+                <div key={pedido.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                   <button onClick={() => setPedidoExpandido(expandido ? null : pedido.id)} className="w-full flex items-center justify-between gap-3 p-4 text-left hover:bg-gray-50 transition-colors">
+                     <div className="min-w-0">
+                       <p className="text-sm font-bold text-gray-700">
+                         {new Date(pedido.timestamp).toLocaleDateString('pt-BR')} às {new Date(pedido.timestamp).toLocaleTimeString('pt-BR', {hour: '2-digit', minute:'2-digit'})}
+                       </p>
+                       <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                         <span className={`text-xs font-black px-2 py-0.5 rounded-lg ${statusClasses}`}>{status}</span>
+                         {pontos !== 0 && <span className="text-xs font-black px-2 py-0.5 rounded-lg bg-purple-100 text-purple-700">{pontos > 0 ? '+' : ''}{pontos.toLocaleString('pt-BR')} pts</span>}
+                       </div>
+                     </div>
+                     <div className="flex items-center gap-2 shrink-0">
+                       <span className="text-lg font-black text-green-600">R$ {pedido.valor.toFixed(2).replace('.', ',')}</span>
+                       {expandido ? <ChevronUp size={18} className="text-gray-400"/> : <ChevronDown size={18} className="text-gray-400"/>}
+                     </div>
+                   </button>
+                   {expandido && (
+                     <div className="px-5 pb-5 pt-1 border-t border-gray-100">
+                       <div className="space-y-3 mb-2">
+                          {(pedido.itens || []).map((item: any, idx: number) => {
+                            const adicionais = item.opcoes?.adicionais ? Object.values(item.opcoes.adicionais) as any[] : [];
+                            const bebidas = item.opcoes?.bebidas ? Object.values(item.opcoes.bebidas) as any[] : [];
+                            const montagem = item.opcoes?.montagem ? Object.values(item.opcoes.montagem) as string[] : [];
+                            const restricoes = item.opcoes?.restricoes ? Object.values(item.opcoes.restricoes) as string[] : [];
+                            return (
+                              <div key={idx} className="text-sm pb-2 border-b border-gray-50 last:border-0 last:pb-0">
+                                <p className="font-bold text-gray-800">{item.qtd}x - {item.nome}</p>
+                                {adicionais.map((a: any, i: number) => (
+                                  <p key={`a${i}`} className="text-xs text-green-600 pl-3">+{a.qtd} AD/ {a.nome} (R$ {Number(a.preco || 0).toFixed(2).replace('.', ',')})</p>
+                                ))}
+                                {bebidas.map((b: any, i: number) => (
+                                  <p key={`b${i}`} className="text-xs text-green-600 pl-3">+{b.qtd} {b.nome} (R$ {Number(b.preco || 0).toFixed(2).replace('.', ',')})</p>
+                                ))}
+                                {montagem.length > 0 && <p className="text-xs text-gray-500 pl-3">Montagem: {montagem.join(', ')}</p>}
+                                {item.opcoes?.pontoCarne && <p className="text-xs text-gray-500 pl-3">Ponto: {item.opcoes.pontoCarne}</p>}
+                                {restricoes.map((r: string, i: number) => (
+                                  <p key={`r${i}`} className="text-xs text-red-500 pl-3">-1 {r}</p>
+                                ))}
+                                {item.opcoes?.observacao && <p className="text-xs text-gray-500 pl-3">Obs: {item.opcoes.observacao}</p>}
+                                <p className="text-xs font-bold text-gray-600 pl-3 mt-0.5">(R$ {(item.preco * item.qtd).toFixed(2).replace('.', ',')})</p>
+                              </div>
+                            );
+                          })}
+                       </div>
+                       <div className="flex justify-between items-center text-sm py-1.5 border-t border-gray-100">
+                         <span className="text-gray-600 font-medium">Taxa de Entrega</span>
+                         <span className="text-gray-600 font-bold">{pedido.taxaEntrega > 0 ? `R$ ${pedido.taxaEntrega.toFixed(2).replace('.', ',')}` : 'Grátis'}</span>
+                       </div>
+                       <div className="pt-3 border-t border-gray-200 flex justify-between items-center">
+                         <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Valor Total</span>
+                         <span className="text-lg font-black text-green-600">R$ {pedido.valor.toFixed(2).replace('.', ',')}</span>
+                       </div>
+                       {pontos !== 0 && (
+                         <div className="flex justify-between items-center text-xs pt-2">
+                           <span className="text-purple-600 font-bold uppercase tracking-widest">Pontos Fidelidade</span>
+                           <span className="font-black text-purple-600">{pontos > 0 ? '+' : ''}{pontos.toLocaleString('pt-BR')} pts</span>
                          </div>
-                      ))}
-                   </div>
-                   <div className="flex justify-between items-center pt-3 border-t border-gray-100">
-                     <span className="text-xs font-bold text-gray-500 uppercase tracking-widest">Total</span>
-                     <span className="text-lg font-black text-green-600">R$ {pedido.valor.toFixed(2).replace('.', ',')}</span>
-                   </div>
+                       )}
+                     </div>
+                   )}
                 </div>
-              ))
+                );
+              })
             ) : (
               <div className="text-center py-10 bg-white rounded-2xl shadow-sm border border-gray-100">
                 <ShoppingBag size={48} className="mx-auto text-gray-300 mb-4" />
@@ -1230,14 +1591,127 @@ export default function DeliveryApp() {
           </div>
         )}
 
-        {activeTab === 'perfil' && (
-          <div className="space-y-6">
-            <div className="flex bg-white p-1 rounded-xl w-fit mx-auto mb-4 border border-gray-200 shadow-sm">
-              <button onClick={() => setPerfilSubTab('dados')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'dados' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Meus Dados</button>
-              <button onClick={() => setPerfilSubTab('fidelidade')} className={`px-4 py-2 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'fidelidade' ? 'bg-orange-500 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Fidelidade</button>
+        {activeTab === 'fidelidade' && (() => {
+          const saldoPontos = fidelidadePontos?.pontos || 0;
+          return (
+          <div className="space-y-6 animate-in fade-in">
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
+              <h3 className="text-xl font-black text-gray-800 mb-2">Programa de Pontos</h3>
+              <p className="text-sm text-gray-500 mb-4">A cada compra (no salão ou no delivery) você ganha pontos!</p>
+              <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 inline-block mb-4">
+                <p className="text-4xl font-black text-orange-600">{saldoPontos.toLocaleString('pt-BR')}</p>
+                <p className="text-xs font-bold text-orange-800 uppercase tracking-widest mt-1">Pontos</p>
+              </div>
             </div>
 
-            {perfilSubTab === 'dados' && (
+            {(resgatesDisponiveis.length > 0 || resgatesAtivos.length > 0) && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+                <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Award className="mr-2 text-purple-500" size={20}/> Minhas Recompensas</h4>
+                <div className="space-y-3">
+                  {resgatesAtivos.map((r: any) => (
+                    <div key={r.id} className="flex justify-between items-center p-4 border border-green-200 bg-green-50 rounded-2xl">
+                      <p className="font-bold text-green-700 text-sm">✓ {r.recompensaNome}</p>
+                      <span className="text-xs font-black text-green-700 shrink-0">Ativada</span>
+                    </div>
+                  ))}
+                  {resgatesDisponiveis.map((r: any) => (
+                    <div key={r.id} className="flex justify-between items-center p-4 border border-orange-200 bg-orange-50 rounded-2xl">
+                      <p className="font-bold text-gray-800 text-sm">{r.recompensaNome}</p>
+                      <span className="text-xs font-black text-orange-700 shrink-0">Ativar no carrinho</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+              <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Gift className="mr-2 text-green-500" size={20}/> Prêmios Disponíveis</h4>
+              {fidelidadeConfig?.recompensas ? (
+                <div className="space-y-3">
+                   {Object.entries(fidelidadeConfig.recompensas).filter(([_, r]: any) => r.ativo).sort(([_a, a]: any, [_b, b]: any) => (a.ordem ?? 0) - (b.ordem ?? 0)).map(([id, r]: any) => {
+                     const disponivel = saldoPontos >= (r.custoPontos || 0);
+                     return (
+                      <button key={id} type="button" onClick={() => disponivel && setModalResgateRecompensa({ id, ...r })} disabled={!disponivel} className={`w-full flex justify-between items-center p-4 border rounded-2xl text-left transition-colors ${disponivel ? 'border-green-200 bg-green-50 hover:border-green-400 hover:bg-green-100 cursor-pointer' : 'border-gray-100 bg-gray-50 cursor-default'}`}>
+                        <div>
+                          <p className="font-bold text-gray-800">{r.nome}</p>
+                          {r.descricao && <p className="text-xs text-gray-500 mt-1">{r.descricao}</p>}
+                          {disponivel && <p className="text-[11px] font-bold text-green-600 mt-1">Toque para resgatar</p>}
+                        </div>
+                        <span className={`text-xs font-black px-3 py-1.5 rounded-lg shrink-0 ${disponivel ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
+                          {(r.custoPontos || 0).toLocaleString('pt-BR')} pts
+                        </span>
+                      </button>
+                     );
+                   })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Nenhum prêmio configurado no momento.</p>
+              )}
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+              <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Target className="mr-2 text-blue-500" size={20}/> Missões</h4>
+              {fidelidadeConfig?.missoes && Object.values(fidelidadeConfig.missoes).some((m: any) => m.ativo) ? (
+                <div className="space-y-3">
+                   {Object.entries(fidelidadeConfig.missoes).filter(([_, m]: any) => m.ativo).sort(([_a, a]: any, [_b, b]: any) => (a.ordem ?? 0) - (b.ordem ?? 0)).map(([id, m]: any) => {
+                      const pendente = missoesPendentes.some(mp => mp.missaoId === id && mp.status === 'pendente');
+                      return (
+                      <div key={id} className="flex justify-between items-center p-4 border border-gray-100 rounded-2xl bg-gray-50 gap-3">
+                        <div className="flex-1 min-w-0">
+                          <p className="font-bold text-gray-800">{m.nome}</p>
+                          {m.descricao && <p className="text-xs text-gray-500 mt-1">{m.descricao}</p>}
+                          <span className="text-xs font-black bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg inline-block mt-2">
+                            +{(m.pontos || 0).toLocaleString('pt-BR')} pts
+                          </span>
+                        </div>
+                        {pendente ? (
+                          <span className="text-xs font-black text-amber-700 bg-amber-100 px-3 py-1.5 rounded-lg shrink-0 text-center">Aguardando<br/>verificação</span>
+                        ) : (
+                          <button onClick={() => handleClickVerificacaoMissao({ id, ...m })} className="text-xs font-black text-white bg-blue-600 hover:bg-blue-700 transition-colors px-3 py-1.5 rounded-lg shrink-0">
+                            Concluí!
+                          </button>
+                        )}
+                      </div>
+                      );
+                   })}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Nenhuma missão disponível no momento.</p>
+              )}
+            </div>
+
+            <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
+              <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Star className="mr-2 text-blue-500" size={20}/> Histórico de Pontos</h4>
+              {fidelidadePontos?.historico ? (
+                <div className="space-y-3 max-h-60 overflow-y-auto">
+                   {Object.entries(fidelidadePontos.historico).sort((a: any, b: any) => b[1].timestamp - a[1].timestamp).map(([id, h]: any) => (
+                      <div key={id} className="flex justify-between items-center p-3 border-b border-gray-50 text-sm">
+                        <div>
+                          <p className="font-medium text-gray-800">{h.descricao}</p>
+                          <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">{new Date(h.timestamp).toLocaleString('pt-BR')}</p>
+                        </div>
+                        <span className={`font-black text-lg ${h.pontos > 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {h.pontos > 0 ? '+' : ''}{h.pontos} ★
+                        </span>
+                      </div>
+                   ))}
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Você ainda não possui histórico de pontos.</p>
+              )}
+            </div>
+          </div>
+          );
+        })()}
+
+        {activeTab === 'perfil' && (
+          <div className="space-y-6">
+              <div className="flex bg-gray-100 p-1 rounded-xl w-full">
+                <button onClick={() => setPerfilSubTab('dados')} className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'dados' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Meus Dados</button>
+                <button onClick={() => setPerfilSubTab('enderecos')} className={`flex-1 py-2.5 rounded-lg font-bold text-sm transition-colors ${perfilSubTab === 'enderecos' ? 'bg-white text-orange-600 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Endereços</button>
+              </div>
+
+              {perfilSubTab === 'dados' && (
               <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 animate-in fade-in">
                 <h3 className="text-xl font-black text-gray-800 mb-6 flex items-center"><User className="mr-2 text-orange-500"/> Meus Dados</h3>
                 <form onSubmit={handleUpdateProfile} className="space-y-4">
@@ -1249,6 +1723,16 @@ export default function DeliveryApp() {
                     <input type="date" value={editDataNascimento} onChange={e => setEditDataNascimento(e.target.value)} className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm text-gray-500" title="Data de Nascimento (Opcional)" />
                   </div>
                   
+                  <div className="pt-2 border-t border-gray-100 mt-2">
+                    <h4 className="text-sm font-bold text-gray-700 mb-3">Redes Sociais</h4>
+                    {['Instagram', 'TikTok', 'Facebook', 'X (Twitter)'].map(rede => (
+                      <div key={rede} className="flex items-center gap-2 mb-2">
+                        <label className="text-xs font-bold text-gray-500 w-24">{rede}</label>
+                        <input type="text" placeholder="@usuario" value={editRedesSociais[rede] || ''} onChange={e => setEditRedesSociais({...editRedesSociais, [rede]: e.target.value})} className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                      </div>
+                    ))}
+                  </div>
+
                   <div className="pt-2 border-t border-gray-100 mt-2">
                     <h4 className="text-sm font-bold text-gray-700 mb-3 flex items-center">
                       <MapPin size={16} className="mr-1 text-orange-500"/> Endereço Principal
@@ -1265,14 +1749,14 @@ export default function DeliveryApp() {
 
                     <div className="flex gap-2 mb-4">
                       <input type="text" value={editCep} onChange={handleEditCepChange} placeholder="CEP *" required className="flex-1 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-                      <input type="text" value={editUf} onChange={e => setEditUf(e.target.value)} placeholder="UF *" required maxLength={2} className="w-16 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm uppercase text-center" />
+                      <input type="text" value={editUf} onChange={e => { setEditUf(e.target.value); setEditLat(null); setEditLng(null); }} placeholder="UF *" required maxLength={2} className="w-16 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm uppercase text-center" />
                     </div>
-                    <input type="text" value={editLogradouro} onChange={e => setEditLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
+                    <input type="text" value={editLogradouro} onChange={e => { setEditLogradouro(e.target.value); setEditLat(null); setEditLng(null); }} placeholder="Logradouro (Rua/Av) *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
                     <div className="flex gap-2 mb-4">
-                      <input type="text" id="edit_numero" value={editNumero} onChange={e => setEditNumero(e.target.value)} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
-                      <input type="text" value={editBairro} onChange={e => setEditBairro(e.target.value)} placeholder="Bairro *" required className="w-2/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                      <input type="text" id="edit_numero" value={editNumero} onChange={e => { setEditNumero(e.target.value); setEditLat(null); setEditLng(null); }} placeholder="Número *" required className="w-1/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
+                      <input type="text" value={editBairro} onChange={e => { setEditBairro(e.target.value); setEditLat(null); setEditLng(null); }} placeholder="Bairro *" required className="w-2/3 p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                     </div>
-                    <input type="text" value={editCidade} onChange={e => setEditCidade(e.target.value)} placeholder="Cidade *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
+                    <input type="text" value={editCidade} onChange={e => { setEditCidade(e.target.value); setEditLat(null); setEditLng(null); }} placeholder="Cidade *" required className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm mb-4" />
                     <input type="text" value={editComplemento} onChange={e => setEditComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold text-sm" />
                   </div>
                   
@@ -1281,65 +1765,44 @@ export default function DeliveryApp() {
                   </button>
                 </form>
               </div>
-            )}
+              )}
 
-            {perfilSubTab === 'fidelidade' && (
-              <div className="space-y-6 animate-in fade-in">
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 text-center">
-                  <h3 className="text-xl font-black text-gray-800 mb-2">Programa Fidelidade</h3>
-                  <p className="text-sm text-gray-500 mb-4">Acumule carimbos e troque por prêmios incríveis!</p>
-                  <div className="bg-orange-50 p-4 rounded-2xl border border-orange-100 inline-block mb-4">
-                    <p className="text-4xl font-black text-orange-600">{fidelidadePontos?.pontos || 0}</p>
-                    <p className="text-xs font-bold text-orange-800 uppercase tracking-widest mt-1">Carimbos</p>
-                  </div>
-                  <p className="text-xs text-gray-500 bg-gray-50 p-4 rounded-xl text-left border border-gray-100 leading-relaxed font-medium">
-                    Lembrando: Somente os produtos consumidos no estabelecimento (presencialmente) são contabilizados no programa de fidelidade. Pedidos via delivery não geram carimbos.
-                  </p>
-                </div>
+              {perfilSubTab === 'enderecos' && (
+              <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100 animate-in fade-in space-y-3">
+                <h3 className="text-xl font-black text-gray-800 mb-2 flex items-center"><MapPin className="mr-2 text-orange-500"/> Meus Endereços</h3>
+                <p className="text-sm text-gray-500 mb-2">A taxa de entrega é calculada automaticamente assim que o endereço é salvo.</p>
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                  <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Gift className="mr-2 text-green-500" size={20}/> Prêmios Disponíveis</h4>
-                  {fidelidadeConfig?.recompensas ? (
-                    <div className="space-y-3">
-                       {Object.entries(fidelidadeConfig.recompensas).filter(([_, r]: any) => r.ativo).map(([id, r]: any) => (
-                          <div key={id} className="flex justify-between items-center p-4 border border-gray-100 rounded-2xl bg-gray-50">
-                            <div>
-                              <p className="font-bold text-gray-800">{r.nome}</p>
-                              {r.descricao && <p className="text-xs text-gray-500 mt-1">{r.descricao}</p>}
-                            </div>
-                            <span className="text-xs font-black bg-orange-100 text-orange-700 px-3 py-1.5 rounded-lg shrink-0">
-                              {fidelidadeConfig.carimbosParaPremio || 10} ★
-                            </span>
-                          </div>
-                       ))}
+                {enderecos.length === 0 && (
+                  <p className="text-sm text-gray-400 text-center py-4">Nenhum endereço cadastrado ainda.</p>
+                )}
+
+                {enderecos.map((end, idx) => {
+                  const taxa = calculateDeliveryFee(end);
+                  const isPrincipal = !!cliente?.logradouro && idx === 0;
+                  return (
+                    <div key={idx} className="border border-gray-200 rounded-xl p-4 flex items-start justify-between gap-3">
+                      <div className="text-sm">
+                        <p className="font-bold text-gray-800">{isPrincipal ? 'Principal — ' : ''}{end.logradouro}, {end.numero}</p>
+                        <p className="text-gray-500">{end.bairro} - {end.cidade}/{end.uf}</p>
+                        {end.complemento && <p className="text-gray-400 text-xs">Comp: {end.complemento}</p>}
+                        <p className={`text-xs font-bold mt-1 ${taxa === 'restrita' ? 'text-red-500' : taxa === null ? 'text-gray-400' : 'text-emerald-600'}`}>
+                          Taxa de entrega: {taxa === null ? 'A calcular' : taxa === 'restrita' ? 'Área restrita (sem entrega)' : `R$ ${Number(taxa).toFixed(2).replace('.', ',')}`}
+                        </p>
+                      </div>
+                      {!isPrincipal && (
+                        <button onClick={() => handleRemoveAddress(idx)} className="text-gray-400 hover:text-red-500 hover:bg-red-50 p-1.5 rounded-lg transition-colors shrink-0" title="Remover endereço"><Trash2 size={16}/></button>
+                      )}
                     </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">Nenhum prêmio configurado no momento.</p>
-                  )}
-                </div>
+                  );
+                })}
 
-                <div className="bg-white p-6 rounded-3xl shadow-sm border border-gray-100">
-                  <h4 className="font-bold text-gray-800 mb-4 flex items-center"><Star className="mr-2 text-blue-500" size={20}/> Histórico de Pontos</h4>
-                  {fidelidadePontos?.historico ? (
-                    <div className="space-y-3 max-h-60 overflow-y-auto">
-                       {Object.entries(fidelidadePontos.historico).sort((a: any, b: any) => b[1].timestamp - a[1].timestamp).map(([id, h]: any) => (
-                          <div key={id} className="flex justify-between items-center p-3 border-b border-gray-50 text-sm">
-                            <div>
-                              <p className="font-medium text-gray-800">{h.descricao}</p>
-                              <p className="text-[10px] font-bold text-gray-400 mt-1 uppercase">{new Date(h.timestamp).toLocaleString('pt-BR')}</p>
-                            </div>
-                            <span className={`font-black text-lg ${h.pontos > 0 ? 'text-green-600' : 'text-red-600'}`}>
-                              {h.pontos > 0 ? '+' : ''}{h.pontos} ★
-                            </span>
-                          </div>
-                       ))}
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-500">Você ainda não possui histórico de pontos.</p>
-                  )}
-                </div>
+                {isAddingAddress ? renderAddAddressForm() : (
+                  <button onClick={() => setIsAddingAddress(true)} className="w-full py-2.5 mt-2 border-2 border-dashed border-gray-300 rounded-xl text-sm font-bold text-gray-500 hover:border-orange-500 hover:text-orange-500 transition-colors flex items-center justify-center gap-2">
+                    <Plus size={16} /> Adicionar novo endereço
+                  </button>
+                )}
               </div>
-            )}
+              )}
           </div>
         )}
       </main>
@@ -1354,6 +1817,11 @@ export default function DeliveryApp() {
            <button onClick={() => setActiveTab('pedidos')} className={`flex flex-col items-center p-2 flex-1 rounded-xl transition-colors ${activeTab === 'pedidos' ? 'text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-gray-600'}`}>
               <History size={22} className="mb-1" />
               <span className="text-[10px] font-bold uppercase tracking-wider">Pedidos</span>
+           </button>
+           <button onClick={() => setActiveTab('fidelidade')} className={`flex flex-col items-center p-2 flex-1 rounded-xl transition-colors relative ${activeTab === 'fidelidade' ? 'text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-gray-600'}`}>
+              <Award size={22} className="mb-1" />
+              {resgatesDisponiveis.length > 0 && <span className="absolute top-1 right-[22%] w-2.5 h-2.5 bg-green-500 rounded-full border-2 border-white animate-pulse" />}
+              <span className="text-[10px] font-bold uppercase tracking-wider">Fidelidade</span>
            </button>
            <button onClick={() => setActiveTab('perfil')} className={`flex flex-col items-center p-2 flex-1 rounded-xl transition-colors ${activeTab === 'perfil' ? 'text-orange-600 bg-orange-50' : 'text-gray-400 hover:text-gray-600'}`}>
               <User size={22} className="mb-1" />
@@ -1384,7 +1852,7 @@ export default function DeliveryApp() {
           </div>
           
           <div className="space-y-6 mb-6 overflow-y-auto max-h-[50vh] pr-2">
-            {produtoModal.opcoes?.tamanhos && produtoModal.opcoes.tamanhos.length > 0 && (
+            {produtoModal.opcoes?.tamanhos && produtoModal.opcoes.tamanhos.length > 0 && !produtoModal.opcoes?.configOpcoes?.ocultarTamanhos && (
               <div className="space-y-2">
                 <label className="text-xs font-bold text-gray-500 uppercase">Tamanho</label>
                 <div className="flex flex-wrap gap-2">
@@ -1397,6 +1865,7 @@ export default function DeliveryApp() {
               </div>
             )}
 
+            {!produtoModal.opcoes?.configOpcoes?.ocultarMontagem && (
             <div className="space-y-2">
               <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Tipo de Montagem</h4>
               <div className="flex flex-wrap gap-2">
@@ -1406,7 +1875,9 @@ export default function DeliveryApp() {
                 {(produtoModal.opcoes?.tiposMontagem || []).length === 0 && <span className="text-xs text-gray-400">Nenhum configurado.</span>}
               </div>
             </div>
+            )}
 
+            {!produtoModal.opcoes?.configOpcoes?.ocultarPontoCarne && (
             <div className="space-y-2">
               <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Ponto da Carne</h4>
               <div className="flex flex-wrap gap-2">
@@ -1415,7 +1886,9 @@ export default function DeliveryApp() {
                 ))}
               </div>
             </div>
+            )}
 
+            {!produtoModal.opcoes?.configOpcoes?.ocultarAdicionais && (
             <div className="space-y-2">
               <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Adicionais</h4>
               <div className="grid grid-cols-1 gap-3">
@@ -1437,7 +1910,9 @@ export default function DeliveryApp() {
                 })}
               </div>
             </div>
+            )}
 
+            {!produtoModal.opcoes?.configOpcoes?.ocultarRestricoes && (
             <div className="space-y-2">
               <h4 className="font-bold text-gray-700 uppercase tracking-wider text-xs">Restrições (Sem)</h4>
               <div className="flex flex-wrap gap-2">
@@ -1446,6 +1921,7 @@ export default function DeliveryApp() {
                 ))}
               </div>
             </div>
+            )}
 
             {itemOptions.montagem.some((m: string) => m.toLowerCase().includes('levar com pedido')) && (() => {
               const bebidaProdutos = produtos.filter((p: any) => (p.categoria || '').toLowerCase() === 'bebidas' && !p.oculto);
@@ -1490,6 +1966,19 @@ export default function DeliveryApp() {
           </div>
           
           <button onClick={() => {
+            if (produtoModal.opcoes?.configOpcoes) {
+              const conf = produtoModal.opcoes.configOpcoes;
+              if (conf.montagemObrigatoria && itemOptions.montagem.length === 0) {
+                return alert('Por favor, selecione um tipo de montagem.');
+              }
+              if (conf.pontoCarneObrigatorio && !itemOptions.pontoCarne) {
+                return alert('Por favor, selecione o ponto da carne.');
+              }
+              if (conf.adicionaisObrigatorio && Object.keys(itemOptions.adicionais).length === 0) {
+                return alert('Por favor, selecione pelo menos um adicional.');
+              }
+            }
+
             const cartItemId = `${produtoModal.id}_${Date.now()}`;
             const selectedTamanho = (produtoModal.opcoes?.tamanhos || []).find((t: any) => t.nome === itemOptions.tamanho);
             const basePrice = selectedTamanho ? Number(selectedTamanho.preco) : Number(produtoModal.precoVenda || 0);
@@ -1536,11 +2025,53 @@ export default function DeliveryApp() {
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-4">
             {Object.entries(carrinho).map(([id, item]: any) => (
               <div key={id} className="flex justify-between items-start border-b border-gray-50 pb-4 last:border-0 last:pb-0">
-                <div><p className="font-bold text-gray-800">{item.qtd}x {item.nome}</p>{item.opcoes?.observacao && <p className="text-xs text-gray-500 mt-1">Obs: {item.opcoes.observacao}</p>}<p className="text-sm font-black text-orange-600 mt-1">R$ {(item.preco * item.qtd).toFixed(2).replace('.', ',')}</p></div>
-                <button onClick={() => { const novo = {...carrinho}; delete novo[id]; setCarrinho(novo); if (Object.keys(novo).length === 0) setIsCartOpen(false); }} className="p-2 text-red-400 hover:text-red-600 bg-red-50 rounded-lg"><Trash2 size={16}/></button>
+                <div>
+                  <p className="font-bold text-gray-800">{item.qtd}x {item.nome}</p>
+                  {item.opcoes?.observacao && <p className="text-xs text-gray-500 mt-1">Obs: {item.opcoes.observacao}</p>}
+                  {item.isRecompensa ? (
+                    <p className="text-sm font-black text-green-600 mt-1 flex items-center gap-1"><Gift size={14}/> Grátis (Recompensa)</p>
+                  ) : (
+                    <p className="text-sm font-black text-orange-600 mt-1">R$ {(item.preco * item.qtd).toFixed(2).replace('.', ',')}</p>
+                  )}
+                </div>
+                {item.isRecompensa ? (
+                  <button onClick={() => { const r = resgatesAtivos.find((x: any) => x.id === item.recompensaResgateId); if (r) desativarResgate(r); }} className="p-2 text-red-400 hover:text-red-600 bg-red-50 rounded-lg"><Trash2 size={16}/></button>
+                ) : (
+                  <button onClick={() => { const novo = {...carrinho}; delete novo[id]; setCarrinho(novo); if (Object.keys(novo).length === 0) setIsCartOpen(false); }} className="p-2 text-red-400 hover:text-red-600 bg-red-50 rounded-lg"><Trash2 size={16}/></button>
+                )}
               </div>
             ))}
           </div>
+
+          {(resgatesAtivos.length > 0 || resgatesDisponiveis.length > 0) && (
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-2">
+              <h3 className="font-bold text-gray-800 mb-1 flex items-center"><Gift className="mr-2 text-green-500" size={18}/> Recompensas</h3>
+              {resgatesAtivos.map((r: any) => (
+                <div key={r.id} className="flex justify-between items-center p-3 bg-green-50 border border-green-200 rounded-xl gap-2">
+                  <div className="min-w-0">
+                    <p className="font-bold text-green-700 text-sm">✓ {r.recompensaNome}</p>
+                    <p className="text-xs text-green-600">Ativada • será aplicada neste pedido</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className="text-xs font-black text-green-700">-{(r.custoPontos || 0).toLocaleString('pt-BR')} pts</span>
+                    <button onClick={() => desativarResgate(r)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><XIcon size={14}/></button>
+                  </div>
+                </div>
+              ))}
+              {resgatesDisponiveis.map((r: any) => (
+                <div key={r.id} className="flex justify-between items-center p-3 bg-orange-50 border border-orange-200 rounded-xl gap-2">
+                  <div className="min-w-0">
+                    <p className="font-bold text-gray-800 text-sm truncate">{r.recompensaNome}</p>
+                    <p className="text-xs text-gray-500">Resgatado • -{(r.custoPontos || 0).toLocaleString('pt-BR')} pts ao ativar</p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <button onClick={() => cancelarResgate(r.id)} className="p-2 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"><XIcon size={14}/></button>
+                    <button onClick={() => ativarResgate(r)} className="text-xs font-black text-white bg-orange-500 hover:bg-orange-600 px-3 py-2 rounded-lg transition-colors">Ativar Grátis</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-4 space-y-3">
             <h3 className="font-bold text-gray-800 mb-2">Forma de Entrega</h3>
@@ -1571,36 +2102,7 @@ export default function DeliveryApp() {
               </label>
             ))}
 
-            {isAddingAddress ? (
-              <div className="border border-orange-200 rounded-xl p-4 bg-orange-50/50 mt-4 space-y-3">
-                <h4 className="font-bold text-orange-800 text-sm mb-2 flex justify-between items-center">
-                  Novo Endereço
-                  <button onClick={() => setIsAddingAddress(false)} className="text-gray-400 hover:text-gray-600"><XIcon size={16}/></button>
-                </h4>
-                <button 
-                  type="button" 
-                  onClick={handleNewEndGetLocation} 
-                  disabled={isFetchingNewLocation}
-                  className="w-full bg-blue-50 text-blue-600 py-2 rounded-lg font-bold hover:bg-blue-100 transition-colors flex items-center justify-center gap-2 text-xs disabled:opacity-50 border border-blue-200"
-                >
-                  <MapPin size={14} />
-                  {isFetchingNewLocation ? 'Buscando...' : 'Usar localização atual'}
-                </button>
-
-                <div className="flex gap-2">
-                  <input type="text" value={newEndCep} onChange={(e) => { const val = formatCEP(e.target.value); setNewEndCep(val); if (val.replace(/\D/g, '').length === 8) { fetch(`https://viacep.com.br/ws/${val.replace(/\D/g, '')}/json/`).then(r=>r.json()).then(d=>{if(!d.erro){setNewEndLogradouro(d.logradouro||'');setNewEndBairro(d.bairro||'');setNewEndCidade(d.localidade||'');setNewEndUf(d.uf||'');}}); } }} placeholder="CEP *" className="flex-1 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                  <input type="text" value={newEndUf} onChange={e => setNewEndUf(e.target.value)} placeholder="UF *" maxLength={2} className="w-12 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs uppercase text-center" />
-                </div>
-                <input type="text" value={newEndLogradouro} onChange={e => setNewEndLogradouro(e.target.value)} placeholder="Logradouro (Rua/Av) *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                <div className="flex gap-2">
-                  <input type="text" value={newEndNumero} onChange={e => setNewEndNumero(e.target.value)} placeholder="Número *" className="w-1/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                  <input type="text" value={newEndBairro} onChange={e => setNewEndBairro(e.target.value)} placeholder="Bairro *" className="w-2/3 p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                </div>
-                <input type="text" value={newEndCidade} onChange={e => setNewEndCidade(e.target.value)} placeholder="Cidade *" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                <input type="text" value={newEndComplemento} onChange={e => setNewEndComplemento(e.target.value)} placeholder="Complemento (Apto, Bloco...)" className="w-full p-2 bg-white border border-gray-200 rounded-lg outline-none focus:border-orange-500 font-bold text-xs" />
-                <button onClick={handleAddNewAddress} className="w-full bg-orange-500 text-white py-2 rounded-lg font-bold text-xs hover:bg-orange-600 transition-colors shadow-sm">Salvar Endereço</button>
-              </div>
-            ) : (
+            {isAddingAddress ? renderAddAddressForm() : (
               <button onClick={() => setIsAddingAddress(true)} className="w-full py-2.5 mt-2 border-2 border-dashed border-gray-300 rounded-xl text-sm font-bold text-gray-500 hover:border-orange-500 hover:text-orange-500 transition-colors flex items-center justify-center gap-2">
                 <Plus size={16} /> Adicionar novo endereço
               </button>
@@ -1641,6 +2143,12 @@ export default function DeliveryApp() {
               </span>
             </div>
           )}
+          {descontoRecompensas > 0 && (
+            <div className="bg-green-50 rounded-2xl p-4 border border-green-100 flex justify-between items-center mt-3">
+              <span className="font-bold text-green-800 text-sm flex items-center gap-1"><Gift size={14}/> Desconto Recompensa</span>
+              <span className="font-black text-green-600">- R$ {descontoRecompensas.toFixed(2).replace('.', ',')}</span>
+            </div>
+          )}
           <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center"><span className="font-bold text-orange-800">Total do Pedido</span><span className="text-2xl font-black text-orange-600">R$ {valorTotalCarrinho.toFixed(2).replace('.', ',')}</span></div>
         </div>
 
@@ -1648,6 +2156,39 @@ export default function DeliveryApp() {
           <div className="max-w-2xl mx-auto"><button onClick={handleEnviarPedido} disabled={!formaPagamento || Object.keys(carrinho).length === 0} className="w-full bg-green-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-green-600 disabled:opacity-50 transition-colors shadow-lg flex justify-center items-center"><CheckCircle size={20} className="mr-2"/> Confirmar e Fazer Pedido</button></div>
         </div>
       </div>
+      )}
+
+      {/* Modal de Confirmação de Resgate de Recompensa */}
+      {modalResgateRecompensa && (
+        <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200">
+            <div className="p-6 text-center">
+              <div className="bg-green-100 text-green-600 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"><Gift size={28}/></div>
+              <h3 className="font-black text-lg text-gray-800 mb-1">Resgatar Recompensa?</h3>
+              <p className="text-sm text-gray-600 mb-1">{modalResgateRecompensa.nome}</p>
+              <p className="text-xs text-gray-400 mb-5">Serão debitados <span className="font-black text-orange-600">{(modalResgateRecompensa.custoPontos || 0).toLocaleString('pt-BR')} pontos</span> assim que você ativar essa recompensa no carrinho.</p>
+              <div className="flex gap-3">
+                <button onClick={() => setModalResgateRecompensa(null)} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+                <button onClick={() => solicitarResgateRecompensa(modalResgateRecompensa.id, modalResgateRecompensa)} className="flex-1 py-3 bg-green-600 text-white rounded-xl font-bold hover:bg-green-700 transition-colors">Sim, Resgatar</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nickname Redes Sociais */}
+      {socialModal && (
+        <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 p-6">
+            <h3 className="font-black text-lg text-gray-800 mb-2">Qual seu @ no {socialModal.categoria}?</h3>
+            <p className="text-sm text-gray-500 mb-4">Para confirmar essa missão, precisamos do seu usuário na rede social.</p>
+            <input type="text" value={socialNickname} onChange={e => setSocialNickname(e.target.value)} placeholder="@seuusuario" className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => { setSocialModal(null); setSocialNickname(''); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={confirmarSocialNickname} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Confirmar</button>
+            </div>
+          </div>
+        </div>
       )}
     </>
   );

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { ref, onValue, push, set, remove, update, runTransaction, query, orderByChild, startAt } from 'firebase/database';
 import { db } from '../firebase';
-import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2, Filter } from 'lucide-react';
+import { Calculator, CheckCircle, Trash2, AlertTriangle, ArrowRightLeft, Plus, Minus, X, Search, ShoppingCart, Store, User, CreditCard, Receipt, ArrowLeft, Save, Truck, Flame, Pencil, Sparkles, Ticket, Map, Printer, Lock, Bell, Eye, ChevronUp, ChevronDown, BarChart2, Filter, Gift } from 'lucide-react';
 import { normalizeString } from '../utils/stringUtils';
 import { logInfo, logWarn, logError, startTimer } from '../utils/logger';
 import { ensureFaceModelsLoaded, faceapi, getCameraStream, getCameraErrorMsg } from '../faceApiUtils';
@@ -78,6 +78,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [taxasEntregaConfig, setTaxasEntregaConfig] = useState<any>({ taxas: {}, lojaLat: null, lojaLng: null });
   const [pdvTaxaEntregaFixa, setPdvTaxaEntregaFixa] = useState<number | null>(null);
   const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
+  const [pdvRecompensasResgatadas, setPdvRecompensasResgatadas] = useState<any[]>([]);
+  const [pdvDescontoRecompensas, setPdvDescontoRecompensas] = useState(0);
   const [qtdMesas, setQtdMesas] = useState(30);
 
   const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, concluidoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
@@ -121,7 +123,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [toast, setToast] = useState<{message: string, type: 'success' | 'error'} | null>(null);
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [impressorasIPs, setImpressorasIPs] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
-  const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; valorPorCarimbo: number; carimbosParaPremio: number } | null>(null);
+  const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; pontosPorReal: number } | null>(null);
   const [embalagensGrupos, setEmbalagensGrupos] = useState<Record<string, { categorias: string[]; delivery: { insumoId: string; quantidade: number }[]; salao: { insumoId: string; quantidade: number }[] }>>({});
 
   const [alertPedidoConcluido, setAlertPedidoConcluido] = useState<any | null>(null);
@@ -232,25 +234,19 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     return tel;
   };
 
-  const montarMensagemFidelidade = (clienteNome: string, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+  const montarMensagemFidelidade = (clienteNome: string, pontosGanhos: number, totalPontos: number, pontosPorReal: number) => {
     const primeiroNome = (clienteNome || 'cliente').split(' ')[0];
-    const premiosDisponiveis = Math.floor(totalCarimbos / meta);
-    const resto = totalCarimbos % meta;
-    const carimbosNoCartao = premiosDisponiveis > 0 && resto === 0 ? meta : resto;
-    const statusCartao = premiosDisponiveis > 0
-      ? `\n\n🎁 Você já tem *${premiosDisponiveis} prêmio(s) disponível(is)* para resgatar!`
-      : `\n\nFaltam *${meta - carimbosNoCartao} carimbo(s)* para o seu próximo prêmio.`;
-
-    return `🍔 *ArttBurger Fidelidade*\n\nOlá, *${primeiroNome}*! Você ganhou *${carimbosGanhos} carimbo(s)* na sua compra.\n\nSua nova pontuação é: *${totalCarimbos} carimbo(s)*.\nCartão atual: *${carimbosNoCartao}/${meta}*.${statusCartao}\n\nObrigado pela preferência!`;
+    const valorReais = (totalPontos / pontosPorReal).toFixed(2);
+    return `🍔 *ArttBurger Fidelidade*\n\nOlá, *${primeiroNome}*! Você ganhou *${pontosGanhos} pontos* na sua compra.\n\nSeu saldo agora é de *${totalPontos} pontos* (equivalente a R$ ${valorReais}).\n\nObrigado pela preferência!`;
   };
 
-  const enfileirarMensagemFidelidade = async (cliente: any, carimbosGanhos: number, totalCarimbos: number, meta: number) => {
+  const enfileirarMensagemFidelidade = async (cliente: any, pontosGanhos: number, totalPontos: number, pontosPorReal: number) => {
     const telefone = normalizarTelefoneMensagem(cliente?.telefone);
     if (!telefone) return;
 
     await set(push(ref(db, 'fila_mensagens')), {
       telefone,
-      mensagem: montarMensagemFidelidade(cliente.nome, carimbosGanhos, totalCarimbos, meta),
+      mensagem: montarMensagemFidelidade(cliente.nome, pontosGanhos, totalPontos, pontosPorReal),
       status: 'pendente',
       origem: 'fidelidade',
       timestamp: Date.now(),
@@ -286,7 +282,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     if (telForm) {
       const cleanPhone2 = telForm.replace(/\D/g, '');
       if (cleanPhone2.length >= 10) {
-        const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Fidelidade*!\n\n*Sua senha de acesso ao aplicativo:* ${pinAleatorio}\n\n*Como funciona?*\n✨ Cada ponto é adquirido com o consumo de R$ 50,00 (independente do produto).\n✨ Os pontos não são acumulativos nem transferíveis.\n✨ Nosso sistema irá avisar sempre que você receber uma pontuação.\n\n*Recompensa:*\nA cada 10 pontos, você pode trocar por qualquer um dos nossos *Artesanais Clássicos*:\n🍔 Artt Burger\n🍔 Artt Burger Pepper Jelly\n🍔 Artt Burger Barbecue\n🍔 Artt Burger Cheddar\n🍔 Artt Burger Bacon\n\nAgradecemos a preferência e bom apetite!`;
+        const msgFidelidade = `*🍔 Bem-vindo ao ArttBurger! 🍔*\n\nSeu cadastro foi realizado com sucesso e você já está participando do nosso *Programa de Pontos*!\n\n*Sua senha de acesso ao aplicativo:* ${pinAleatorio}\n\n*Como funciona?*\n✨ A cada R$ 1,00 em compras (no salão ou no delivery) você ganha pontos.\n✨ Acumule pontos e troque por recompensas: frete grátis, refrigerante, sanduíches e muito mais!\n✨ Complete missões no app para ganhar pontos extras.\n✨ Nosso sistema irá avisar sempre que você receber pontuação.\n\nAcompanhe seu saldo e as recompensas disponíveis no app!\n\nAgradecemos a preferência e bom apetite!`;
         await set(push(ref(db, 'fila_mensagens')), {
           telefone: cleanPhone2,
           mensagem: msgFidelidade,
@@ -441,7 +437,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     const fidelidadeRef = ref(db, 'fidelidade_config');
     onValue(fidelidadeRef, snap => {
       const data = snap.val();
-      if (data) setConfigFidelidade({ ativo: data.ativo ?? true, valorPorCarimbo: data.valorPorCarimbo ?? 50, carimbosParaPremio: data.carimbosParaPremio ?? 10 });
+      if (data) setConfigFidelidade({ ativo: data.ativo ?? true, pontosPorReal: data.pontosPorReal ?? 100 });
     });
 
     const fidelidadePontosRef = ref(db, 'fidelidade_pontos');
@@ -737,7 +733,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   }
 
   const rawSubtotalPdvBase = Object.values(pdvCarrinho).reduce((acc: any, item: any) => acc + (item.preco * item.qtd), 0);
-  const rawTotalPdvBase = rawSubtotalPdvBase + taxaEntregaPdv;
+  const rawTotalPdvBase = Math.max(0, rawSubtotalPdvBase - pdvDescontoRecompensas) + taxaEntregaPdv;
   let descontoCalculado = 0;
   if (pdvDescontoAplicado) {
      descontoCalculado = pdvDescontoAplicado.valor;
@@ -1154,6 +1150,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvTipoPedido('Mesa');
     setPdvDescontoAplicado(null);
     setPdvTaxaEntregaFixa(null);
+    setPdvRecompensasResgatadas([]);
+    setPdvDescontoRecompensas(0);
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvSessaoId(mesaData.sessaoId || `mesa_${numero}_${mesaData.timestamp}`);
@@ -1197,6 +1195,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setPdvIsRetirada(false);
         setPdvIsRetirada(false);
         setEntregaSelecionada(null);
+        setPdvRecompensasResgatadas([]);
+        setPdvDescontoRecompensas(0);
         setPdvItemModal(null);
         setPdvSearchProd('');
         setPdvSearchCliente('');
@@ -1220,6 +1220,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setMesaSelecionada(null);
         setEntregaSelecionada(null);
         setPdvTaxaEntregaFixa(null);
+        setPdvRecompensasResgatadas([]);
+        setPdvDescontoRecompensas(0);
         setPdvItemModal(null);
         setPdvSearchProd('');
         setPdvTaxaEntregaFixa(null);
@@ -1290,12 +1292,16 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setIsCartExpanded(false);
     setPdvDescricao('');
     setPdvPagamentos([{ taxaId: '', valor: 0 }]);
+    setPdvRecompensasResgatadas([]);
+    setPdvDescontoRecompensas(0);
     const entregaData = entregasAbertas[id];
     if (entregaData) {
       setPdvSessaoId(entregaData.sessaoId || `delivery_${id}_${entregaData.timestamp}`);
       setPdvCarrinho(entregaData.carrinho || {});
       setPdvIsRetirada(entregaData.isRetirada || false);
       setPdvTaxaEntregaFixa(entregaData.taxaEntrega !== undefined ? entregaData.taxaEntrega : null);
+      setPdvRecompensasResgatadas(entregaData.recompensasResgatadas || []);
+      setPdvDescontoRecompensas(entregaData.descontoRecompensas || 0);
       const c = clientes.find((client: any) => client.id === entregaData.clienteId);
       if (c) setPdvCliente(c);
       else setPdvCliente({ id: entregaData.clienteId, nome: entregaData.clienteNome, telefone: entregaData.clienteTelefone });
@@ -1744,7 +1750,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         statusEntrega: pdvTipoPedido === 'Entrega' ? statusEntregaAtual : null,
         taxaEntrega: taxaEntregaPdv,
         numeroDiario: numDiario,
-        timestamp: Date.now()
+        timestamp: Date.now(),
+        recompensasResgatadas: pdvRecompensasResgatadas.length > 0 ? pdvRecompensasResgatadas : null,
+        descontoRecompensas: pdvDescontoRecompensas || 0
       });
   
       if (pdvCliente) {
@@ -1753,14 +1761,15 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         const atualizados = [novoPedido, ...ultimos].slice(0, 5);
         await update(ref(db, `clientes/${pdvCliente.id}`), { ultimosPedidos: atualizados });
 
-        if (configFidelidade?.ativo && totalPdv > 0 && pdvTipoPedido !== 'Entrega') {
-          const valorPorCarimbo = configFidelidade.valorPorCarimbo || 50;
-          const carimbosGanhos = Math.floor(totalPdv / valorPorCarimbo);
-          if (carimbosGanhos > 0) {
+        if (configFidelidade?.ativo && totalPdv > 0) {
+          const pontosPorReal = configFidelidade.pontosPorReal || 100;
+          const valorProdutosPdv = Number(Math.max(0, totalPdv - taxaEntregaPdv).toFixed(2));
+          const pontosGanhos = Math.round(valorProdutosPdv * pontosPorReal);
+          if (pontosGanhos > 0) {
             const pontosRef = ref(db, `fidelidade_pontos/${pdvCliente.id}`);
             const resultadoPontos = await runTransaction(pontosRef, (dados) => {
               const atual = dados || { clienteId: pdvCliente.id, clienteNome: pdvCliente.nome, pontos: 0, totalGasto: 0 };
-              atual.pontos = (atual.pontos || 0) + carimbosGanhos;
+              atual.pontos = (atual.pontos || 0) + pontosGanhos;
               atual.totalGasto = (atual.totalGasto || 0) + totalPdv;
               atual.clienteId = pdvCliente.id;
               atual.clienteNome = pdvCliente.nome;
@@ -1768,18 +1777,18 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
             });
             await set(push(ref(db, `fidelidade_pontos/${pdvCliente.id}/historico`)), {
               tipo: 'ganho',
-              pontos: carimbosGanhos,
-              descricao: `Compra R$ ${totalPdv.toFixed(2)} — ${carimbosGanhos} carimbo(s)`,
+              pontos: pontosGanhos,
+              descricao: `Compra R$ ${totalPdv.toFixed(2)} — ${pontosGanhos} pontos`,
               timestamp: Date.now(),
               operadorId: currentUser?.id || '',
               operadorNome: currentUser?.nome || 'PDV',
             });
-            const totalCarimbosAtualizado = Number(resultadoPontos.snapshot.val()?.pontos || carimbosGanhos);
+            const totalPontosAtualizado = Number(resultadoPontos.snapshot.val()?.pontos || pontosGanhos);
             await enfileirarMensagemFidelidade(
               pdvCliente,
-              carimbosGanhos,
-              totalCarimbosAtualizado,
-              configFidelidade.carimbosParaPremio || 10
+              pontosGanhos,
+              totalPontosAtualizado,
+              pontosPorReal
             );
           }
         }
@@ -1801,6 +1810,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setPdvIsRetirada(false);
       setEntregaSelecionada(null);
       setPdvTaxaEntregaFixa(null);
+      setPdvRecompensasResgatadas([]);
+      setPdvDescontoRecompensas(0);
       setPdvItemModal(null);
       setPdvSearchProd('');
       setPdvSearchCliente('');
@@ -2092,6 +2103,19 @@ Formato esperado:
     </div>
   );
 
+  const RecompensaArea = pdvRecompensasResgatadas.length > 0 ? (
+    <div className="mb-3 px-1 space-y-1.5">
+      {pdvRecompensasResgatadas.map((r: any) => (
+        <div key={r.id} className="flex justify-between items-center bg-green-50 p-2.5 rounded-lg border border-green-200 shadow-sm">
+          <span className="text-xs font-bold text-green-700 flex items-center"><Gift size={14} className="mr-1.5"/> {r.nome}</span>
+          {r.tipo === 'produto'
+            ? <span className="text-xs font-black text-green-700">🎁 {r.produtoNome || 'Produto Grátis'}</span>
+            : <span className="text-xs font-black text-green-700">- R$ {(r.valorDesconto || 0).toFixed(2)}</span>}
+        </div>
+      ))}
+    </div>
+  ) : null;
+
   const PaymentSection = (
     <div className="flex flex-col gap-3">
       {pdvTipoPedido === 'Mesa' || pdvTipoPedido === 'Entrega' ? (
@@ -2102,7 +2126,9 @@ Formato esperado:
           
           <div className="border-t border-gray-200 pt-3">
             <h4 className="text-xs font-bold text-gray-500 uppercase mb-2 flex items-center justify-center bg-gray-100 py-1.5 rounded-lg"><CreditCard size={14} className="mr-2"/> Pagamento (Encerrar {pdvTipoPedido})</h4>
-            
+
+            {RecompensaArea}
+
             <div className="flex justify-between items-center bg-gray-50 p-2.5 rounded-lg border border-gray-200 mb-2">
               <span className="font-bold text-gray-800 uppercase text-xs">Total a Pagar</span>
               <div className="text-right">
@@ -2143,6 +2169,7 @@ Formato esperado:
         </>
       ) : (
         <>
+          {RecompensaArea}
           {DescontoArea}
           <div className="flex justify-between items-center bg-green-50 p-3 rounded-xl border border-green-100 shadow-inner">
             <span className="font-bold text-green-800 uppercase text-xs">Total a Pagar</span>
@@ -2247,8 +2274,8 @@ Formato esperado:
           onReimprimirMesa={handleReimprimirMesa}
           onAbrirPainelEntregas={() => setShowPainelEntregas(true)}
           onAddMesa={() => set(ref(db, 'configuracoes/pdv/qtdMesas'), qtdMesas + 1)}
-          onAbrirDelivery={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvView('caixa'); }}
-          onAbrirBalcao={() => { setPdvSessaoId(`balcao_${Date.now()}`); setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvView('caixa'); }}
+          onAbrirDelivery={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvView('caixa'); }}
+          onAbrirBalcao={() => { setPdvSessaoId(`balcao_${Date.now()}`); setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvView('caixa'); }}
         />
         </>
       )}
@@ -2306,16 +2333,13 @@ Formato esperado:
                     <span className="font-bold text-indigo-800 text-sm truncate">{pdvCliente.nome}</span>
                     {configFidelidade?.ativo && (
                       <span className="bg-orange-100 text-orange-700 text-xs font-black px-2 py-0.5 rounded-full shrink-0">
-                        ★ {pontosPorCliente[pdvCliente.id] || 0}/{configFidelidade.carimbosParaPremio || 10}
+                        ★ {(pontosPorCliente[pdvCliente.id] || 0).toLocaleString('pt-BR')} pts
                       </span>
                     )}
-                    {configFidelidade?.ativo && totalPdv > 0 && Math.floor(totalPdv / (configFidelidade.valorPorCarimbo || 50)) > 0 && (
+                    {configFidelidade?.ativo && totalPdv > 0 && Math.round(totalPdv * (configFidelidade.pontosPorReal || 100)) > 0 && (
                       <span className="text-xs text-green-600 font-bold shrink-0">
-                        +{Math.floor(totalPdv / (configFidelidade.valorPorCarimbo || 50))} carimbo(s)
+                        +{Math.round(totalPdv * (configFidelidade.pontosPorReal || 100))} pts
                       </span>
-                    )}
-                    {configFidelidade?.ativo && (pontosPorCliente[pdvCliente.id] || 0) >= (configFidelidade.carimbosParaPremio || 10) && (
-                      <span className="text-xs bg-green-100 text-green-700 font-black px-2 py-0.5 rounded-full animate-pulse shrink-0">🎁 PRÊMIO!</span>
                     )}
                   </div>
                   <button onClick={() => setPdvCliente(null)} className="text-indigo-400 hover:text-indigo-600 p-1 rounded-md hover:bg-indigo-100 shrink-0"><X size={18}/></button>
@@ -2335,8 +2359,8 @@ Formato esperado:
                             </div>
                             <div className="flex items-center gap-2">
                               {configFidelidade?.ativo && pontosPorCliente[c.id] > 0 && (
-                                <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}`}>
-                                  {pontosPorCliente[c.id] >= (configFidelidade.carimbosParaPremio || 10) ? '🎁' : '★'} {pontosPorCliente[c.id]}/{configFidelidade.carimbosParaPremio || 10}
+                                <span className="text-xs font-bold px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">
+                                  ★ {pontosPorCliente[c.id].toLocaleString('pt-BR')} pts
                                 </span>
                               )}
                               <Plus size={16} className="text-indigo-500"/>

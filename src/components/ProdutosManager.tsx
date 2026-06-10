@@ -308,15 +308,15 @@ export default function ProdutosManager({ currentUser, temPermissao }: { current
           </button>
         )}
       </div>
-
-      <ModalProduto 
-        isOpen={showForm} 
-        onClose={() => { setShowForm(false); setEditProduto(null); }} 
-        produtoEdit={editProduto} 
-        insumos={insumos} 
-        produtos={produtos} 
-        categoriasDb={categoriasDb} 
+      <ModalProduto
+        isOpen={showForm}
+        onClose={() => { setShowForm(false); setEditProduto(null); }}
+        produtoEdit={editProduto}
+        insumos={insumos}
+        produtos={produtos}
+        categoriasDb={categoriasDb}
         showToast={showToast}
+        currentUser={currentUser}
         embalagensPadrao={embalagensPadrao}
       />
 

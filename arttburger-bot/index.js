@@ -214,11 +214,26 @@ async function iniciarBot() {
         }
 
         if (textoLimpo.startsWith('vincular')) {
-            await msg.reply(`✅ Olá *${funcionarioNome.split(' ')[0]}*!\n\nSeu WhatsApp foi vinculado com sucesso ao seu cadastro no sistema ArttBurger.\n\n*Seu ID de Segurança:* \n_${msg.from}_`);
+            await msg.reply(`✅ Olá *${funcionarioNome.split(' ')[0]}*!\n\nSeu WhatsApp foi vinculado com sucesso ao seu cadastro no sistema ArttBurger.\n\n*Seu ID de Segurança:* \n_${msg.from}_\n\n💡 *Dica:* Para falar comigo, inicie sua mensagem com *.bot* — exemplo:\n*.bot qual minha tarefa de hoje?*`);
             return;
         }
 
-        if (textoLimpo === 'ping') {
+        // Só processa mensagens que começam com .bot
+        const BOT_PREFIX = '.bot';
+        if (!textoLimpo.startsWith(BOT_PREFIX)) {
+            console.log(`💤 Ignorando (sem prefixo .bot): ${funcionarioNome} — "${msg.body.substring(0, 40)}"`);
+            return;
+        }
+
+        const mensagemBot = msg.body.slice(BOT_PREFIX.length).trim();
+        const textoBotLimpo = textoLimpo.slice(BOT_PREFIX.length).trim();
+
+        if (!mensagemBot) {
+            await msg.reply(`🤖 *Assistente ArttBurger*\n\nOlá *${funcionarioNome.split(' ')[0]}*! Como posso te ajudar?\n\nExemplos:\n• *.bot qual minha tarefa?*\n• *.bot concluído #1234*\n• *.bot vou faltar hoje*`);
+            return;
+        }
+
+        if (textoBotLimpo === 'ping') {
             await msg.reply(`pong! 🍔 Olá ${funcionarioNome.split(' ')[0]}, o bot do ArttBurger está te escutando!`);
             return;
         }
@@ -262,12 +277,15 @@ Você deve adicionar EXATAMENTE UMA destas tags ocultas no FINAL da sua resposta
 
 Responda sempre de forma amigável, educada e bem curta. Se for registrar falta, diga que avisou a gerência e deseje melhoras.`
                         },
-                        { role: 'user', content: msg.body }
+                        { role: 'user', content: mensagemBot }
                     ]
                 })
             });
 
             const data = await response.json();
+            if (!response.ok || data.error) {
+                console.error('❌ Grok API erro:', JSON.stringify(data));
+            }
             let respostaIA = data.choices?.[0]?.message?.content || 'Desculpe, tive um problema de conexão com meus servidores cerebrais.';
 
             let isTarefa = false;
@@ -367,10 +385,10 @@ Responda sempre de forma amigável, educada e bem curta. Se for registrar falta,
             } else if (isFalta) {
                 const dataSP = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Sao_Paulo" }));
                 const hojeStr = dataSP.getFullYear() + '-' + String(dataSP.getMonth() + 1).padStart(2, '0') + '-' + String(dataSP.getDate()).padStart(2, '0');
-                await db.ref(`gestao_equipe/${funcionarioId}/faltas`).push({ data: hojeStr, motivo: msg.body, timestamp: Date.now() });
+                await db.ref(`gestao_equipe/${funcionarioId}/faltas`).push({ data: hojeStr, motivo: mensagemBot, timestamp: Date.now() });
                 console.log(`✅ Falta registrada para ${funcionarioNome}.`);
 
-                const mensagemAlerta = `🚨 *ALERTA DE FALTA (Bot)*\n\nO funcionário *${funcionarioNome}* (${funcionarioCargo}) avisou pelo WhatsApp que vai faltar.\n\n*Mensagem:* "${msg.body}"`;
+                const mensagemAlerta = `🚨 *ALERTA DE FALTA (Bot)*\n\nO funcionário *${funcionarioNome}* (${funcionarioCargo}) avisou pelo WhatsApp que vai faltar.\n\n*Mensagem:* "${mensagemBot}"`;
                 for (const [idAlvo, funcAlvo] of Object.entries(funcionarios)) {
                     if (idAlvo === funcionarioId) continue;
                     const cargosAlvo = Array.isArray(funcAlvo.cargo) ? funcAlvo.cargo : [funcAlvo.cargo || ''];

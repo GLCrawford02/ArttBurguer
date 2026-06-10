@@ -1,4 +1,4 @@
-import { Receipt } from 'lucide-react';
+import { Receipt, Gift } from 'lucide-react';
 
 interface Props {
   vendasHoje: any[];
@@ -14,11 +14,12 @@ export default function ComandasView({ vendasHoje, onVerComanda }: Props) {
         </div>
         <div className="divide-y divide-gray-50 max-h-[600px] overflow-y-auto">
           {vendasHoje.sort((a: any, b: any) => b.timestamp - a.timestamp).map((v: any, index: number) => (
-            <div key={v.id} className="p-4 flex items-center justify-between hover:bg-blue-50 cursor-pointer transition-colors" onClick={() => onVerComanda(v)}>
+            <div key={v.id} className={`p-4 flex items-center justify-between cursor-pointer transition-colors ${v.recompensasResgatadas?.length ? 'bg-green-50 hover:bg-green-100' : 'hover:bg-blue-50'}`} onClick={() => onVerComanda(v)}>
               <div>
                 <p className="font-bold text-gray-800 flex items-center">
                   <span className="text-xs bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded font-mono mr-2">#{v.numeroDiario || (vendasHoje.length - index)}</span>
                   {v.descricao || 'Venda Balcão'} {v.tipoPedido ? `(${v.tipoPedido})` : ''}
+                  {v.recompensasResgatadas?.length > 0 && <span className="ml-2 text-[10px] bg-green-100 text-green-700 px-1.5 py-0.5 rounded font-bold flex items-center gap-1"><Gift size={10}/> Recompensa</span>}
                 </p>
                 {v.itens && <p className="text-xs text-gray-500 mt-0.5 line-clamp-1">{v.itens.map((i: any) => `${i.qtd}x ${i.nome}`).join(', ')}</p>}
                 {v.pagamentos ? (
