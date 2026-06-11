@@ -80,6 +80,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [entregaSelecionada, setEntregaSelecionada] = useState<string | null>(null);
   const [pdvRecompensasResgatadas, setPdvRecompensasResgatadas] = useState<any[]>([]);
   const [pdvDescontoRecompensas, setPdvDescontoRecompensas] = useState(0);
+  const [pdvDescontoFrete, setPdvDescontoFrete] = useState(0);
   const [qtdMesas, setQtdMesas] = useState(30);
 
   const [pdvCarrinho, setPdvCarrinho] = useState<Record<string, { produtoId?: string, nome: string, preco: number, qtd: number, enviadoCozinha?: number, concluidoCozinha?: number, opcoes?: any, adicionadoPor?: string, adicionadoEm?: number }>>({});
@@ -733,7 +734,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   }
 
   const rawSubtotalPdvBase = Object.values(pdvCarrinho).reduce((acc: any, item: any) => acc + (item.preco * item.qtd), 0);
-  const rawTotalPdvBase = Math.max(0, rawSubtotalPdvBase - pdvDescontoRecompensas) + taxaEntregaPdv;
+  const taxaEntregaPdvComDesconto = Math.max(0, taxaEntregaPdv - pdvDescontoFrete);
+  const rawTotalPdvBase = Math.max(0, rawSubtotalPdvBase - pdvDescontoRecompensas) + taxaEntregaPdvComDesconto;
   let descontoCalculado = 0;
   if (pdvDescontoAplicado) {
      descontoCalculado = pdvDescontoAplicado.valor;
@@ -1152,6 +1154,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvTaxaEntregaFixa(null);
     setPdvRecompensasResgatadas([]);
     setPdvDescontoRecompensas(0);
+    setPdvDescontoFrete(0);
     const mesaData = mesasAbertas[`mesa_${numero}`] || mesasAbertas[numero];
     if (mesaData) {
       setPdvSessaoId(mesaData.sessaoId || `mesa_${numero}_${mesaData.timestamp}`);
@@ -1197,6 +1200,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setEntregaSelecionada(null);
         setPdvRecompensasResgatadas([]);
         setPdvDescontoRecompensas(0);
+        setPdvDescontoFrete(0);
         setPdvItemModal(null);
         setPdvSearchProd('');
         setPdvSearchCliente('');
@@ -1222,6 +1226,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         setPdvTaxaEntregaFixa(null);
         setPdvRecompensasResgatadas([]);
         setPdvDescontoRecompensas(0);
+        setPdvDescontoFrete(0);
         setPdvItemModal(null);
         setPdvSearchProd('');
         setPdvTaxaEntregaFixa(null);
@@ -1294,6 +1299,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     setPdvPagamentos([{ taxaId: '', valor: 0 }]);
     setPdvRecompensasResgatadas([]);
     setPdvDescontoRecompensas(0);
+    setPdvDescontoFrete(0);
     const entregaData = entregasAbertas[id];
     if (entregaData) {
       setPdvSessaoId(entregaData.sessaoId || `delivery_${id}_${entregaData.timestamp}`);
@@ -1302,6 +1308,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setPdvTaxaEntregaFixa(entregaData.taxaEntrega !== undefined ? entregaData.taxaEntrega : null);
       setPdvRecompensasResgatadas(entregaData.recompensasResgatadas || []);
       setPdvDescontoRecompensas(entregaData.descontoRecompensas || 0);
+      setPdvDescontoFrete(entregaData.descontoFrete || 0);
       const c = clientes.find((client: any) => client.id === entregaData.clienteId);
       if (c) setPdvCliente(c);
       else setPdvCliente({ id: entregaData.clienteId, nome: entregaData.clienteNome, telefone: entregaData.clienteTelefone });
@@ -1318,9 +1325,28 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     } else {
       const id = entregaSelecionada || `delivery_${Date.now()}`;
       const numDiario = getNumeroDiario('Entrega', entregaSelecionada);
+      const entregaExistente = entregaSelecionada ? entregasAbertas[entregaSelecionada] : null;
+      const totalPedidosCliente = vendasPdv.filter((v: any) => v.clienteId === pdvCliente.id).length
+        + Object.values(entregasAbertas).filter((e: any) => e.clienteId === pdvCliente.id).length + 1;
+      const metaCozinha = {
+        clienteNome: pdvCliente.nome,
+        clienteTelefone: pdvCliente.telefone,
+        pontosFidelidade: pontosPorCliente[pdvCliente.id] || 0,
+        totalPedidosCliente,
+        enderecoEntrega: entregaExistente?.enderecoEntrega ?? null,
+        formaPagamento: entregaExistente?.formaPagamentoStr ?? null,
+        numeroDiario: numDiario,
+        subtotal: rawSubtotalPdvBase,
+        taxaEntrega: taxaEntregaPdv,
+        valorTotal: rawTotalPdvBase,
+        recompensasResgatadas: pdvRecompensasResgatadas.length > 0 ? pdvRecompensasResgatadas : null,
+        descontoRecompensas: pdvDescontoRecompensas || 0,
+        descontoFrete: pdvDescontoFrete || 0
+      };
         dispararImpressaoSeparada(`Delivery: ${pdvCliente.nome}`, pdvCarrinho, currentUser?.nome);
-        const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega', id);
+        const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega', id, metaCozinha);
       await set(ref(db, `entregas_abertas/${id}`), {
+        ...entregaExistente,
         clienteId: pdvCliente.id,
         clienteNome: pdvCliente.nome,
         clienteTelefone: pdvCliente.telefone,
@@ -1329,7 +1355,10 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         isRetirada: pdvIsRetirada,
         timestamp: Date.now(),
         taxaEntrega: taxaEntregaPdv,
-        sessaoId: pdvSessaoId
+        sessaoId: pdvSessaoId,
+        recompensasResgatadas: pdvRecompensasResgatadas.length > 0 ? pdvRecompensasResgatadas : null,
+        descontoRecompensas: pdvDescontoRecompensas || 0,
+        descontoFrete: pdvDescontoFrete || 0
       });
       showToast('Pedido de Delivery salvo!', 'success');
       logInfo('Delivery', entregaSelecionada ? 'Delivery atualizado/reenviado à cozinha' : 'Novo delivery registrado', { cliente: pdvCliente.nome, itens: Object.keys(pdvCarrinho).length, retirada: pdvIsRetirada, operador: currentUser?.nome }, timer());
@@ -1748,11 +1777,12 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         isRetirada: pdvTipoPedido === 'Entrega' ? pdvIsRetirada : false,
         mesa: pdvTipoPedido === 'Mesa' ? mesaSelecionada : null,
         statusEntrega: pdvTipoPedido === 'Entrega' ? statusEntregaAtual : null,
-        taxaEntrega: taxaEntregaPdv,
+        taxaEntrega: taxaEntregaPdvComDesconto,
         numeroDiario: numDiario,
         timestamp: Date.now(),
         recompensasResgatadas: pdvRecompensasResgatadas.length > 0 ? pdvRecompensasResgatadas : null,
-        descontoRecompensas: pdvDescontoRecompensas || 0
+        descontoRecompensas: pdvDescontoRecompensas || 0,
+        descontoFrete: pdvDescontoFrete || 0
       });
   
       if (pdvCliente) {
@@ -1763,7 +1793,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
 
         if (configFidelidade?.ativo && totalPdv > 0) {
           const pontosPorReal = configFidelidade.pontosPorReal || 100;
-          const valorProdutosPdv = Number(Math.max(0, totalPdv - taxaEntregaPdv).toFixed(2));
+          const valorProdutosPdv = Number(Math.max(0, totalPdv - taxaEntregaPdvComDesconto).toFixed(2));
           const pontosGanhos = Math.round(valorProdutosPdv * pontosPorReal);
           if (pontosGanhos > 0) {
             const pontosRef = ref(db, `fidelidade_pontos/${pdvCliente.id}`);
@@ -1812,6 +1842,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       setPdvTaxaEntregaFixa(null);
       setPdvRecompensasResgatadas([]);
       setPdvDescontoRecompensas(0);
+      setPdvDescontoFrete(0);
       setPdvItemModal(null);
       setPdvSearchProd('');
       setPdvSearchCliente('');
@@ -2110,6 +2141,8 @@ Formato esperado:
           <span className="text-xs font-bold text-green-700 flex items-center"><Gift size={14} className="mr-1.5"/> {r.nome}</span>
           {r.tipo === 'produto'
             ? <span className="text-xs font-black text-green-700">🎁 {r.produtoNome || 'Produto Grátis'}</span>
+            : r.tipo === 'frete'
+            ? <span className="text-xs font-black text-green-700">🚚 - R$ {Math.min(r.valorDesconto || 0, taxaEntregaPdv).toFixed(2)}</span>
             : <span className="text-xs font-black text-green-700">- R$ {(r.valorDesconto || 0).toFixed(2)}</span>}
         </div>
       ))}
@@ -2274,8 +2307,8 @@ Formato esperado:
           onReimprimirMesa={handleReimprimirMesa}
           onAbrirPainelEntregas={() => setShowPainelEntregas(true)}
           onAddMesa={() => set(ref(db, 'configuracoes/pdv/qtdMesas'), qtdMesas + 1)}
-          onAbrirDelivery={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvView('caixa'); }}
-          onAbrirBalcao={() => { setPdvSessaoId(`balcao_${Date.now()}`); setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvView('caixa'); }}
+          onAbrirDelivery={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvDescontoFrete(0); setPdvView('caixa'); }}
+          onAbrirBalcao={() => { setPdvSessaoId(`balcao_${Date.now()}`); setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvDescontoFrete(0); setPdvView('caixa'); }}
         />
         </>
       )}

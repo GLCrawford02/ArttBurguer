@@ -1,4 +1,4 @@
-import { X, CheckCircle, AlertTriangle, CheckSquare, Square } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle, CheckSquare, Square, User, MapPin, Phone, CreditCard, Star, Truck } from 'lucide-react';
 
 interface Props {
   expandedOrder: any | null;
@@ -37,6 +37,61 @@ export default function ExpandedOrderModal({
             <X size={28} />
           </button>
         </div>
+
+        {expandedOrder.tipo === 'Entrega' && (expandedOrder.clienteNome || expandedOrder.formaPagamento) && (
+          <div className="px-4 sm:px-8 pt-4 sm:pt-6 bg-white shrink-0">
+            <div className="bg-gray-50 border border-gray-200 rounded-2xl p-4 sm:p-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2 min-w-0">
+                {expandedOrder.clienteNome && (
+                  <div className="flex flex-wrap items-center gap-2 font-black text-lg sm:text-xl text-gray-900">
+                    <User size={20} className="text-gray-400 shrink-0"/> {expandedOrder.clienteNome}
+                    {!!expandedOrder.pontosFidelidade && (
+                      <span className="text-xs sm:text-sm font-bold text-amber-600 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded-full flex items-center gap-1">
+                        <Star size={12}/> {expandedOrder.pontosFidelidade} pts
+                      </span>
+                    )}
+                    {!!expandedOrder.totalPedidosCliente && (
+                      <span className="text-xs sm:text-sm font-bold text-indigo-600 bg-indigo-50 border border-indigo-200 px-2 py-0.5 rounded-full">
+                        {expandedOrder.totalPedidosCliente}º pedido
+                      </span>
+                    )}
+                  </div>
+                )}
+                {expandedOrder.clienteTelefone && (
+                  <div className="flex items-center gap-2 text-base sm:text-lg font-bold text-gray-700"><Phone size={18} className="text-gray-400 shrink-0"/> {expandedOrder.clienteTelefone}</div>
+                )}
+                {expandedOrder.isRetirada ? (
+                  <div className="flex items-center gap-2 text-base sm:text-lg font-bold text-orange-600"><Truck size={18} className="shrink-0"/> Retirada no Balcão</div>
+                ) : expandedOrder.enderecoEntrega && (
+                  <div className="flex items-start gap-2 text-base sm:text-lg font-bold text-gray-700">
+                    <MapPin size={18} className="text-gray-400 mt-1 shrink-0"/>
+                    <span>{expandedOrder.enderecoEntrega.logradouro}, {expandedOrder.enderecoEntrega.numero}{expandedOrder.enderecoEntrega.bairro ? ` - ${expandedOrder.enderecoEntrega.bairro}` : ''}{expandedOrder.enderecoEntrega.complemento ? ` (${expandedOrder.enderecoEntrega.complemento})` : ''}{expandedOrder.enderecoEntrega.cidade ? `, ${expandedOrder.enderecoEntrega.cidade}` : ''}</span>
+                  </div>
+                )}
+                {expandedOrder.formaPagamento && (
+                  <div className="flex items-center gap-2 text-base sm:text-lg font-bold text-gray-700"><CreditCard size={18} className="text-gray-400 shrink-0"/> {expandedOrder.formaPagamento}</div>
+                )}
+              </div>
+              <div className="space-y-1 text-base sm:text-lg font-bold text-gray-700 sm:text-right">
+                {expandedOrder.subtotal !== undefined && (
+                  <div className="flex justify-between sm:justify-end gap-4"><span className="text-gray-500">Subtotal</span><span>R$ {Number(expandedOrder.subtotal).toFixed(2).replace('.', ',')}</span></div>
+                )}
+                {!expandedOrder.isRetirada && expandedOrder.taxaEntrega !== undefined && (
+                  <div className="flex justify-between sm:justify-end gap-4"><span className="text-gray-500">Frete</span><span>R$ {Number(expandedOrder.taxaEntrega).toFixed(2).replace('.', ',')}</span></div>
+                )}
+                {expandedOrder.descontoFrete > 0 && (
+                  <div className="flex justify-between sm:justify-end gap-4 text-green-600"><span>Desconto Frete (Resgate)</span><span>- R$ {Math.min(expandedOrder.descontoFrete, expandedOrder.taxaEntrega || 0).toFixed(2).replace('.', ',')}</span></div>
+                )}
+                {expandedOrder.descontoRecompensas > 0 && (
+                  <div className="flex justify-between sm:justify-end gap-4 text-green-600"><span>Desconto Recompensa</span><span>- R$ {Number(expandedOrder.descontoRecompensas).toFixed(2).replace('.', ',')}</span></div>
+                )}
+                {expandedOrder.valorTotal !== undefined && (
+                  <div className="flex justify-between sm:justify-end gap-4 text-2xl text-gray-900 pt-2 border-t border-gray-200 mt-2"><span>Total</span><span>R$ {Number(expandedOrder.valorTotal).toFixed(2).replace('.', ',')}</span></div>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto p-4 sm:p-8 bg-white space-y-6">
           {expandedOrder.itensKds.map((item: any, idx: number) => (

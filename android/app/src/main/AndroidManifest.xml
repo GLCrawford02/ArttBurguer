@@ -12,6 +12,9 @@
     <!-- Permissão para mostrar a notificação do serviço em primeiro plano (Android 13+) -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
+    <!-- Permite solicitar isenção da otimização de bateria, para o GPS não ser interrompido com a tela bloqueada -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!-- Outras permissões -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />

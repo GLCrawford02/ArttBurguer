@@ -18,7 +18,7 @@ export interface Recompensa {
   custoPontos: number;
   ativo: boolean;
   ordem?: number;
-  tipo?: 'desconto' | 'produto';
+  tipo?: 'desconto' | 'produto' | 'frete';
   valorDesconto?: number;
   produtoId?: string;
   produtoNome?: string;
@@ -58,6 +58,9 @@ interface MissaoPendente {
   missaoNome: string;
   pontos: number;
   categoria?: string;
+  nickname?: string;
+  amigoNome?: string;
+  amigoTelefone?: string;
   status: string;
   timestamp: number;
 }
@@ -157,7 +160,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       ativo: true,
       ordem,
       tipo,
-      valorDesconto: tipo === 'desconto' ? Number(novaRecompensa.valorDesconto || 0) : 0,
+      valorDesconto: tipo !== 'produto' ? Number(novaRecompensa.valorDesconto || 0) : 0,
       produtoId: tipo === 'produto' ? novaRecompensa.produtoId : undefined,
       produtoNome: tipo === 'produto' ? (produtoEscolhido?.nome || '') : undefined,
     } } };
@@ -222,7 +225,7 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       descricao: editRecompensa.descricao || '',
       custoPontos: Number(editRecompensa.custoPontos),
       tipo,
-      valorDesconto: tipo === 'desconto' ? Number(editRecompensa.valorDesconto || 0) : 0,
+      valorDesconto: tipo !== 'produto' ? Number(editRecompensa.valorDesconto || 0) : 0,
       produtoId: tipo === 'produto' ? editRecompensa.produtoId : undefined,
       produtoNome: tipo === 'produto' ? (produtoEscolhido?.nome || editRecompensa.produtoNome || '') : undefined,
     } } };
@@ -443,6 +446,11 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
   const recompensasArray = Object.entries(config.recompensas || {}).map(([id, r]) => ({ id, ...r })).sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
   const missoesArray = Object.entries(config.missoes || {}).map(([id, m]) => ({ id, ...m })).sort((a, b) => (a.ordem ?? 0) - (b.ordem ?? 0));
   const recompensasAtivas = recompensasArray.filter(r => r.ativo);
+  const categoriasRecompensaDef: { key: string; label: string; match: (r: Recompensa) => boolean }[] = [
+    { key: 'desconto', label: '💸 Descontos no Pedido', match: r => (r.tipo || 'desconto') === 'desconto' },
+    { key: 'frete', label: '🚚 Abatimento no Frete', match: r => r.tipo === 'frete' },
+    { key: 'produto', label: '🎁 Produtos Grátis', match: r => r.tipo === 'produto' },
+  ];
   const menorCustoAtivo = recompensasAtivas.length > 0 ? Math.min(...recompensasAtivas.map(r => r.custoPontos || 0)) : null;
 
   const clientesFiltrados = clientes
@@ -620,6 +628,12 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                     <div className="min-w-0">
                       <p className="font-bold text-sm text-gray-800 truncate">{mp.clienteNome}</p>
                       <p className="text-xs text-gray-500 truncate">{mp.missaoNome}</p>
+                      {mp.amigoNome && (
+                        <p className="text-xs font-bold text-purple-600 truncate mt-0.5">👥 Indicou: {mp.amigoNome} {mp.amigoTelefone ? `• ${mp.amigoTelefone}` : ''}</p>
+                      )}
+                      {mp.nickname && (
+                        <p className="text-xs text-gray-500 truncate mt-0.5">@{mp.nickname}</p>
+                      )}
                       <p className="text-[10px] text-gray-400 mt-0.5">{new Date(mp.timestamp).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' })}</p>
                     </div>
                   </div>
@@ -687,10 +701,18 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
             </div>
             <p className="text-xs text-gray-500">Configure os prêmios (frete grátis, refrigerante, sanduíches...) e o custo em pontos de cada um.</p>
 
-            <div className="space-y-2 max-h-80 overflow-y-auto">
+            <div className="space-y-3 max-h-80 overflow-y-auto">
               {recompensasArray.length === 0 ? (
                 <p className="text-sm text-gray-400 text-center py-4">Nenhuma recompensa cadastrada.</p>
-              ) : recompensasArray.map((r, idx) => (
+              ) : categoriasRecompensaDef.map(cat => {
+                const itensCategoria = recompensasArray.filter(cat.match);
+                if (itensCategoria.length === 0) return null;
+                return (
+                  <div key={cat.key} className="space-y-2">
+                    <p className="text-[11px] font-black text-gray-500 uppercase tracking-wide">{cat.label}</p>
+                    {itensCategoria.map(r => {
+                      const idx = recompensasArray.findIndex(x => x.id === r.id);
+                      return (
                 <div key={r.id} className="p-3 bg-gray-50 rounded-xl">
                   {editandoRecompensaId === r.id ? (
                     <div className="space-y-2">
@@ -699,10 +721,11 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                       <input type="number" min="1" value={editRecompensa.custoPontos} onChange={e => setEditRecompensa(p => ({ ...p, custoPontos: Number(e.target.value) }))} placeholder="Custo em pontos" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono font-bold" />
                       <div className="flex items-center gap-2">
                         <button type="button" onClick={() => setEditRecompensa(p => ({ ...p, tipo: 'desconto' }))} className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${(editRecompensa.tipo || 'desconto') === 'desconto' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Desconto (R$)</button>
+                        <button type="button" onClick={() => setEditRecompensa(p => ({ ...p, tipo: 'frete' }))} className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${editRecompensa.tipo === 'frete' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Abatimento no Frete</button>
                         <button type="button" onClick={() => setEditRecompensa(p => ({ ...p, tipo: 'produto' }))} className={`flex-1 text-xs font-bold py-1.5 rounded-lg transition-colors ${editRecompensa.tipo === 'produto' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Produto Grátis</button>
                       </div>
-                      {(editRecompensa.tipo || 'desconto') === 'desconto' ? (
-                        <input type="number" min="0" step="0.01" value={editRecompensa.valorDesconto ?? 0} onChange={e => setEditRecompensa(p => ({ ...p, valorDesconto: Number(e.target.value) }))} placeholder="Valor do desconto (R$)" className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono" />
+                      {(editRecompensa.tipo || 'desconto') !== 'produto' ? (
+                        <input type="number" min="0" step="0.01" value={editRecompensa.valorDesconto ?? 0} onChange={e => setEditRecompensa(p => ({ ...p, valorDesconto: Number(e.target.value) }))} placeholder={editRecompensa.tipo === 'frete' ? 'Abatimento no frete até (R$)' : 'Valor do desconto (R$)'} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono" />
                       ) : (
                         <select value={editRecompensa.produtoId || ''} onChange={e => { const prod = produtos.find(pp => pp.id === e.target.value); setEditRecompensa(p => ({ ...p, produtoId: e.target.value, produtoNome: prod?.nome })); }} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm">
                           <option value="">Selecione o produto...</option>
@@ -730,6 +753,8 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                           <p className="text-xs font-bold mt-0.5">
                             {r.tipo === 'produto'
                               ? <span className="text-green-600">🎁 Produto: {r.produtoNome || '(não definido)'}</span>
+                              : r.tipo === 'frete'
+                              ? <span className="text-amber-600">🚚 Abatimento no frete: até R$ {(r.valorDesconto || 0).toFixed(2)}</span>
                               : <span className="text-blue-600">💸 Desconto: R$ {(r.valorDesconto || 0).toFixed(2)}</span>}
                           </p>
                         </div>
@@ -742,7 +767,11 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
                     </div>
                   )}
                 </div>
-              ))}
+                      );
+                    })}
+                  </div>
+                );
+              })}
             </div>
 
             <div className="border-t border-gray-100 pt-4 space-y-2">
@@ -752,10 +781,11 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
               <input type="number" min="1" placeholder="Custo em pontos" value={novaRecompensa.custoPontos} onChange={e => setNovaRecompensa(p => ({ ...p, custoPontos: Number(e.target.value) }))} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono font-bold" />
               <div className="flex items-center gap-2">
                 <button type="button" onClick={() => setNovaRecompensa(p => ({ ...p, tipo: 'desconto' }))} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-colors ${(novaRecompensa.tipo || 'desconto') === 'desconto' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Desconto (R$)</button>
+                <button type="button" onClick={() => setNovaRecompensa(p => ({ ...p, tipo: 'frete' }))} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-colors ${novaRecompensa.tipo === 'frete' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Abatimento no Frete</button>
                 <button type="button" onClick={() => setNovaRecompensa(p => ({ ...p, tipo: 'produto' }))} className={`flex-1 text-xs font-bold py-2 rounded-lg transition-colors ${novaRecompensa.tipo === 'produto' ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-600'}`}>Produto Grátis</button>
               </div>
-              {(novaRecompensa.tipo || 'desconto') === 'desconto' ? (
-                <input type="number" min="0" step="0.01" placeholder="Valor do desconto (R$)" value={novaRecompensa.valorDesconto ?? 0} onChange={e => setNovaRecompensa(p => ({ ...p, valorDesconto: Number(e.target.value) }))} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono" />
+              {(novaRecompensa.tipo || 'desconto') !== 'produto' ? (
+                <input type="number" min="0" step="0.01" placeholder={novaRecompensa.tipo === 'frete' ? 'Abatimento no frete até (R$)' : 'Valor do desconto (R$)'} value={novaRecompensa.valorDesconto ?? 0} onChange={e => setNovaRecompensa(p => ({ ...p, valorDesconto: Number(e.target.value) }))} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm font-mono" />
               ) : (
                 <select value={novaRecompensa.produtoId || ''} onChange={e => { const prod = produtos.find(pp => pp.id === e.target.value); setNovaRecompensa(p => ({ ...p, produtoId: e.target.value, produtoNome: prod?.nome })); }} className="w-full p-2.5 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-purple-400 text-sm">
                   <option value="">Selecione o produto...</option>

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2, Gift } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2, Gift, MapPin, CreditCard } from 'lucide-react';
 import ExpandedOrderModal from './modals/ExpandedOrderModal';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
@@ -408,6 +408,21 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                             </div>
                           );
                         })}
+                      </div>
+                    )}
+                    {ped.tipo === 'Entrega' && (ped.enderecoEntrega || ped.formaPagamento) && (
+                      <div className="flex items-center gap-2 mt-1 pt-2 border-t border-gray-200/60 text-[11px] font-bold text-gray-600">
+                        {!ped.isRetirada && ped.enderecoEntrega && (
+                          <span className="flex items-center gap-1 truncate min-w-0">
+                            <MapPin size={11} className="shrink-0 text-gray-400"/>
+                            <span className="truncate">{ped.enderecoEntrega.logradouro}, {ped.enderecoEntrega.numero}{ped.enderecoEntrega.bairro ? ` - ${ped.enderecoEntrega.bairro}` : ''}</span>
+                          </span>
+                        )}
+                        {ped.formaPagamento && (
+                          <span className="flex items-center gap-1 shrink-0 ml-auto">
+                            <CreditCard size={11} className="text-gray-400"/> {ped.formaPagamento}
+                          </span>
+                        )}
                       </div>
                     )}
                   </div>

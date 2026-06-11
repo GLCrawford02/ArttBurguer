@@ -46,6 +46,16 @@ export default function AtualizacoesSistema({ temPermissao }: { temPermissao?: a
 
   const updates = [
     {
+      versao: '1.2.14',
+      titulo: 'Correção do Rastreamento com Tela Bloqueada',
+      descricao: 'Ajuste no aplicativo do entregador para evitar que o Android interrompa o GPS quando o celular está com a tela bloqueada ou o app minimizado.',
+      features: [
+        'Isenção de Otimização de Bateria: Ao iniciar uma rota, o app agora solicita ao Android para não restringir o ArttBurger por economia de bateria, evitando que o sistema "mate" o rastreamento em segundo plano.',
+        'Aviso na Tela do Entregador: Caso a permissão não seja concedida automaticamente, um aviso explica como liberar manualmente em Configurações → Bateria → ArttBurger → "Sem restrições".'
+      ],
+      icon: <Navigation className="text-green-500" size={20} />
+    },
+    {
       versao: '1.2.13',
       titulo: 'Centralização da Gestão de Equipe e Otimizações de GPS',
       descricao: 'Refatoração completa da tela de Gestão de Equipe para uma visão 360° do colaborador e melhorias na estabilidade e precisão do rastreamento de entregas.',

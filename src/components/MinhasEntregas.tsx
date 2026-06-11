@@ -10,6 +10,11 @@ import { Geolocation } from '@capacitor/geolocation';
 import { KeepAwake } from '@capacitor-community/keep-awake';
 import type { BackgroundGeolocationPlugin, Location } from '@capacitor-community/background-geolocation';
 const BackgroundGeolocation = registerPlugin<BackgroundGeolocationPlugin>('BackgroundGeolocation');
+interface BatteryOptimizationPlugin {
+  isIgnoringBatteryOptimizations(): Promise<{ ignoring: boolean }>;
+  requestIgnoreBatteryOptimizations(): Promise<{ ignoring: boolean }>;
+}
+const BatteryOptimization = registerPlugin<BatteryOptimizationPlugin>('BatteryOptimization');
 import { MapContainer, TileLayer, Marker, Popup, useMap } from 'react-leaflet';
 import L from 'leaflet';
 // @ts-ignore
@@ -58,6 +63,7 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
   const [clientes, setClientes] = useState<any[]>([]);
   const [isTracking, setIsTracking] = useState(false);
   const [bgDenied, setBgDenied] = useState(false);
+  const [batteryOptDenied, setBatteryOptDenied] = useState(false);
   const [myLocation, setMyLocation] = useState<{lat: number, lng: number} | null>(null);
   const [mapaAberto, setMapaAberto] = useState(true);
   const wakeLockRef = useRef<any>(null);
@@ -127,6 +133,20 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
         if (permStatus.receive !== 'granted') {
           showToast('Permissão de notificação negada. O rastreio pode não funcionar com o app fechado.', 'error');
           // Não retornamos aqui, pois o GPS pode funcionar em primeiro plano mesmo sem a notificação.
+        }
+
+        // Verifica se o app está isento da otimização de bateria.
+        // Sem isso, o Android pode encerrar o rastreamento ao bloquear a tela.
+        try {
+          const battStatus = await BatteryOptimization.isIgnoringBatteryOptimizations();
+          if (!battStatus.ignoring) {
+            setBatteryOptDenied(true);
+            await BatteryOptimization.requestIgnoreBatteryOptimizations();
+          } else {
+            setBatteryOptDenied(false);
+          }
+        } catch (err) {
+          console.error('Erro ao verificar otimização de bateria', err);
         }
       }
 
@@ -378,6 +398,18 @@ export default function MinhasEntregas({ currentUser }: { currentUser: any }) {
             <p className="text-sm font-bold text-yellow-800">GPS para com a tela bloqueada</p>
             <p className="text-xs text-yellow-700 mt-1">
               A permissão de localização em segundo plano não foi concedida. Para o rastreio continuar com a tela bloqueada, vá em <strong>Configurações → Aplicativos → ArttBurger → Permissões → Localização</strong> e selecione <strong>"Permitir sempre"</strong>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {batteryOptDenied && (
+        <div className="bg-yellow-50 border border-yellow-300 rounded-xl p-4 flex items-start gap-3">
+          <AlertTriangle size={20} className="text-yellow-600 shrink-0 mt-0.5" />
+          <div>
+            <p className="text-sm font-bold text-yellow-800">Economia de bateria pode interromper o rastreio</p>
+            <p className="text-xs text-yellow-700 mt-1">
+              Permita que o ArttBurger rode sem restrições de bateria para o GPS não parar com a tela bloqueada. Se a tela de permissão não abriu, vá em <strong>Configurações → Bateria → ArttBurger</strong> e selecione <strong>"Sem restrições"</strong>.
             </p>
           </div>
         </div>

@@ -144,6 +144,9 @@ export default function DeliveryApp() {
 
   const [socialModal, setSocialModal] = useState<{ missaoId: string, missaoNome: string, pontos: number, categoria: string } | null>(null);
   const [socialNickname, setSocialNickname] = useState('');
+  const [indicacaoModal, setIndicacaoModal] = useState<{ missaoId: string, missaoNome: string, pontos: number } | null>(null);
+  const [indicacaoNomeAmigo, setIndicacaoNomeAmigo] = useState('');
+  const [indicacaoTelefoneAmigo, setIndicacaoTelefoneAmigo] = useState('');
   const [editRedesSociais, setEditRedesSociais] = useState<Record<string, string>>({});
 
   // Edição de Perfil
@@ -451,7 +454,13 @@ export default function DeliveryApp() {
     if (rec?.tipo === 'desconto') return acc + Number(rec.valorDesconto || 0);
     return acc;
   }, 0);
-  const valorTotalCarrinho = Math.max(0, subtotalCarrinho - descontoRecompensas) + (taxaEntrega || 0);
+  const descontoFreteRecompensas = resgatesAtivos.reduce((acc: number, r: any) => {
+    const rec = fidelidadeConfig?.recompensas?.[r.recompensaId];
+    if (rec?.tipo === 'frete') return acc + Number(rec.valorDesconto || 0);
+    return acc;
+  }, 0);
+  const taxaEntregaComDesconto = Math.max(0, (taxaEntrega || 0) - descontoFreteRecompensas);
+  const valorTotalCarrinho = Math.max(0, subtotalCarrinho - descontoRecompensas) + taxaEntregaComDesconto;
 
   const getGeolocationErrorMessage = (error: GeolocationPositionError) => {
     if (!window.isSecureContext) return "Não foi possível obter sua localização: o app precisa ser acessado via HTTPS (ou localhost) para usar o GPS.";
@@ -848,7 +857,7 @@ export default function DeliveryApp() {
     }
   };
 
-  const solicitarVerificacaoMissao = async (missaoId: string, missaoNome: string, pontos: number, categoria?: string, nickname?: string) => {
+  const solicitarVerificacaoMissao = async (missaoId: string, missaoNome: string, pontos: number, categoria?: string, nickname?: string, amigoNome?: string, amigoTelefone?: string) => {
     if (!cliente) return;
     if (missoesPendentes.some(mp => mp.missaoId === missaoId && mp.status === 'pendente')) return;
     await set(push(ref(db, 'fidelidade_missoes_pendentes')), {
@@ -858,6 +867,8 @@ export default function DeliveryApp() {
       missaoNome,
       categoria: categoria || null,
       nickname: nickname || null,
+      amigoNome: amigoNome || null,
+      amigoTelefone: amigoTelefone || null,
       pontos,
       status: 'pendente',
       timestamp: Date.now(),
@@ -873,8 +884,24 @@ export default function DeliveryApp() {
         setSocialModal({ missaoId: m.id, missaoNome: m.nome, pontos: m.pontos, categoria: m.categoria });
         return;
       }
+      solicitarVerificacaoMissao(m.id, m.nome, m.pontos, m.categoria, cliente.redesSociais?.[m.categoria] || '');
+      return;
     }
-    solicitarVerificacaoMissao(m.id, m.nome, m.pontos, m.categoria, cliente.redesSociais?.[m.categoria] || '');
+    if (m.categoria === 'Indicação') {
+      setIndicacaoModal({ missaoId: m.id, missaoNome: m.nome, pontos: m.pontos });
+      return;
+    }
+    solicitarVerificacaoMissao(m.id, m.nome, m.pontos, m.categoria);
+  };
+
+  const confirmarIndicacao = async () => {
+    if (!indicacaoNomeAmigo.trim()) return alert('Informe o nome do amigo indicado.');
+    const telefoneDigits = indicacaoTelefoneAmigo.replace(/\D/g, '');
+    if (telefoneDigits.length < 10) return alert('Informe o telefone do amigo com DDD.');
+    await solicitarVerificacaoMissao(indicacaoModal!.missaoId, indicacaoModal!.missaoNome, indicacaoModal!.pontos, 'Indicação', undefined, indicacaoNomeAmigo.trim(), indicacaoTelefoneAmigo.trim());
+    setIndicacaoModal(null);
+    setIndicacaoNomeAmigo('');
+    setIndicacaoTelefoneAmigo('');
   };
 
   const confirmarSocialNickname = async () => {
@@ -1070,6 +1097,16 @@ export default function DeliveryApp() {
         produtoNome: rec?.produtoNome || null,
       };
     });
+    let nomePagamento = formaPagamento;
+    if (formaPagamento === 'Pix') nomePagamento = 'Pix';
+    else if (formaPagamento === 'Dinheiro') nomePagamento = `Dinheiro${trocoPara ? ` (Troco para R$ ${trocoPara})` : ''}`;
+    else if (formaPagamento === 'Credito') nomePagamento = 'Cartão de Crédito';
+    else if (formaPagamento === 'Debito') nomePagamento = 'Cartão de Débito';
+    else { const t = taxas.find(x => x.id === formaPagamento); if (t) nomePagamento = t.nome; }
+
+    const taxaEntregaFinal = tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0));
+    const enderecoEntregaPedido = tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex];
+
     const pedidoPayload = {
       identificador: `Delivery: ${cliente!.nome}`,
       tipo: 'Entrega',
@@ -1082,18 +1119,22 @@ export default function DeliveryApp() {
       dedupKey,
       origem: 'App Cliente',
       recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
-      descontoRecompensas: descontoRecompensas
+      descontoRecompensas: descontoRecompensas,
+      descontoFrete: descontoFreteRecompensas,
+      clienteNome: cliente!.nome,
+      clienteTelefone: cliente!.telefone,
+      pontosFidelidade: fidelidadePontos?.pontos || 0,
+      totalPedidosCliente: pedidosExibidos.length + 1,
+      enderecoEntrega: enderecoEntregaPedido,
+      formaPagamento: nomePagamento,
+      numeroDiario: numDiario,
+      subtotal: subtotalCarrinho,
+      taxaEntrega: taxaEntregaFinal,
+      valorTotal: valorTotalCarrinho
     };
 
     const novoCarrinho = { ...carrinho };
     Object.keys(novoCarrinho).forEach(k => { novoCarrinho[k].enviadoCozinha = novoCarrinho[k].qtd; });
-
-    let nomePagamento = formaPagamento;
-    if (formaPagamento === 'Pix') nomePagamento = 'Pix';
-    else if (formaPagamento === 'Dinheiro') nomePagamento = `Dinheiro${trocoPara ? ` (Troco para R$ ${trocoPara})` : ''}`;
-    else if (formaPagamento === 'Credito') nomePagamento = 'Cartão de Crédito';
-    else if (formaPagamento === 'Debito') nomePagamento = 'Cartão de Débito';
-    else { const t = taxas.find(x => x.id === formaPagamento); if (t) nomePagamento = t.nome; }
 
     try {
       await set(ref(db, `pedidos_cozinha/${dedupKey}`), pedidoPayload);
@@ -1101,7 +1142,7 @@ export default function DeliveryApp() {
         clienteId: cliente!.id,
         clienteNome: cliente!.nome,
         clienteTelefone: cliente!.telefone,
-        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex],
+        enderecoEntrega: enderecoEntregaPedido,
         isRetirada: tipoEntregaApp === 'retirada',
         carrinho: novoCarrinho,
         numeroDiario: numDiario,
@@ -1110,16 +1151,17 @@ export default function DeliveryApp() {
         formaPagamentoStr: nomePagamento,
         statusEntrega: 'Pendente',
         origem: 'App Cliente',
-        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0)),
+        taxaEntrega: taxaEntregaFinal,
         recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
-        descontoRecompensas: descontoRecompensas
+        descontoRecompensas: descontoRecompensas,
+        descontoFrete: descontoFreteRecompensas
       });
       await set(ref(db, `despachos/${id}`), {
         id,
         clienteId: cliente!.id,
         clienteNome: cliente!.nome,
         clienteTelefone: cliente!.telefone,
-        enderecoEntrega: tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex],
+        enderecoEntrega: enderecoEntregaPedido,
         isRetirada: tipoEntregaApp === 'retirada',
         itens: itensParaEnviar,
         numeroDiario: numDiario,
@@ -1127,11 +1169,12 @@ export default function DeliveryApp() {
         sessaoId,
         formaPagamentoStr: nomePagamento,
         status: 'aguardando',
-        taxaEntrega: tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0)),
+        taxaEntrega: taxaEntregaFinal,
         total: valorTotalCarrinho,
         origem: 'App Cliente',
         recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
-        descontoRecompensas: descontoRecompensas
+        descontoRecompensas: descontoRecompensas,
+        descontoFrete: descontoFreteRecompensas
       });
 
       for (const r of resgatesAtivos) {
@@ -2139,8 +2182,19 @@ export default function DeliveryApp() {
             <div className="bg-orange-50 rounded-2xl p-4 border border-orange-100 flex justify-between items-center mt-3">
               <span className="font-bold text-orange-800 text-sm">Taxa de Entrega</span>
               <span className="font-black text-orange-600">
-                {taxaEntregaCalculada === null ? 'A Calcular' : taxaEntregaCalculada === 'restrita' ? 'Área Restrita' : `+ R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`}
+                {taxaEntregaCalculada === null ? 'A Calcular' : taxaEntregaCalculada === 'restrita' ? 'Área Restrita' : descontoFreteRecompensas > 0
+                  ? <>
+                      <span className="line-through text-orange-300 mr-1">R$ {taxaEntrega.toFixed(2).replace('.', ',')}</span>
+                      {taxaEntregaComDesconto > 0 ? `R$ ${taxaEntregaComDesconto.toFixed(2).replace('.', ',')}` : 'Grátis'}
+                    </>
+                  : `+ R$ ${taxaEntrega.toFixed(2).replace('.', ',')}`}
               </span>
+            </div>
+          )}
+          {tipoEntregaApp === 'delivery' && descontoFreteRecompensas > 0 && (
+            <div className="bg-green-50 rounded-2xl p-4 border border-green-100 flex justify-between items-center mt-3">
+              <span className="font-bold text-green-800 text-sm flex items-center gap-1"><Gift size={14}/> Abatimento no Frete</span>
+              <span className="font-black text-green-600">- R$ {Math.min(descontoFreteRecompensas, taxaEntrega).toFixed(2).replace('.', ',')}</span>
             </div>
           )}
           {descontoRecompensas > 0 && (
@@ -2186,6 +2240,22 @@ export default function DeliveryApp() {
             <div className="flex gap-3">
               <button onClick={() => { setSocialModal(null); setSocialNickname(''); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
               <button onClick={confirmarSocialNickname} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Confirmar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Indicação de Amigo */}
+      {indicacaoModal && (
+        <div className="fixed inset-0 bg-black/60 z-[120] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 p-6">
+            <h3 className="font-black text-lg text-gray-800 mb-2">Quem você indicou?</h3>
+            <p className="text-sm text-gray-500 mb-4">Informe o nome e o telefone do amigo indicado para confirmarmos a missão.</p>
+            <input type="text" value={indicacaoNomeAmigo} onChange={e => setIndicacaoNomeAmigo(e.target.value)} placeholder="Nome do amigo" className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold mb-3" />
+            <input type="tel" value={indicacaoTelefoneAmigo} onChange={e => setIndicacaoTelefoneAmigo(formatPhone(e.target.value))} placeholder="(00) 00000-0000" className="w-full p-3 border border-gray-200 rounded-xl outline-none focus:border-orange-500 font-bold mb-4" />
+            <div className="flex gap-3">
+              <button onClick={() => { setIndicacaoModal(null); setIndicacaoNomeAmigo(''); setIndicacaoTelefoneAmigo(''); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
+              <button onClick={confirmarIndicacao} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Confirmar</button>
             </div>
           </div>
         </div>
