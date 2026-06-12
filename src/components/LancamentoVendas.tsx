@@ -932,7 +932,12 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     }
 
     try {
-      const jobRef = ref(db, `impressoras/jobs/${dedupKey}`);
+      // Jobs "ticket-nome" usam chave única (push): o mesmo identificador/impressora
+      // pode já ter sido enfileirado antes (ex.: impressão original + reimpressão),
+      // e um set() sobre o mesmo caminho não dispara onChildAdded de novo.
+      const jobRef = job.type === 'ticket-nome'
+        ? push(ref(db, 'impressoras/jobs'))
+        : ref(db, `impressoras/jobs/${dedupKey}`);
       await set(jobRef, {
         ...job,
         status: 'pendente',
@@ -1136,18 +1141,24 @@ ${deliveryInfoHtml}
 <div class="footer">Data ${dataStr}  Hora: ${horaStr}</div>
 </body></html>`;
 
-    if (electron && printerIp && !isIp) {
-      // Impressora identificada por nome (USB): agenda na fila para que o
-      // computador onde ela está instalada (verificado via getPrinters) a processe,
-      // independente de qual computador disparou esta impressão.
-      await queueImpressao({
-        type: 'ticket-nome',
-        printerName: printerIp,
-        html,
-        identificador,
-        origin: 'web',
-      });
-      return;
+    if (electron && electron.imprimir && printerIp && !isIp) {
+      try {
+        await electron.imprimir(printerIp, html);
+        return;
+      } catch (e: any) {
+        console.error('Erro ao imprimir via USB:', e);
+        // Computador atual não tem essa impressora instalada (ex.: pedido
+        // processado no balcão, mas a impressora é a da cozinha). Agenda na
+        // fila para que o computador correto (verificado via getPrinters) a processe.
+        await queueImpressao({
+          type: 'ticket-nome',
+          printerName: printerIp,
+          html,
+          identificador,
+          origin: 'web',
+        });
+        return;
+      }
     }
 
     if (!electron) {

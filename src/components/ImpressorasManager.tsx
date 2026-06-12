@@ -116,9 +116,6 @@ export default function ImpressorasManager() {
           );
           showToast(`Teste enviado para ${ipOuNome}!`, 'success');
         } else if (!isIp) {
-          // Impressora identificada por nome (USB): agenda na fila para que o
-          // computador onde ela está instalada processe, mesmo que o teste
-          // seja disparado de outro computador.
           const html = `<!DOCTYPE html><html><head><style>@page { margin: 0; }</style></head>
             <body style="font-family: monospace; text-align: center; width: 68mm; margin: 0 auto; padding: 4mm 0; color: black;">
             <h2>*** ${dest === 'cozinha' ? 'COZINHA' : 'BALCÃO'} (TESTE) ***</h2>
@@ -127,18 +124,27 @@ export default function ImpressorasManager() {
             <p>IMPRESSORA OK</p>
             <hr style="border: 1px dashed black;" />
           </body></html>`;
-          const jobRef = push(ref(db, 'impressoras/jobs'));
-          await set(jobRef, {
-            type: 'ticket-nome',
-            printerName: ipOuNome,
-            html,
-            identificador: 'TESTE-001',
-            status: 'pendente',
-            attempts: 0,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          });
-          showToast(`Teste agendado para "${ipOuNome}". Será impresso no computador onde essa impressora estiver instalada.`, 'success');
+          if (electron.imprimir) {
+            try {
+              await electron.imprimir(ipOuNome, html);
+              showToast(`Teste enviado para ${ipOuNome}!`, 'success');
+            } catch {
+              // Computador atual não tem essa impressora instalada — agenda
+              // na fila para que o computador correto a processe.
+              const jobRef = push(ref(db, 'impressoras/jobs'));
+              await set(jobRef, {
+                type: 'ticket-nome',
+                printerName: ipOuNome,
+                html,
+                identificador: 'TESTE-001',
+                status: 'pendente',
+                attempts: 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+              });
+              showToast(`Teste agendado para "${ipOuNome}". Será impresso no computador onde essa impressora estiver instalada.`, 'success');
+            }
+          }
         }
       } else {
         showToast('Integração de impressão não encontrada.', 'error');
