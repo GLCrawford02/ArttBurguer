@@ -17,13 +17,14 @@ let fbRef;
 let fbOnChildAdded;
 let fbUpdate;
 let fbSet;
+let fbRunTransaction;
 
 async function initFirebasePrintQueue() {
   try {
     const firebaseAppModule = await import('firebase/app');
     const databaseModule = await import('firebase/database');
     const { initializeApp } = firebaseAppModule;
-    const { getDatabase, ref, onChildAdded, update, set } = databaseModule;
+    const { getDatabase, ref, onChildAdded, update, set, runTransaction } = databaseModule;
 
     initializeApp(firebaseConfig);
     firebaseDb = getDatabase();
@@ -31,6 +32,7 @@ async function initFirebasePrintQueue() {
     fbOnChildAdded = onChildAdded;
     fbUpdate = update;
     fbSet = set;
+    fbRunTransaction = runTransaction;
 
     const jobsRef = fbRef(firebaseDb, 'impressoras/jobs');
     fbOnChildAdded(jobsRef, async (snap) => {
@@ -88,7 +90,7 @@ app.on('window-all-closed', () => {
 });
 
 // ─── Helpers ESC/POS ─────────────────────────────────────────────────────────
-function buildEscPosTicket({ items, destLabel, identificador, lancadoPor, deliveryInfo }) {
+function buildEscPosTicket({ itens, destLabel, identificador, lancadoPor, deliveryInfo }) {
   const buf = [];
   const b  = (...bytes) => buf.push(Buffer.from(bytes));
   const t  = (s)        => buf.push(Buffer.from(String(s), 'utf8'));
@@ -112,6 +114,8 @@ function buildEscPosTicket({ items, destLabel, identificador, lancadoPor, delive
     t(SEP); nl();
     if (deliveryInfo.clienteNome) { t(`Cliente: ${deliveryInfo.clienteNome}`); nl(); }
     if (deliveryInfo.clienteTelefone) { t(`Tel: ${deliveryInfo.clienteTelefone}`); nl(); }
+    if (deliveryInfo.totalPedidosCliente) { t(`Pedidos na loja: ${deliveryInfo.totalPedidosCliente}`); nl(); }
+    if (deliveryInfo.pontosFidelidade !== undefined && deliveryInfo.pontosFidelidade !== null) { t(`Pontos Fidelidade: ${deliveryInfo.pontosFidelidade}`); nl(); }
     if (deliveryInfo.isRetirada) {
       b(0x1b, 0x45, 0x01); t('RETIRADA NO BALCAO'); b(0x1b, 0x45, 0x00); nl();
     } else if (deliveryInfo.endereco) {
@@ -132,7 +136,7 @@ function buildEscPosTicket({ items, destLabel, identificador, lancadoPor, delive
   b(0x1b, 0x45, 0x01); t('Qtd  Descricao'); b(0x1b, 0x45, 0x00); nl();
   t(SEP); nl();
 
-  for (const item of (items || [])) {
+  for (const item of (itens || [])) {
     b(0x1b, 0x45, 0x01);
     t(`${item.qtd}x   ${item.nome}`);
     b(0x1b, 0x45, 0x00); nl();
@@ -350,31 +354,78 @@ function enviarParaImpressora(ip, data) {
   });
 }
 
+function imprimirViaDriver(printerName, html) {
+  return new Promise((resolve, reject) => {
+    const printWin = new BrowserWindow({
+      show: false,
+      width: 300,
+      webPreferences: { contextIsolation: true },
+    });
+    printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
+    printWin.webContents.once('did-finish-load', () => {
+      setTimeout(() => {
+        printWin.webContents.print(
+          {
+            silent: true,
+            printBackground: true,
+            deviceName: printerName,
+            margins: { marginType: 'none' }
+          },
+          (success, errorType) => {
+            printWin.destroy();
+            if (success) resolve({ ok: true });
+            else reject(new Error(errorType || 'Erro ao imprimir'));
+          }
+        );
+      }, 300);
+    });
+  });
+}
+
 async function processPrintJob(jobId, job) {
-  if (!firebaseDb || !fbRef || !fbUpdate) return;
+  if (!firebaseDb || !fbRef || !fbUpdate || !fbRunTransaction) return;
   const jobRef = fbRef(firebaseDb, `impressoras/jobs/${jobId}`);
 
-  try {
-    await fbUpdate(jobRef, { status: 'imprimindo', startedAt: Date.now() });
+  // Impressoras identificadas por nome (USB) só podem ser atendidas pelo
+  // computador onde estão instaladas — verifica antes de reivindicar o job,
+  // deixando pendente para outro cliente conectado que tenha essa impressora.
+  if (job.type === 'ticket-nome') {
+    if (!job.printerName) return;
+    try {
+      const printers = await mainWindow.webContents.getPrintersAsync();
+      const temImpressora = printers.some(p => p.name === job.printerName);
+      if (!temImpressora) return;
+    } catch {
+      return;
+    }
+  }
 
-    const ip = job.printerIp;
-    if (!ip) throw new Error('Printer IP não definido no job.');
+  // Reivindica o job atomicamente: com várias telas conectadas, garante que
+  // apenas uma processe e dispare a impressão.
+  const statusRef = fbRef(firebaseDb, `impressoras/jobs/${jobId}/status`);
+  const claim = await fbRunTransaction(statusRef, current => (current === 'pendente' ? 'imprimindo' : undefined));
+  if (!claim.committed) return;
+
+  try {
+    await fbUpdate(jobRef, { startedAt: Date.now() });
 
     if (job.type === 'ticket') {
       const data = buildEscPosTicket(job);
-      await enviarParaImpressora(ip, data);
+      await enviarParaImpressora(job.printerIp, data);
     } else if (job.type === 'recibo') {
       const data = buildEscPosRecibo(job);
-      await enviarParaImpressora(ip, data);
+      await enviarParaImpressora(job.printerIp, data);
     } else if (job.type === 'relatorio') {
       const data = buildEscPosRelatorioCaixa(job);
-      await enviarParaImpressora(ip, data);
+      await enviarParaImpressora(job.printerIp, data);
+    } else if (job.type === 'ticket-nome') {
+      await imprimirViaDriver(job.printerName, job.html);
     } else {
       throw new Error(`Tipo de job desconhecido: ${job.type}`);
     }
 
     await fbUpdate(jobRef, { status: 'concluido', completedAt: Date.now(), lastError: null });
-    console.log(`Job de impressão ${jobId} concluído em ${ip}.`);
+    console.log(`Job de impressão ${jobId} concluído.`);
   } catch (error) {
     const message = error?.message || String(error);
     console.error(`Falha no job de impressão ${jobId}:`, message);
@@ -401,31 +452,7 @@ ipcMain.handle('imprimir-ip-recibo', async (_event, payload) => {
 
 // ─── IPC: Imprimir ticket via driver Windows (legado / fallback) ─────────────
 ipcMain.handle('imprimir-ticket', async (_event, { printerName, html }) => {
-  return new Promise((resolve, reject) => {
-    const printWin = new BrowserWindow({
-      show: false,
-      width: 300,
-      webPreferences: { contextIsolation: true },
-    });
-    printWin.loadURL('data:text/html;charset=utf-8,' + encodeURIComponent(html));
-    printWin.webContents.once('did-finish-load', () => {
-      setTimeout(() => {
-        printWin.webContents.print(
-          { 
-            silent: true, 
-            printBackground: true, 
-            deviceName: printerName,
-            margins: { marginType: 'none' }
-          },
-          (success, errorType) => {
-            printWin.destroy();
-            if (success) resolve({ ok: true });
-            else reject(new Error(errorType || 'Erro ao imprimir'));
-          }
-        );
-      }, 300);
-    });
-  });
+  return imprimirViaDriver(printerName, html);
 });
 
 // ─── IPC: Listar impressoras instaladas no Windows ───────────────────────────

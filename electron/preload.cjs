@@ -4,8 +4,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   isElectron: true,
 
   // Ticket cozinha/balcão — RAW ESC/POS via IP:9100
-  imprimirTicketIP: (ip, items, destLabel, identificador, lancadoPor, deliveryInfo) =>
-    ipcRenderer.invoke('imprimir-ip-ticket', { ip, items, destLabel, identificador, lancadoPor, deliveryInfo }),
+  imprimirTicketIP: (ip, itens, destLabel, identificador, lancadoPor, deliveryInfo) =>
+    ipcRenderer.invoke('imprimir-ip-ticket', { ip, itens, destLabel, identificador, lancadoPor, deliveryInfo }),
 
   // Recibo do cliente — RAW ESC/POS via IP:9100
   imprimirReciboIP: (ip, payload) =>

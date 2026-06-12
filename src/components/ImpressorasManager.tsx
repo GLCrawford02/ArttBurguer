@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ref, onValue, set } from 'firebase/database';
+import { ref, onValue, set, push } from 'firebase/database';
 import { db } from '../firebase';
 import { Printer, Save, CheckCircle, AlertTriangle, Search, Play, MessageCircle } from 'lucide-react';
 
@@ -102,19 +102,23 @@ export default function ImpressorasManager() {
     }
 
     const isIp = /^[0-9\.]+$/.test(ipOuNome);
-    
+
     try {
       const electron = (window as any).electronAPI;
       if (electron) {
         if (isIp && electron.imprimirTicketIP) {
           await electron.imprimirTicketIP(
-            ipOuNome, 
-            [{ qtd: 1, nome: '==== TESTE DE COMUNICACAO ====' }, { qtd: 1, nome: 'IMPRESSORA OK' }], 
-            dest === 'cozinha' ? 'COZINHA (TESTE)' : 'BALCÃO (TESTE)', 
-            'TESTE-001', 
+            ipOuNome,
+            [{ qtd: 1, nome: '==== TESTE DE COMUNICACAO ====' }, { qtd: 1, nome: 'IMPRESSORA OK' }],
+            dest === 'cozinha' ? 'COZINHA (TESTE)' : 'BALCÃO (TESTE)',
+            'TESTE-001',
             'Sistema'
           );
-        } else if (!isIp && electron.imprimir) {
+          showToast(`Teste enviado para ${ipOuNome}!`, 'success');
+        } else if (!isIp) {
+          // Impressora identificada por nome (USB): agenda na fila para que o
+          // computador onde ela está instalada processe, mesmo que o teste
+          // seja disparado de outro computador.
           const html = `<!DOCTYPE html><html><head><style>@page { margin: 0; }</style></head>
             <body style="font-family: monospace; text-align: center; width: 68mm; margin: 0 auto; padding: 4mm 0; color: black;">
             <h2>*** ${dest === 'cozinha' ? 'COZINHA' : 'BALCÃO'} (TESTE) ***</h2>
@@ -123,9 +127,19 @@ export default function ImpressorasManager() {
             <p>IMPRESSORA OK</p>
             <hr style="border: 1px dashed black;" />
           </body></html>`;
-          await electron.imprimir(ipOuNome, html);
+          const jobRef = push(ref(db, 'impressoras/jobs'));
+          await set(jobRef, {
+            type: 'ticket-nome',
+            printerName: ipOuNome,
+            html,
+            identificador: 'TESTE-001',
+            status: 'pendente',
+            attempts: 0,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          });
+          showToast(`Teste agendado para "${ipOuNome}". Será impresso no computador onde essa impressora estiver instalada.`, 'success');
         }
-        showToast(`Teste enviado para ${ipOuNome}!`, 'success');
       } else {
         showToast('Integração de impressão não encontrada.', 'error');
       }

@@ -146,6 +146,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const dedupPedidosCozinhaRef = useRef<Record<string, number>>({});
   const dedupImpressaoRef = useRef<Record<string, number>>({});
   const primeiraLeituraPedidosRef = useRef(true);
+  const appPrintAttemptedRef = useRef<Set<string>>(new Set());
   const funcionariosRef = useRef<any[]>([]);
   const confirmacoesX9Ref = useRef<Set<string>>(new Set());
   const [logsX9List, setLogsX9List] = useState<any[]>([]);
@@ -220,7 +221,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const buildPrintJobDedupKey = (job: any) => {
     const normalized = JSON.stringify({
       type: job.type,
-      printerIp: job.printerIp,
+      printerIp: job.printerIp || job.printerName || null,
       identificador: job.identificador,
       destLabel: job.destLabel || null,
       clienteNome: job.clienteNome || null,
@@ -384,6 +385,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
         pedidos.forEach(p => {
           pedidoStatusRef.current[p.id] = p.status || '';
           if (p.status === 'Concluído') pedidosConcluidosRef.current.add(p.id);
+          appPrintAttemptedRef.current.add(p.id);
         });
         primeiraLeituraPedidosRef.current = false;
       }
@@ -673,6 +675,48 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       }
     }
   }, [pedidosCozinha, currentUser?.cargo, currentUser?.id, currentUser?.nome, impressorasIPs.balcao, alertPedidoConcluido]);
+
+  // Impressão automática da comanda completa (comida + bebida) na cozinha para pedidos feitos pelo App do Cliente
+  useEffect(() => {
+    if (!impressorasIPs.cozinha) return;
+
+    const novosPedidosApp = pedidosCozinha.filter(p =>
+      p.origem === 'App Cliente' &&
+      !p.impressaoAutoDisparada &&
+      !appPrintAttemptedRef.current.has(p.id)
+    );
+
+    novosPedidosApp.forEach(pedido => {
+      appPrintAttemptedRef.current.add(pedido.id);
+
+      (async () => {
+        try {
+          // Transação garante que, com várias telas abertas, apenas uma dispare a impressão
+          const flagRef = ref(db, `pedidos_cozinha/${pedido.id}/impressaoAutoDisparada`);
+          const result = await runTransaction(flagRef, current => (current ? undefined : true));
+          if (!result.committed) return;
+
+          const deliveryInfo = {
+            clienteNome: pedido.clienteNome,
+            clienteTelefone: pedido.clienteTelefone,
+            isRetirada: pedido.isRetirada,
+            endereco: pedido.enderecoEntrega,
+            formaPagamento: pedido.formaPagamento,
+            subtotal: pedido.subtotal,
+            taxaEntrega: pedido.taxaEntrega,
+            valorTotal: pedido.valorTotal,
+            totalPedidosCliente: pedido.totalPedidosCliente,
+            pontosFidelidade: pedido.pontosFidelidade,
+          };
+
+          await imprimirTicketInterno(pedido.itens || [], 'COZINHA', pedido.identificador, impressorasIPs.cozinha, undefined, deliveryInfo);
+          logInfo('Impressão', 'Comanda do App impressa automaticamente na cozinha', { identificador: pedido.identificador, itens: (pedido.itens || []).length });
+        } catch (e: any) {
+          logError('Impressão', 'Falha ao imprimir automaticamente comanda do App', { identificador: pedido.identificador, erro: e?.message });
+        }
+      })();
+    });
+  }, [pedidosCozinha, impressorasIPs.cozinha]);
 
   const tocarSomConclusao = () => {
     try {
@@ -1047,6 +1091,8 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 <div class="delivery-info">
   ${deliveryInfo.clienteNome ? `<div class="delivery-row">Cliente: ${deliveryInfo.clienteNome}</div>` : ''}
   ${deliveryInfo.clienteTelefone ? `<div class="delivery-row">Tel: ${deliveryInfo.clienteTelefone}</div>` : ''}
+  ${deliveryInfo.totalPedidosCliente ? `<div class="delivery-row">Pedidos na loja: ${deliveryInfo.totalPedidosCliente}</div>` : ''}
+  ${(deliveryInfo.pontosFidelidade !== undefined && deliveryInfo.pontosFidelidade !== null) ? `<div class="delivery-row">Pontos Fidelidade: ${deliveryInfo.pontosFidelidade}</div>` : ''}
   ${enderecoLinha}
   ${deliveryInfo.formaPagamento ? `<div class="delivery-row">Pagamento: ${deliveryInfo.formaPagamento}</div>` : ''}
   ${deliveryInfo.subtotal !== undefined ? `<div class="delivery-row">Subtotal: R$ ${Number(deliveryInfo.subtotal).toFixed(2)}</div>` : ''}
@@ -1090,14 +1136,18 @@ ${deliveryInfoHtml}
 <div class="footer">Data ${dataStr}  Hora: ${horaStr}</div>
 </body></html>`;
 
-    if (electron && electron.imprimir && printerIp && !isIp) {
-      try {
-        await electron.imprimir(printerIp, html);
-        return;
-      } catch (e: any) {
-        console.error('Erro ao imprimir via USB:', e);
-        showToast('Erro na impressão USB. Verifique a impressora.', 'error');
-      }
+    if (electron && printerIp && !isIp) {
+      // Impressora identificada por nome (USB): agenda na fila para que o
+      // computador onde ela está instalada (verificado via getPrinters) a processe,
+      // independente de qual computador disparou esta impressão.
+      await queueImpressao({
+        type: 'ticket-nome',
+        printerName: printerIp,
+        html,
+        identificador,
+        origin: 'web',
+      });
+      return;
     }
 
     if (!electron) {
@@ -1533,28 +1583,37 @@ ${deliveryInfoHtml}
     setPdvView('mapa');
   };
 
-  const handleReimprimirEntrega = (e: React.MouseEvent, id: string, entrega: any) => {
+  const handleReimprimirEntrega = async (e: React.MouseEvent, id: string, entrega: any) => {
     e.stopPropagation();
     if (!entrega) return;
-    const subtotal = (Object.values(entrega.carrinho || {}) as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0) as number;
+    if (!impressorasIPs.cozinha) {
+      showToast('Impressora da cozinha não configurada!', 'error');
+      return;
+    }
+
+    const itens = Object.values(entrega.carrinho || {});
+    const subtotal = (itens as any[]).reduce((acc: number, item: any) => acc + (item.preco * item.qtd), 0);
     const taxa = Number(entrega.taxaEntrega || 0);
-    setViewComanda({
-      timestamp: entrega.timestamp || Date.now(),
-      descricao: `Delivery #${entrega.numeroDiario || ''} - ${entrega.clienteNome}`,
-      tipoPedido: 'Entrega',
-      numeroDiario: entrega.numeroDiario,
+    const identificador = `Delivery #${entrega.numeroDiario || ''} - ${entrega.clienteNome}`;
+
+    // Busca dados de fidelidade/contagem do pedido original (não ficam salvos em entregas_abertas)
+    const pedidoOriginal = pedidosCozinha.find(p => p.referenciaId === id && p.origem === 'App Cliente');
+
+    const deliveryInfo = {
       clienteNome: entrega.clienteNome || '',
       clienteTelefone: entrega.clienteTelefone || '',
-      enderecoEntrega: entrega.enderecoEntrega || null,
       isRetirada: entrega.isRetirada || false,
-      formaPagamentoStr: entrega.formaPagamentoStr || '',
-      itens: Object.values(entrega.carrinho || {}),
-      valor: subtotal + taxa,
+      endereco: entrega.enderecoEntrega || null,
+      formaPagamento: entrega.formaPagamentoStr || '',
+      subtotal,
       taxaEntrega: taxa,
-      subtotalBruto: subtotal,
-      desconto: 0,
-      pagamentos: []
-    });
+      valorTotal: subtotal + taxa,
+      totalPedidosCliente: pedidoOriginal?.totalPedidosCliente,
+      pontosFidelidade: pedidoOriginal?.pontosFidelidade,
+    };
+
+    await imprimirTicketInterno(itens, 'COZINHA', identificador, impressorasIPs.cozinha, currentUser?.nome, deliveryInfo);
+    showToast('Comanda reenviada para a cozinha!', 'success');
   };
 
   const handleReimprimirMesa = (e: React.MouseEvent, num: number, isAberta: any) => {
