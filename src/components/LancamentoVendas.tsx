@@ -146,7 +146,6 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const dedupPedidosCozinhaRef = useRef<Record<string, number>>({});
   const dedupImpressaoRef = useRef<Record<string, number>>({});
   const primeiraLeituraPedidosRef = useRef(true);
-  const appPrintAttemptedRef = useRef<Set<string>>(new Set());
   const funcionariosRef = useRef<any[]>([]);
   const confirmacoesX9Ref = useRef<Set<string>>(new Set());
   const [logsX9List, setLogsX9List] = useState<any[]>([]);
@@ -385,7 +384,6 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
         pedidos.forEach(p => {
           pedidoStatusRef.current[p.id] = p.status || '';
           if (p.status === 'Concluído') pedidosConcluidosRef.current.add(p.id);
-          appPrintAttemptedRef.current.add(p.id);
         });
         primeiraLeituraPedidosRef.current = false;
       }
@@ -675,48 +673,6 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       }
     }
   }, [pedidosCozinha, currentUser?.cargo, currentUser?.id, currentUser?.nome, impressorasIPs.balcao, alertPedidoConcluido]);
-
-  // Impressão automática da comanda completa (comida + bebida) na cozinha para pedidos feitos pelo App do Cliente
-  useEffect(() => {
-    if (!impressorasIPs.cozinha) return;
-
-    const novosPedidosApp = pedidosCozinha.filter(p =>
-      p.origem === 'App Cliente' &&
-      !p.impressaoAutoDisparada &&
-      !appPrintAttemptedRef.current.has(p.id)
-    );
-
-    novosPedidosApp.forEach(pedido => {
-      appPrintAttemptedRef.current.add(pedido.id);
-
-      (async () => {
-        try {
-          // Transação garante que, com várias telas abertas, apenas uma dispare a impressão
-          const flagRef = ref(db, `pedidos_cozinha/${pedido.id}/impressaoAutoDisparada`);
-          const result = await runTransaction(flagRef, current => (current ? undefined : true));
-          if (!result.committed) return;
-
-          const deliveryInfo = {
-            clienteNome: pedido.clienteNome,
-            clienteTelefone: pedido.clienteTelefone,
-            isRetirada: pedido.isRetirada,
-            endereco: pedido.enderecoEntrega,
-            formaPagamento: pedido.formaPagamento,
-            subtotal: pedido.subtotal,
-            taxaEntrega: pedido.taxaEntrega,
-            valorTotal: pedido.valorTotal,
-            totalPedidosCliente: pedido.totalPedidosCliente,
-            pontosFidelidade: pedido.pontosFidelidade,
-          };
-
-          await imprimirTicketInterno(pedido.itens || [], 'COZINHA', pedido.identificador, impressorasIPs.cozinha, undefined, deliveryInfo);
-          logInfo('Impressão', 'Comanda do App impressa automaticamente na cozinha', { identificador: pedido.identificador, itens: (pedido.itens || []).length });
-        } catch (e: any) {
-          logError('Impressão', 'Falha ao imprimir automaticamente comanda do App', { identificador: pedido.identificador, erro: e?.message });
-        }
-      })();
-    });
-  }, [pedidosCozinha, impressorasIPs.cozinha]);
 
   const tocarSomConclusao = () => {
     try {

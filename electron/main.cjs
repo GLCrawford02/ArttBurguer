@@ -354,6 +354,92 @@ function enviarParaImpressora(ip, data) {
   });
 }
 
+function buildTicketHtml({ itens, destLabel, identificador, lancadoPor, deliveryInfo }) {
+  const dt = new Date();
+  const dataStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  const horaStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+  let itensHtml = '';
+  (itens || []).forEach((item) => {
+    itensHtml += `<tr><td class="col-qty">${item.qtd}x</td><td class="col-desc">${item.nome}</td></tr>`;
+    if (item.opcoes) {
+      const { montagem, pontoCarne, adicionais, restricoes, observacao } = item.opcoes;
+      if (montagem && Object.values(montagem).length > 0)
+        itensHtml += `<tr><td></td><td class="item-sub">Montagem: ${Object.values(montagem).join(', ')}</td></tr>`;
+      if (pontoCarne)
+        itensHtml += `<tr><td></td><td class="item-sub">Ponto: ${pontoCarne}</td></tr>`;
+      if (adicionais && Object.values(adicionais).length > 0)
+        Object.values(adicionais).forEach((a) => {
+          itensHtml += `<tr><td></td><td class="item-sub">+ ${a.qtd}x ${a.nome}</td></tr>`;
+        });
+      if (restricoes && Object.values(restricoes).length > 0)
+        itensHtml += `<tr><td></td><td class="item-sub item-sem">SEM: ${Object.values(restricoes).join(', ')}</td></tr>`;
+      if (observacao)
+        itensHtml += `<tr><td></td><td class="item-sub">Obs: ${observacao}</td></tr>`;
+    }
+    itensHtml += `<tr><td colspan="2"><div class="item-sep"></div></td></tr>`;
+  });
+
+  let deliveryInfoHtml = '';
+  if (deliveryInfo) {
+    const e = deliveryInfo.endereco;
+    let enderecoLinha = '';
+    if (deliveryInfo.isRetirada) {
+      enderecoLinha = '<div class="delivery-row"><b>RETIRADA NO BALCÃO</b></div>';
+    } else if (e) {
+      enderecoLinha = `<div class="delivery-row">Endereço: ${e.logradouro || ''}, ${e.numero || ''}${e.bairro ? ` - ${e.bairro}` : ''}${e.complemento ? ` (${e.complemento})` : ''}${e.cidade ? `, ${e.cidade}` : ''}</div>`;
+    }
+    deliveryInfoHtml = `
+<div class="sep"></div>
+<div class="delivery-info">
+  ${deliveryInfo.clienteNome ? `<div class="delivery-row">Cliente: ${deliveryInfo.clienteNome}</div>` : ''}
+  ${deliveryInfo.clienteTelefone ? `<div class="delivery-row">Tel: ${deliveryInfo.clienteTelefone}</div>` : ''}
+  ${deliveryInfo.totalPedidosCliente ? `<div class="delivery-row">Pedidos na loja: ${deliveryInfo.totalPedidosCliente}</div>` : ''}
+  ${(deliveryInfo.pontosFidelidade !== undefined && deliveryInfo.pontosFidelidade !== null) ? `<div class="delivery-row">Pontos Fidelidade: ${deliveryInfo.pontosFidelidade}</div>` : ''}
+  ${enderecoLinha}
+  ${deliveryInfo.formaPagamento ? `<div class="delivery-row">Pagamento: ${deliveryInfo.formaPagamento}</div>` : ''}
+  ${deliveryInfo.subtotal !== undefined ? `<div class="delivery-row">Subtotal: R$ ${Number(deliveryInfo.subtotal).toFixed(2)}</div>` : ''}
+  ${!deliveryInfo.isRetirada && deliveryInfo.taxaEntrega ? `<div class="delivery-row">Taxa de Entrega: R$ ${Number(deliveryInfo.taxaEntrega).toFixed(2)}</div>` : ''}
+  ${deliveryInfo.valorTotal !== undefined ? `<div class="delivery-row delivery-total">TOTAL: R$ ${Number(deliveryInfo.valorTotal).toFixed(2)}</div>` : ''}
+</div>`;
+  }
+
+  return `<!DOCTYPE html><html><head><meta charset="UTF-8">
+<style>
+  @page { margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Courier New', monospace; font-size: 13px; width: 68mm; margin: 0 auto; padding: 4mm 0; line-height: 1.5; color: black; }
+  .dest { font-size: 22px; font-weight: bold; letter-spacing: 3px; text-align: center; padding: 4px 0; }
+  .sep { border: none; border-top: 1px solid #000; margin: 5px 0; }
+  .ident { font-size: 14px; font-weight: bold; margin: 2px 0; }
+  .lancado { font-size: 11px; margin: 2px 0; }
+  .delivery-info { font-size: 12px; }
+  .delivery-row { margin: 2px 0; }
+  .delivery-total { font-weight: bold; font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 3px 0; }
+  .col-qty { width: 28px; font-weight: bold; vertical-align: top; white-space: nowrap; }
+  .col-desc { font-weight: bold; vertical-align: top; word-break: break-word; }
+  .col-header { font-size: 10px; font-weight: bold; text-transform: uppercase; border-bottom: 1px solid #000; padding-bottom: 2px; }
+  .item-sub { font-size: 11px; padding-left: 4px; color: #222; }
+  .item-sem { font-weight: bold; text-decoration: underline; }
+  .item-sep { border-top: 1px dashed #999; margin: 4px 0; }
+  .footer { font-size: 11px; margin-top: 4px; }
+</style></head><body>
+<div class="dest">*** ${destLabel} ***</div>
+<div class="sep"></div>
+<div class="ident">${identificador}</div>
+${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
+${deliveryInfoHtml}
+<div class="sep"></div>
+<table>
+  <thead><tr><th class="col-qty col-header">Qtd</th><th class="col-desc col-header" style="text-align:left">Descrição</th></tr></thead>
+  <tbody>${itensHtml}</tbody>
+</table>
+<div class="sep"></div>
+<div class="footer">Data ${dataStr}  Hora: ${horaStr}</div>
+</body></html>`;
+}
+
 function imprimirViaDriver(printerName, html) {
   return new Promise((resolve, reject) => {
     const printWin = new BrowserWindow({
@@ -419,7 +505,8 @@ async function processPrintJob(jobId, job) {
       const data = buildEscPosRelatorioCaixa(job);
       await enviarParaImpressora(job.printerIp, data);
     } else if (job.type === 'ticket-nome') {
-      await imprimirViaDriver(job.printerName, job.html);
+      const html = job.html || buildTicketHtml(job);
+      await imprimirViaDriver(job.printerName, html);
     } else {
       throw new Error(`Tipo de job desconhecido: ${job.type}`);
     }

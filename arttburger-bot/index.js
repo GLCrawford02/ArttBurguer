@@ -33,6 +33,71 @@ db.ref('fila_mensagens').on('child_added',   s => { cacheFila[s.key] = s.val(); 
 db.ref('fila_mensagens').on('child_changed', s => { cacheFila[s.key] = s.val(); });
 db.ref('fila_mensagens').on('child_removed', s => { delete cacheFila[s.key]; });
 
+// ─── IMPRESSÃO AUTOMÁTICA DE PEDIDOS DO APP (cozinha) ─────────────────────────
+let cacheImpressorasNomes = { cozinha: '', balcao: '' };
+db.ref('configuracoes/impressoras_nomes').on('value', s => {
+    cacheImpressorasNomes = s.val() || { cozinha: '', balcao: '' };
+});
+
+// Marca os pedidos já existentes na primeira leitura para que apenas pedidos
+// criados a partir de agora disparem a impressão automática.
+const pedidosCozinhaConhecidos = new Set();
+db.ref('pedidos_cozinha').once('value', snap => {
+    snap.forEach(child => { pedidosCozinhaConhecidos.add(child.key); });
+
+    db.ref('pedidos_cozinha').on('child_added', async childSnap => {
+        const id = childSnap.key;
+        if (pedidosCozinhaConhecidos.has(id)) return;
+        pedidosCozinhaConhecidos.add(id);
+
+        const pedido = childSnap.val();
+        if (!pedido || pedido.origem !== 'App Cliente') return;
+
+        try {
+            // Transação garante que, mesmo com várias instâncias do bot/app
+            // conectadas, apenas uma dispare a impressão automática.
+            const flagRef = db.ref(`pedidos_cozinha/${id}/impressaoAutoDisparada`);
+            const result = await flagRef.transaction(current => (current ? undefined : true));
+            if (!result.committed) return;
+
+            const printerCozinha = cacheImpressorasNomes.cozinha;
+            if (!printerCozinha) return;
+
+            const isIp = /^[0-9.]+$/.test(printerCozinha);
+            const job = {
+                type: isIp ? 'ticket' : 'ticket-nome',
+                itens: pedido.itens || [],
+                destLabel: 'COZINHA',
+                identificador: pedido.identificador,
+                deliveryInfo: {
+                    clienteNome: pedido.clienteNome,
+                    clienteTelefone: pedido.clienteTelefone,
+                    isRetirada: pedido.isRetirada,
+                    endereco: pedido.enderecoEntrega,
+                    formaPagamento: pedido.formaPagamento,
+                    subtotal: pedido.subtotal,
+                    taxaEntrega: pedido.taxaEntrega,
+                    valorTotal: pedido.valorTotal,
+                    totalPedidosCliente: pedido.totalPedidosCliente,
+                    pontosFidelidade: pedido.pontosFidelidade,
+                },
+                status: 'pendente',
+                attempts: 0,
+                createdAt: Date.now(),
+                updatedAt: Date.now(),
+                origin: 'bot',
+            };
+            if (isIp) job.printerIp = printerCozinha;
+            else job.printerName = printerCozinha;
+
+            await db.ref('impressoras/jobs').push(job);
+            console.log(`🖨️ Job de impressão criado para pedido ${pedido.identificador} (App Cliente).`);
+        } catch (e) {
+            console.error(`❌ Erro ao criar job de impressão automática para pedido ${id}:`, e.message);
+        }
+    });
+});
+
 // ─── HELPER DE INPUT ─────────────────────────────────────────────────────────
 const pergunta = (texto) => {
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
