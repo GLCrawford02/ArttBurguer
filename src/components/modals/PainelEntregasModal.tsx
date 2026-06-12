@@ -78,7 +78,7 @@ export default function PainelEntregasModal({
                     <span className="text-sm font-black text-blue-600 shrink-0">R$ {v.valor.toFixed(2)}</span>
                   </div>
                   {(() => {
-                    const pedido = pedidosCozinha.find(p => p.identificador === `Delivery: ${v.clienteNome}` && Math.abs(p.timestamp - v.timestamp) < 120000);
+                    const pedido = pedidosCozinha.find(p => p.identificador === `Delivery #${v.numeroDiario} - ${v.clienteNome}` && Math.abs(p.timestamp - v.timestamp) < 120000);
                     if (!pedido) return <span className="text-[10px] bg-gray-100 text-gray-600 px-2 py-0.5 rounded font-bold mt-2 inline-block">Sem envio à cozinha</span>;
                     return pedido.status === 'Pendente'
                       ? <span className="text-[10px] bg-orange-100 text-orange-600 px-2 py-0.5 rounded font-bold flex items-center w-fit mt-2"><Flame size={10} className="mr-1"/> Preparando (Cozinha)</span>

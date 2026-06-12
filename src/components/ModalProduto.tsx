@@ -12,6 +12,12 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
   const [precoVenda, setPrecoVenda] = useState<string>('');
   const [imageUrl, setImageUrl] = useState('');
   const [ingredientesSelecionados, setIngredientesSelecionados] = useState<IngredienteReceita[]>([]);
+
+  const [ncm, setNcm] = useState('');
+  const [cfop, setCfop] = useState('5102');
+  const [csosn, setCsosn] = useState('102');
+  const [unidadeComercial, setUnidadeComercial] = useState('UN');
+  const [origem, setOrigem] = useState('0');
   
   const [showCategoriasModal, setShowCategoriasModal] = useState(false);
   const [novaCategoriaForm, setNovaCategoriaForm] = useState('');
@@ -68,6 +74,11 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       setPrecoVenda(String((produtoEdit as any).precoVenda || ''));
       setImageUrl((produtoEdit as any).imageUrl || '');
       setIngredientesSelecionados(produtoEdit.ingredientes || []);
+      setNcm((produtoEdit as any).ncm || '');
+      setCfop((produtoEdit as any).cfop || '5102');
+      setCsosn((produtoEdit as any).csosn || '102');
+      setUnidadeComercial((produtoEdit as any).unidadeComercial || 'UN');
+      setOrigem((produtoEdit as any).origem || '0');
       setTiposMontagem((produtoEdit as any).opcoes?.tiposMontagem || []);
       setPontosCarne((produtoEdit as any).opcoes?.pontosCarne || []);
       setAdicionais((produtoEdit as any).opcoes?.adicionais || []);
@@ -103,6 +114,11 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
         setPrecoVenda('');
         setImageUrl('');
         setIngredientesSelecionados([]);
+        setNcm('');
+        setCfop('5102');
+        setCsosn('102');
+        setUnidadeComercial('UN');
+        setOrigem('0');
         setTiposMontagem([]);
         setPontosCarne([]);
         setAdicionais([]);
@@ -247,15 +263,22 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
       const opcoesData = { tiposMontagem, pontosCarne, adicionais, restricoesLivres: restricoes, tamanhos, configOpcoes };
       const produtosRef = ref(db, 'produtos');
       
+      const dadosFiscais = {
+        ncm: ncm.trim(), cfop: cfop.trim(), csosn: csosn.trim(),
+        unidadeComercial: unidadeComercial.trim() || 'UN', origem: origem.trim() || '0'
+      };
+
       if (produtoEdit && produtoEdit.id) {
         await update(ref(db, `produtos/${produtoEdit.id}`), {
           nome: nomeProduto, categoria, ingredientes: ingredientesSelecionados,
-          custoTotal: custoTotalFicha || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData, imageUrl
+          custoTotal: custoTotalFicha || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData, imageUrl,
+          ...dadosFiscais
         });
       } else {
         await set(push(produtosRef), {
           nome: nomeProduto, categoria, ingredientes: ingredientesSelecionados,
-          custoTotal: custoTotalFicha || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData, imageUrl
+          custoTotal: custoTotalFicha || 0, precoVenda: Number(precoVenda) || 0, opcoes: opcoesData, imageUrl,
+          ...dadosFiscais
         });
       }
       showToast(produtoEdit ? 'Produto atualizado com sucesso!' : 'Produto salvo com sucesso!', 'success');
@@ -393,6 +416,37 @@ export default function ModalProduto({ isOpen, onClose, produtoEdit, insumos, pr
               </div>
             </div>
             
+            <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm space-y-4">
+              <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-100 pb-2">Dados Fiscais (NFC-e)</h4>
+              <p className="text-xs text-gray-500">Códigos usados na emissão da nota fiscal eletrônica. Confirme estes valores com seu contador antes de ativar a emissão de NFC-e.</p>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                <div className="space-y-1 col-span-2 sm:col-span-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">NCM</label>
+                  <input type="text" value={ncm} onChange={e => setNcm(e.target.value.replace(/\D/g, '').slice(0, 8))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-mono" placeholder="00000000" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">CFOP</label>
+                  <input type="text" value={cfop} onChange={e => setCfop(e.target.value.replace(/\D/g, '').slice(0, 4))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-mono" placeholder="5102" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">CSOSN</label>
+                  <input type="text" value={csosn} onChange={e => setCsosn(e.target.value.replace(/\D/g, '').slice(0, 3))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-mono" placeholder="102" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Unidade</label>
+                  <input type="text" value={unidadeComercial} onChange={e => setUnidadeComercial(e.target.value.toUpperCase().slice(0, 6))} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50 font-mono" placeholder="UN" />
+                </div>
+                <div className="space-y-1">
+                  <label className="text-xs font-bold text-gray-500 uppercase">Origem</label>
+                  <select value={origem} onChange={e => setOrigem(e.target.value)} className="w-full p-2 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-blue-500 bg-gray-50">
+                    <option value="0">0 - Nacional</option>
+                    <option value="1">1 - Estrangeira (Importação Direta)</option>
+                    <option value="2">2 - Estrangeira (Mercado Interno)</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
             <div className="pt-4 border-t flex gap-4 items-center">
               <div className="flex-1">
                 <p className="text-xs text-gray-500 uppercase font-bold">Custo Total Produção</p>

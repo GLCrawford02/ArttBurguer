@@ -1,4 +1,4 @@
-import { Store, Truck, Map, Plus, Printer } from 'lucide-react';
+import { Store, Truck, Map, Plus, Printer, Lock } from 'lucide-react';
 
 interface Props {
   isCaixaOrAdmin: boolean;
@@ -15,13 +15,14 @@ interface Props {
   onAddMesa: () => void;
   onAbrirBalcao: () => void;
   onAbrirDelivery: () => void;
+  onFecharCaixa: () => void;
 }
 
 export default function MapaView({
   isCaixaOrAdmin, canDelivery, entregasAbertas, mesasAbertas, qtdMesas,
   onAbrirEntrega, onAbrirMesa, getMesaIdentificador,
   onReimprimirEntrega, onReimprimirMesa,
-  onAbrirPainelEntregas, onAddMesa, onAbrirBalcao, onAbrirDelivery
+  onAbrirPainelEntregas, onAddMesa, onAbrirBalcao, onAbrirDelivery, onFecharCaixa
 }: Props) {
   return (
     <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 animate-in fade-in duration-300 min-h-[600px]">
@@ -41,6 +42,11 @@ export default function MapaView({
           {canDelivery && (
             <button onClick={onAbrirPainelEntregas} className="flex-1 bg-blue-100 text-blue-700 px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-blue-200 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
               <Map size={18} className="mr-2 shrink-0" /> Painel de Entregas
+            </button>
+          )}
+          {isCaixaOrAdmin && (
+            <button onClick={onFecharCaixa} className="flex-1 bg-red-100 text-red-700 px-4 py-3 sm:py-2.5 rounded-lg font-bold hover:bg-red-200 transition-colors shadow-sm flex items-center justify-center whitespace-nowrap">
+              <Lock size={18} className="mr-2 shrink-0" /> Fechar Caixa
             </button>
           )}
         </div>

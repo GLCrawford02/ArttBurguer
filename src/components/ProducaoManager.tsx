@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { ref, onValue, runTransaction, update } from 'firebase/database';
 import { db } from '../firebase';
 import { Produto, Promocao } from '../types';
-import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2, Gift, MapPin, CreditCard } from 'lucide-react';
+import { CheckCircle, ChefHat, Search, AlertTriangle, Clock, Flame, UtensilsCrossed, Package, Coffee, CheckSquare, Square, MonitorPlay, Filter, ChevronDown, X, Maximize2, Gift, MapPin, CreditCard, Phone } from 'lucide-react';
 import ExpandedOrderModal from './modals/ExpandedOrderModal';
 
 export default function ProducaoManager({ currentUser }: { currentUser?: any }) {
@@ -350,7 +350,7 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
 
           <div className="grid grid-rows-1 lg:grid-rows-2 grid-flow-col gap-4 overflow-x-auto pb-6 auto-cols-[90vw] sm:auto-cols-[340px] items-start min-h-[50vh] snap-x snap-mandatory [&::-webkit-scrollbar]:h-3 [&::-webkit-scrollbar-track]:bg-gray-100 [&::-webkit-scrollbar-track]:rounded-full [&::-webkit-scrollbar-thumb]:bg-gray-300 [&::-webkit-scrollbar-thumb]:rounded-full">
             {pedidosKds.map(ped => {
-              const timeDiff = Math.floor((currentTime - ped.timestamp) / 60000);
+              const timeDiff = Math.floor((currentTime - (ped.inicioPrazoEntrega || ped.timestamp)) / 60000);
               
               let timeColor = 'bg-green-500 text-white';
               let borderColor = 'border-gray-200';
@@ -410,18 +410,39 @@ export default function ProducaoManager({ currentUser }: { currentUser?: any }) 
                         })}
                       </div>
                     )}
-                    {ped.tipo === 'Entrega' && (ped.enderecoEntrega || ped.formaPagamento) && (
-                      <div className="flex items-center gap-2 mt-1 pt-2 border-t border-gray-200/60 text-[11px] font-bold text-gray-600">
-                        {!ped.isRetirada && ped.enderecoEntrega && (
-                          <span className="flex items-center gap-1 truncate min-w-0">
-                            <MapPin size={11} className="shrink-0 text-gray-400"/>
-                            <span className="truncate">{ped.enderecoEntrega.logradouro}, {ped.enderecoEntrega.numero}{ped.enderecoEntrega.bairro ? ` - ${ped.enderecoEntrega.bairro}` : ''}</span>
-                          </span>
-                        )}
-                        {ped.formaPagamento && (
-                          <span className="flex items-center gap-1 shrink-0 ml-auto">
-                            <CreditCard size={11} className="text-gray-400"/> {ped.formaPagamento}
-                          </span>
+                    {ped.tipo === 'Entrega' && (ped.enderecoEntrega || ped.formaPagamento || ped.clienteTelefone || ped.valorTotal !== undefined || ped.isRetirada) && (
+                      <div className="mt-1 pt-2 border-t border-gray-200/60 text-[11px] font-bold text-gray-600 space-y-1">
+                        <div className="flex items-center gap-2">
+                          {ped.isRetirada ? (
+                            <span className="flex items-center gap-1 truncate min-w-0">
+                              <Package size={11} className="shrink-0 text-gray-400"/>
+                              <span className="truncate">Retirada no Balcão</span>
+                            </span>
+                          ) : ped.enderecoEntrega && (
+                            <span className="flex items-center gap-1 truncate min-w-0">
+                              <MapPin size={11} className="shrink-0 text-gray-400"/>
+                              <span className="truncate">{ped.enderecoEntrega.logradouro}, {ped.enderecoEntrega.numero}{ped.enderecoEntrega.bairro ? ` - ${ped.enderecoEntrega.bairro}` : ''}</span>
+                            </span>
+                          )}
+                          {ped.clienteTelefone && (
+                            <span className="flex items-center gap-1 shrink-0 ml-auto">
+                              <Phone size={11} className="text-gray-400"/> {ped.clienteTelefone}
+                            </span>
+                          )}
+                        </div>
+                        {(ped.formaPagamento || ped.valorTotal !== undefined) && (
+                          <div className="flex items-center gap-2">
+                            {ped.formaPagamento && (
+                              <span className="flex items-center gap-1 truncate min-w-0">
+                                <CreditCard size={11} className="text-gray-400"/> {ped.formaPagamento}
+                              </span>
+                            )}
+                            {ped.valorTotal !== undefined && (
+                              <span className="shrink-0 ml-auto">
+                                Total: R$ {Number(ped.valorTotal).toFixed(2)}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                     )}

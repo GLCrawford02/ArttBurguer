@@ -111,12 +111,21 @@ async function iniciarBot() {
     });
 
     // ── Pronto ────────────────────────────────────────────────────────────────
-    client.on('ready', () => {
+    client.on('ready', async () => {
         if (botReady) return;
         botReady = true;
         autoReloaded = false;
         console.log('\n✅ Bot do WhatsApp conectado e pronto!\n');
         setTimeout(() => iniciarChecagemTarefas(client), 5000);
+
+        try {
+            const chats = await client.getChats();
+            const grupos = chats.filter(c => c.isGroup).map(c => ({ id: c.id._serialized, nome: c.name }));
+            await db.ref('configuracoes/whatsapp_grupos').set(grupos);
+            console.log(`📋 ${grupos.length} grupo(s) do WhatsApp sincronizado(s).`);
+        } catch (e) {
+            console.error('❌ Erro ao listar grupos do WhatsApp:', e.message);
+        }
     });
 
     // ── Desconectado ──────────────────────────────────────────────────────────
@@ -544,6 +553,13 @@ function iniciarChecagemTarefas(client) {
                 await db.ref(`fila_mensagens/${idMsg}`).update({ status: 'processando' });
                 console.log(`📤 Enviando mensagem avulsa para ${itemMsg.telefone}...`);
                 try {
+                    if (itemMsg.telefone.endsWith('@g.us')) {
+                        await client.sendMessage(itemMsg.telefone, itemMsg.mensagem);
+                        await db.ref(`fila_mensagens/${idMsg}`).update({ status: 'enviada' });
+                        console.log(`✅ Mensagem enviada ao grupo.`);
+                        continue;
+                    }
+
                     let numberId = await client.getNumberId(itemMsg.telefone);
                     if (!numberId && itemMsg.telefone.startsWith('55') && itemMsg.telefone.length === 13) {
                         numberId = await client.getNumberId(itemMsg.telefone.substring(0, 4) + itemMsg.telefone.substring(5));

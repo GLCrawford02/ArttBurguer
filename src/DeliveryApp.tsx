@@ -7,6 +7,13 @@ import logoImg from './assets/logo.png';
 declare const __APP_CLIENTE_VERSION__: string;
 export const APP_CLIENTE_VERSION = __APP_CLIENTE_VERSION__;
 
+const getAberturaTimestampHoje = (horario: string) => {
+  const [h, m] = horario.split(':').map(Number);
+  const d = new Date();
+  d.setHours(h || 0, m || 0, 0, 0);
+  return d.getTime();
+};
+
 const isVersionOutdated = (server: string, local: string) => {
   const sv = server.split('.').map(Number);
   const lv = local.split('.').map(Number);
@@ -88,6 +95,11 @@ export default function DeliveryApp() {
   const [otpNome, setOtpNome] = useState('');
   const [otpLoading, setOtpLoading] = useState(false);
   const [otpErro, setOtpErro] = useState('');
+  const [aceitouTermos, setAceitouTermos] = useState(false);
+  const [legalDocs, setLegalDocs] = useState<{ termos: string; privacidade: string }>({ termos: '', privacidade: '' });
+  const [legalModalAberto, setLegalModalAberto] = useState<'termos' | 'privacidade' | null>(null);
+  const [horarioAberturaLoja, setHorarioAberturaLoja] = useState('18:30');
+  const [showLojaFechadaPopup, setShowLojaFechadaPopup] = useState(false);
 
   // Endereços Adicionais
   const [enderecos, setEnderecos] = useState<any[]>([]);
@@ -252,7 +264,14 @@ export default function DeliveryApp() {
       }
     });
 
-    return () => { unsubClientes(); unsubProd(); unsubCat(); unsubConfig(); unsubCar(); };
+    const legalRef = ref(db, 'configuracoes/app_delivery');
+    const unsubLegal = onValue(legalRef, snap => {
+      const val = snap.val();
+      setLegalDocs({ termos: val?.termosCondicoes || '', privacidade: val?.politicaPrivacidade || '' });
+      setHorarioAberturaLoja(val?.horarioAbertura || '18:30');
+    });
+
+    return () => { unsubClientes(); unsubProd(); unsubCat(); unsubConfig(); unsubCar(); unsubLegal(); };
   }, []);
 
   useEffect(() => {
@@ -263,6 +282,12 @@ export default function DeliveryApp() {
       return () => clearInterval(interval);
     }
   }, [carrosselImagens, categoriaExpandida]);
+
+  useEffect(() => {
+    if (Date.now() < getAberturaTimestampHoje(horarioAberturaLoja)) {
+      setShowLojaFechadaPopup(true);
+    }
+  }, [horarioAberturaLoja]);
 
   useEffect(() => {
     if (cliente) {
@@ -392,17 +417,58 @@ export default function DeliveryApp() {
     return 'restrita';
   };
 
-  const geocodeAddress = async (logradouro: string, numero: string, cidade: string, uf?: string): Promise<{ lat: number, lng: number } | null> => {
-    try {
-      const q = encodeURIComponent(`${logradouro}, ${numero}, ${cidade}${uf ? ', ' + uf : ''}, Brasil`);
-      const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${q}&limit=1`);
-      const data = await res.json();
-      if (data && data.length > 0) {
-        return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+  const geocodeAddress = async (logradouro: string, numero: string, cidade: string, uf?: string, bairro?: string, cep?: string): Promise<{ lat: number, lng: number } | null> => {
+    const headers = { 'Accept-Language': 'pt-BR' };
+    const buscar = async (url: string) => {
+      try {
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        if (data && data.length > 0) return { lat: parseFloat(data[0].lat), lng: parseFloat(data[0].lon) };
+      } catch (e) {
+        console.error('Erro ao geocodificar endereço:', e);
       }
-    } catch (e) {
-      console.error('Erro ao geocodificar endereço:', e);
+      return null;
+    };
+
+    const rua = logradouro || '';
+    const num = numero || '';
+    const cid = cidade || '';
+    const estado = uf || '';
+    const bairroParam = bairro || '';
+    const cepLimpo = (cep || '').replace(/\D/g, '');
+
+    // 1. Rua + número + cidade + estado (exato)
+    let r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(`${rua} ${num}`.trim())}&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return r;
+
+    // 2. Rua + número sem estado
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${rua}, ${num}, ${cid}, Brasil`)}&limit=1&countrycodes=br`);
+    if (r) return r;
+
+    // 3. Rua sem número + cidade + estado (localiza a rua)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&street=${encodeURIComponent(rua)}&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return r;
+
+    // 4. CEP — muito preciso no Brasil (identifica rua ou quarteirão)
+    if (cepLimpo.length === 8) {
+      r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&postalcode=${cepLimpo}&country=Brasil&limit=1&countrycodes=br`);
+      if (r) return r;
     }
+
+    // 5. Rua + cidade (sem estado, busca mais ampla)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${rua}, ${cid}, Brasil`)}&limit=1&countrycodes=br`);
+    if (r) return r;
+
+    // 6. Bairro + cidade (localiza o bairro)
+    if (bairroParam) {
+      r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(`${bairroParam}, ${cid}, ${estado}, Brasil`)}&limit=1&countrycodes=br`);
+      if (r) return r;
+    }
+
+    // 7. Cidade + estado (último recurso — ao menos mostra a região)
+    r = await buscar(`https://nominatim.openstreetmap.org/search?format=json&city=${encodeURIComponent(cid)}&state=${encodeURIComponent(estado)}&country=Brasil&limit=1&countrycodes=br`);
+    if (r) return r;
+
     return null;
   };
 
@@ -601,7 +667,7 @@ export default function DeliveryApp() {
       : null;
 
     if (!coordsFinal) {
-      const geo = await geocodeAddress(newEndLogradouro, newEndNumero, newEndCidade, newEndUf);
+      const geo = await geocodeAddress(newEndLogradouro, newEndNumero, newEndCidade, newEndUf, newEndBairro, newEndCep);
       if (geo) coordsFinal = { ...geo, coordAproximada: true };
     }
 
@@ -776,11 +842,12 @@ export default function DeliveryApp() {
   const handleCompletarCadastro = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!otpNome.trim()) { setOtpErro('Por favor, informe seu nome.'); return; }
+    if (!aceitouTermos) { setOtpErro('Você precisa aceitar os Termos e Condições e a Política de Privacidade para continuar.'); return; }
     setOtpLoading(true);
     setOtpErro('');
     try {
       const tel = otpTelefone.replace(/\D/g, '');
-      const clienteData = { nome: otpNome.trim(), telefone: tel, dataCadastro: Date.now() };
+      const clienteData = { nome: otpNome.trim(), telefone: tel, dataCadastro: Date.now(), aceitouTermos: true, dataAceiteTermos: Date.now() };
       const newRef = push(ref(db, 'clientes'));
       await set(newRef, clienteData);
       const clienteFinal = { id: newRef.key!, ...clienteData };
@@ -799,6 +866,7 @@ export default function DeliveryApp() {
     setOtpCodigo('');
     setOtpStep('telefone');
     setOtpErro('');
+    setAceitouTermos(false);
   };
 
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -836,7 +904,7 @@ export default function DeliveryApp() {
       : null;
 
     if (!coordsFinal && editLogradouro && editNumero && editCidade) {
-      const geo = await geocodeAddress(editLogradouro.trim(), editNumero.trim(), editCidade.trim(), editUf.trim());
+      const geo = await geocodeAddress(editLogradouro.trim(), editNumero.trim(), editCidade.trim(), editUf.trim(), editBairro.trim(), editCep);
       if (geo) coordsFinal = { ...geo, coordAproximada: true };
     }
 
@@ -1047,7 +1115,7 @@ export default function DeliveryApp() {
       let lng = enderecoSelecionado.lng;
 
       if (!lat || !lng) {
-        const geo = await geocodeAddress(enderecoSelecionado.logradouro, enderecoSelecionado.numero, enderecoSelecionado.cidade, enderecoSelecionado.uf);
+        const geo = await geocodeAddress(enderecoSelecionado.logradouro, enderecoSelecionado.numero, enderecoSelecionado.cidade, enderecoSelecionado.uf, enderecoSelecionado.bairro, enderecoSelecionado.cep);
         if (geo) {
           lat = geo.lat;
           lng = geo.lng;
@@ -1106,9 +1174,10 @@ export default function DeliveryApp() {
 
     const taxaEntregaFinal = tipoEntregaApp === 'retirada' ? 0 : (taxaFinal === 'restrita' ? 0 : (taxaFinal || 0));
     const enderecoEntregaPedido = tipoEntregaApp === 'retirada' ? null : enderecos[selectedEnderecoIndex];
+    const inicioPrazoEntrega = Math.max(Date.now(), getAberturaTimestampHoje(horarioAberturaLoja));
 
     const pedidoPayload = {
-      identificador: `Delivery: ${cliente!.nome}`,
+      identificador: `Delivery #${numDiario} - ${cliente!.nome}`,
       tipo: 'Entrega',
       isRetirada: tipoEntregaApp === 'retirada',
       referenciaId: id,
@@ -1116,6 +1185,7 @@ export default function DeliveryApp() {
       status: 'Pendente',
       sessaoId,
       timestamp: Date.now(),
+      inicioPrazoEntrega,
       dedupKey,
       origem: 'App Cliente',
       recompensasResgatadas: recompensasParaPedido.length > 0 ? recompensasParaPedido : null,
@@ -1147,6 +1217,7 @@ export default function DeliveryApp() {
         carrinho: novoCarrinho,
         numeroDiario: numDiario,
         timestamp: Date.now(),
+        inicioPrazoEntrega,
         sessaoId,
         formaPagamentoStr: nomePagamento,
         statusEntrega: 'Pendente',
@@ -1166,6 +1237,7 @@ export default function DeliveryApp() {
         itens: itensParaEnviar,
         numeroDiario: numDiario,
         timestamp: Date.now(),
+        inicioPrazoEntrega,
         sessaoId,
         formaPagamentoStr: nomePagamento,
         status: 'aguardando',
@@ -1374,6 +1446,12 @@ export default function DeliveryApp() {
                 <User className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" size={20} />
                 <input type="text" required autoFocus value={otpNome} onChange={e => setOtpNome(e.target.value)} placeholder="Seu nome completo" className="w-full pl-12 pr-4 py-4 bg-gray-50 border-2 border-gray-100 rounded-2xl outline-none focus:border-orange-500 focus:bg-white transition-all font-bold text-gray-700" />
               </div>
+              <div className="flex items-start gap-2 px-1">
+                <input id="aceite-termos" type="checkbox" required checked={aceitouTermos} onChange={e => setAceitouTermos(e.target.checked)} className="mt-1 w-4 h-4 accent-orange-500 shrink-0" />
+                <label htmlFor="aceite-termos" className="text-xs text-gray-500 leading-relaxed">
+                  Li e aceito os <button type="button" onClick={() => setLegalModalAberto('termos')} className="text-orange-500 font-bold underline">Termos e Condições</button> e a <button type="button" onClick={() => setLegalModalAberto('privacidade')} className="text-orange-500 font-bold underline">Política de Privacidade</button>.
+                </label>
+              </div>
               {otpErro && <p className="text-red-500 text-sm font-medium text-center">{otpErro}</p>}
               <button type="submit" disabled={otpLoading} className="w-full bg-orange-500 text-white py-4 rounded-2xl font-black text-lg hover:bg-orange-600 disabled:opacity-50 transition-colors shadow-lg flex items-center justify-center gap-2">
                 {otpLoading ? 'Salvando...' : <><ChevronRight size={20} /> Continuar</>}
@@ -1383,6 +1461,20 @@ export default function DeliveryApp() {
 
           <button type="button" onClick={handleForgotPassword} className="text-gray-400 text-xs hover:underline mt-6">Precisa de ajuda?</button>
         </div>
+
+        {legalModalAberto && (
+          <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4" onClick={() => setLegalModalAberto(null)}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col animate-in zoom-in-95 duration-200" onClick={e => e.stopPropagation()}>
+              <div className="p-5 border-b border-gray-100 flex items-center justify-between shrink-0">
+                <h3 className="font-black text-lg text-gray-800">{legalModalAberto === 'termos' ? 'Termos e Condições' : 'Política de Privacidade'}</h3>
+                <button onClick={() => setLegalModalAberto(null)} className="text-gray-400 hover:text-gray-600"><XIcon size={22} /></button>
+              </div>
+              <div className="p-5 overflow-y-auto text-sm text-gray-600 whitespace-pre-wrap leading-relaxed">
+                {(legalModalAberto === 'termos' ? legalDocs.termos : legalDocs.privacidade) || 'Conteúdo ainda não cadastrado.'}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2257,6 +2349,20 @@ export default function DeliveryApp() {
               <button onClick={() => { setIndicacaoModal(null); setIndicacaoNomeAmigo(''); setIndicacaoTelefoneAmigo(''); }} className="flex-1 py-3 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition-colors">Cancelar</button>
               <button onClick={confirmarIndicacao} className="flex-1 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Confirmar</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Loja Ainda Não Abriu */}
+      {showLojaFechadaPopup && (
+        <div className="fixed inset-0 bg-black/60 z-[130] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 p-6 text-center">
+            <div className="bg-orange-100 text-orange-600 w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4"><Clock size={28}/></div>
+            <h3 className="font-black text-lg text-gray-800 mb-2">Ainda não abrimos</h3>
+            <p className="text-sm text-gray-600 mb-5">
+              Nossa loja abre às <span className="font-black text-orange-600">{horarioAberturaLoja}</span>. Você já pode fazer seu pedido, mas o prazo de entrega só começa a contar a partir da abertura.
+            </p>
+            <button onClick={() => setShowLojaFechadaPopup(false)} className="w-full py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Entendi</button>
           </div>
         </div>
       )}

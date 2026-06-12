@@ -14,6 +14,8 @@ import SimuladorRecebimentoModal from './modals/SimuladorRecebimentoModal';
 import PainelEntregasModal from './modals/PainelEntregasModal';
 import PdvItemModal from './modals/PdvItemModal';
 import AlertPedidoConcluidoModal from './modals/AlertPedidoConcluidoModal';
+import CaixaContagemModal from './modals/CaixaContagemModal';
+import { buildRelatorioCaixaTexto, type CaixaSessao } from '../utils/caixaUtils';
 import MapaView from './views/MapaView';
 import ConferenciaView from './views/ConferenciaView';
 import ComandasView from './views/ComandasView';
@@ -106,6 +108,14 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     return filtered;
   }, [entregasAbertas]);
 
+  const [caixaSessoes, setCaixaSessoes] = useState<Record<string, any>>({});
+  const [caixaSessoesCarregado, setCaixaSessoesCarregado] = useState(false);
+
+  const [caixaSessaoId, caixaSessaoAtual] = useMemo(() => {
+    const aberta = Object.entries(caixaSessoes).find(([, s]: any) => s.status === 'aberto');
+    return aberta ? [aberta[0], aberta[1]] : [null, null];
+  }, [caixaSessoes]);
+
   const [pdvSessaoId, setPdvSessaoId] = useState<string>(`sessao_${Date.now()}`);
 
   const [showConfModal, setShowConfModal] = useState(false);
@@ -125,6 +135,9 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   const [configImpressoras, setConfigImpressoras] = useState<Record<string, string>>({});
   const [impressorasIPs, setImpressorasIPs] = useState<{ cozinha: string; balcao: string }>({ cozinha: '', balcao: '' });
   const [configFidelidade, setConfigFidelidade] = useState<{ ativo: boolean; pontosPorReal: number } | null>(null);
+  const [whatsappGrupoCaixaId, setWhatsappGrupoCaixaId] = useState('');
+  const [showFecharCaixaModal, setShowFecharCaixaModal] = useState(false);
+  const [resultadoFechamentoCaixa, setResultadoFechamentoCaixa] = useState<CaixaSessao | null>(null);
   const [embalagensGrupos, setEmbalagensGrupos] = useState<Record<string, { categorias: string[]; delivery: { insumoId: string; quantidade: number }[]; salao: { insumoId: string; quantidade: number }[] }>>({});
 
   const [alertPedidoConcluido, setAlertPedidoConcluido] = useState<any | null>(null);
@@ -150,7 +163,10 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
   const getCurrentIdentificador = () => {
     if (pdvTipoPedido === 'Mesa') return getMesaIdentificador(mesaSelecionada, pdvCliente?.nome);
-    if (pdvTipoPedido === 'Entrega') return `Delivery: ${pdvCliente?.nome || ''}`;
+    if (pdvTipoPedido === 'Entrega') {
+      const num = getNumeroDiario('Entrega', entregaSelecionada);
+      return `Delivery #${num} - ${pdvCliente?.nome || ''}`;
+    }
     return `Balcão: ${pdvCliente?.nome || ''}`;
   };
 
@@ -433,6 +449,17 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     const nomesRef = ref(db, 'configuracoes/impressoras_nomes');
     onValue(nomesRef, snap => {
       setImpressorasIPs(snap.val() || { cozinha: '', balcao: '' });
+    });
+
+    const caixaSessoesRef = ref(db, 'caixa_sessoes');
+    onValue(caixaSessoesRef, snap => {
+      setCaixaSessoes(snap.val() || {});
+      setCaixaSessoesCarregado(true);
+    });
+
+    const whatsappRef = ref(db, 'configuracoes/whatsapp');
+    onValue(whatsappRef, snap => {
+      setWhatsappGrupoCaixaId(snap.val()?.grupoCaixaId || '');
     });
 
     const fidelidadeRef = ref(db, 'fidelidade_config');
@@ -878,7 +905,79 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
     }
   };
 
-  const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerIp?: string, lancadoPor?: string) => {
+  const handleAbrirCaixa = async (contagem: Record<string, number>, total: number) => {
+    const id = push(ref(db, 'caixa_sessoes')).key as string;
+    await set(ref(db, `caixa_sessoes/${id}`), {
+      status: 'aberto',
+      dataAbertura: Date.now(),
+      aberturaPorId: currentUser?.id || '',
+      aberturaPorNome: currentUser?.nome || 'Desconhecido',
+      contagemAbertura: contagem,
+      valorAbertura: total,
+    });
+    showToast('Caixa aberto com sucesso!', 'success');
+  };
+
+  const handleFecharCaixa = async (contagem: Record<string, number>, total: number) => {
+    if (!caixaSessaoId || !caixaSessaoAtual) return;
+
+    const vendasDinheiro = Number(vendasPdv
+      .filter(v => v.timestamp >= caixaSessaoAtual.dataAbertura)
+      .reduce((acc, v) => acc + (v.pagamentos || []).filter((p: any) => p.taxaId === 'dinheiro').reduce((a: number, p: any) => a + Number(p.valor || 0), 0), 0)
+      .toFixed(2));
+    const valorEsperado = Number((Number(caixaSessaoAtual.valorAbertura || 0) + vendasDinheiro).toFixed(2));
+    const diferenca = Number((total - valorEsperado).toFixed(2));
+
+    const sessaoAtualizada: CaixaSessao = {
+      ...caixaSessaoAtual,
+      status: 'fechado',
+      dataFechamento: Date.now(),
+      fechamentoPorId: currentUser?.id || '',
+      fechamentoPorNome: currentUser?.nome || 'Desconhecido',
+      contagemFechamento: contagem,
+      valorFechamento: total,
+      vendasDinheiro,
+      valorEsperado,
+      diferenca,
+    };
+
+    await update(ref(db, `caixa_sessoes/${caixaSessaoId}`), {
+      status: 'fechado',
+      dataFechamento: sessaoAtualizada.dataFechamento,
+      fechamentoPorId: sessaoAtualizada.fechamentoPorId,
+      fechamentoPorNome: sessaoAtualizada.fechamentoPorNome,
+      contagemFechamento: contagem,
+      valorFechamento: total,
+      vendasDinheiro,
+      valorEsperado,
+      diferenca,
+    });
+
+    setShowFecharCaixaModal(false);
+    setResultadoFechamentoCaixa(sessaoAtualizada);
+
+    if (impressorasIPs.balcao) {
+      await queueImpressao({
+        type: 'relatorio',
+        printerIp: impressorasIPs.balcao,
+        identificador: `Fechamento de Caixa - ${caixaSessaoId}`,
+        total,
+        sessao: sessaoAtualizada,
+      });
+    }
+
+    if (whatsappGrupoCaixaId) {
+      await set(push(ref(db, 'fila_mensagens')), {
+        telefone: whatsappGrupoCaixaId,
+        mensagem: buildRelatorioCaixaTexto(sessaoAtualizada),
+        status: 'pendente',
+        origem: 'caixa',
+        timestamp: Date.now(),
+      });
+    }
+  };
+
+  const imprimirTicketInterno = async (itens: any[], destLabel: string, identificador: string, printerIp?: string, lancadoPor?: string, deliveryInfo?: any) => {
     if (itens.length === 0) return;
 
     const electron = (window as any).electronAPI;
@@ -886,7 +985,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 
     if (electron && printerIp && isIp) {
       try {
-        await electron.imprimirTicketIP(printerIp, itens, destLabel, identificador, lancadoPor);
+        await electron.imprimirTicketIP(printerIp, itens, destLabel, identificador, lancadoPor, deliveryInfo);
         return;
       } catch (e: any) {
         console.error('Erro ao imprimir via IP:', e);
@@ -902,6 +1001,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
         destLabel,
         identificador,
         lancadoPor: lancadoPor || null,
+        deliveryInfo: deliveryInfo || null,
         origin: 'web',
       });
       return;
@@ -933,6 +1033,28 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
       itensHtml += `<tr><td colspan="2"><div class="item-sep"></div></td></tr>`;
     });
 
+    let deliveryInfoHtml = '';
+    if (deliveryInfo) {
+      const e = deliveryInfo.endereco;
+      let enderecoLinha = '';
+      if (deliveryInfo.isRetirada) {
+        enderecoLinha = '<div class="delivery-row"><b>RETIRADA NO BALCÃO</b></div>';
+      } else if (e) {
+        enderecoLinha = `<div class="delivery-row">Endereço: ${e.logradouro || ''}, ${e.numero || ''}${e.bairro ? ` - ${e.bairro}` : ''}${e.complemento ? ` (${e.complemento})` : ''}${e.cidade ? `, ${e.cidade}` : ''}</div>`;
+      }
+      deliveryInfoHtml = `
+<div class="sep"></div>
+<div class="delivery-info">
+  ${deliveryInfo.clienteNome ? `<div class="delivery-row">Cliente: ${deliveryInfo.clienteNome}</div>` : ''}
+  ${deliveryInfo.clienteTelefone ? `<div class="delivery-row">Tel: ${deliveryInfo.clienteTelefone}</div>` : ''}
+  ${enderecoLinha}
+  ${deliveryInfo.formaPagamento ? `<div class="delivery-row">Pagamento: ${deliveryInfo.formaPagamento}</div>` : ''}
+  ${deliveryInfo.subtotal !== undefined ? `<div class="delivery-row">Subtotal: R$ ${Number(deliveryInfo.subtotal).toFixed(2)}</div>` : ''}
+  ${!deliveryInfo.isRetirada && deliveryInfo.taxaEntrega ? `<div class="delivery-row">Taxa de Entrega: R$ ${Number(deliveryInfo.taxaEntrega).toFixed(2)}</div>` : ''}
+  ${deliveryInfo.valorTotal !== undefined ? `<div class="delivery-row delivery-total">TOTAL: R$ ${Number(deliveryInfo.valorTotal).toFixed(2)}</div>` : ''}
+</div>`;
+    }
+
     const html = `<!DOCTYPE html><html><head><meta charset="UTF-8">
 <style>
   @page { margin: 0; }
@@ -942,6 +1064,9 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
   .sep { border: none; border-top: 1px solid #000; margin: 5px 0; }
   .ident { font-size: 14px; font-weight: bold; margin: 2px 0; }
   .lancado { font-size: 11px; margin: 2px 0; }
+  .delivery-info { font-size: 12px; }
+  .delivery-row { margin: 2px 0; }
+  .delivery-total { font-weight: bold; font-size: 14px; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 3px 0; }
   .col-qty { width: 28px; font-weight: bold; vertical-align: top; white-space: nowrap; }
   .col-desc { font-weight: bold; vertical-align: top; word-break: break-word; }
@@ -955,6 +1080,7 @@ export default function LancamentoVendas({ currentUser, permissoes = {} }: { cur
 <div class="sep"></div>
 <div class="ident">${identificador}</div>
 ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
+${deliveryInfoHtml}
 <div class="sep"></div>
 <table>
   <thead><tr><th class="col-qty col-header">Qtd</th><th class="col-desc col-header" style="text-align:left">Descrição</th></tr></thead>
@@ -984,7 +1110,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     }
   };
 
-  const dispararImpressaoSeparada = async (identificador: string, carrinhoSnapshot: Record<string, any>, lancadoPor?: string) => {
+  const dispararImpressaoSeparada = async (identificador: string, carrinhoSnapshot: Record<string, any>, lancadoPor?: string, deliveryInfo?: any) => {
     if (Object.keys(configImpressoras).length === 0) return;
 
     const itensNovos = Object.entries(carrinhoSnapshot).filter(
@@ -1011,11 +1137,11 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     // Aguarda cada impressão terminar antes de iniciar a próxima (evita conflito no Electron)
     if (itensCozinha.length > 0) {
       if (!impressorasIPs.cozinha) showToast('Impressora da cozinha não configurada!', 'error');
-      else await imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, impressorasIPs.cozinha, lancadoPor);
+      else await imprimirTicketInterno(itensCozinha, 'COZINHA', identificador, impressorasIPs.cozinha, lancadoPor, deliveryInfo);
     }
     if (itensBalcao.length > 0) {
       if (!impressorasIPs.balcao) showToast('Impressora do balcão não configurada!', 'error');
-      else await imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, impressorasIPs.balcao, lancadoPor);
+      else await imprimirTicketInterno(itensBalcao, 'BALCÃO', identificador, impressorasIPs.balcao, lancadoPor, deliveryInfo);
     }
   };
 
@@ -1325,16 +1451,36 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     } else {
       const id = entregaSelecionada || `delivery_${Date.now()}`;
       const numDiario = getNumeroDiario('Entrega', entregaSelecionada);
+      const identificadorEntrega = `Delivery #${numDiario} - ${pdvCliente.nome}`;
       const entregaExistente = entregaSelecionada ? entregasAbertas[entregaSelecionada] : null;
       const totalPedidosCliente = vendasPdv.filter((v: any) => v.clienteId === pdvCliente.id).length
         + Object.values(entregasAbertas).filter((e: any) => e.clienteId === pdvCliente.id).length + 1;
+
+      const enderecoEntrega = entregaExistente?.enderecoEntrega ?? ((pdvCliente as any).logradouro ? {
+        logradouro: (pdvCliente as any).logradouro,
+        numero: (pdvCliente as any).numero,
+        bairro: (pdvCliente as any).bairro,
+        complemento: (pdvCliente as any).complemento,
+        cidade: (pdvCliente as any).cidade,
+        uf: (pdvCliente as any).uf,
+        lat: (pdvCliente as any).lat,
+        lng: (pdvCliente as any).lng
+      } : null);
+
+      const formasPagamentoSelecionadas = pdvPagamentos
+        .filter(p => p.taxaId && Number(p.valor) > 0)
+        .map(p => taxasComPadroes.find(t => t.id === p.taxaId)?.nome)
+        .filter(Boolean);
+      const formaPagamento = entregaExistente?.formaPagamentoStr ?? (formasPagamentoSelecionadas.length > 0 ? formasPagamentoSelecionadas.join(', ') : null);
+
       const metaCozinha = {
         clienteNome: pdvCliente.nome,
         clienteTelefone: pdvCliente.telefone,
         pontosFidelidade: pontosPorCliente[pdvCliente.id] || 0,
         totalPedidosCliente,
-        enderecoEntrega: entregaExistente?.enderecoEntrega ?? null,
-        formaPagamento: entregaExistente?.formaPagamentoStr ?? null,
+        enderecoEntrega,
+        isRetirada: pdvIsRetirada,
+        formaPagamento,
         numeroDiario: numDiario,
         subtotal: rawSubtotalPdvBase,
         taxaEntrega: taxaEntregaPdv,
@@ -1343,8 +1489,19 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         descontoRecompensas: pdvDescontoRecompensas || 0,
         descontoFrete: pdvDescontoFrete || 0
       };
-        dispararImpressaoSeparada(`Delivery: ${pdvCliente.nome}`, pdvCarrinho, currentUser?.nome);
-        const novoCarrinho = await dispararParaCozinha(`Delivery: ${pdvCliente.nome}`, 'Entrega', id, metaCozinha);
+      const deliveryInfoImpressao = {
+        numeroPedido: numDiario,
+        clienteNome: pdvCliente.nome,
+        clienteTelefone: pdvCliente.telefone,
+        endereco: enderecoEntrega,
+        isRetirada: pdvIsRetirada,
+        formaPagamento,
+        subtotal: rawSubtotalPdvBase,
+        taxaEntrega: taxaEntregaPdv,
+        valorTotal: rawTotalPdvBase
+      };
+      dispararImpressaoSeparada(identificadorEntrega, pdvCarrinho, currentUser?.nome, deliveryInfoImpressao);
+      const novoCarrinho = await dispararParaCozinha(identificadorEntrega, 'Entrega', id, metaCozinha);
       await set(ref(db, `entregas_abertas/${id}`), {
         ...entregaExistente,
         clienteId: pdvCliente.id,
@@ -1356,6 +1513,8 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         timestamp: Date.now(),
         taxaEntrega: taxaEntregaPdv,
         sessaoId: pdvSessaoId,
+        enderecoEntrega,
+        formaPagamentoStr: formaPagamento,
         recompensasResgatadas: pdvRecompensasResgatadas.length > 0 ? pdvRecompensasResgatadas : null,
         descontoRecompensas: pdvDescontoRecompensas || 0,
         descontoFrete: pdvDescontoFrete || 0
@@ -1363,7 +1522,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       showToast('Pedido de Delivery salvo!', 'success');
       logInfo('Delivery', entregaSelecionada ? 'Delivery atualizado/reenviado à cozinha' : 'Novo delivery registrado', { cliente: pdvCliente.nome, itens: Object.keys(pdvCarrinho).length, retirada: pdvIsRetirada, operador: currentUser?.nome }, timer());
       setPdvDescontoAplicado(null);
-      registrarLogX9(pdvSessaoId, `Delivery: ${pdvCliente.nome}`, 'abertura', `Delivery salvo/enviado para produção`, currentUser?.nome || 'Sistema');
+      registrarLogX9(pdvSessaoId, identificadorEntrega, 'abertura', `Delivery salvo/enviado para produção`, currentUser?.nome || 'Sistema');
     }
     setPdvItemModal(null);
     setPdvSearchProd('');
@@ -1381,12 +1540,18 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const taxa = Number(entrega.taxaEntrega || 0);
     setViewComanda({
       timestamp: entrega.timestamp || Date.now(),
-      descricao: `Delivery: ${entrega.clienteNome}`,
+      descricao: `Delivery #${entrega.numeroDiario || ''} - ${entrega.clienteNome}`,
       tipoPedido: 'Entrega',
+      numeroDiario: entrega.numeroDiario,
       clienteNome: entrega.clienteNome || '',
+      clienteTelefone: entrega.clienteTelefone || '',
+      enderecoEntrega: entrega.enderecoEntrega || null,
+      isRetirada: entrega.isRetirada || false,
+      formaPagamentoStr: entrega.formaPagamentoStr || '',
       itens: Object.values(entrega.carrinho || {}),
       valor: subtotal + taxa,
       taxaEntrega: taxa,
+      subtotalBruto: subtotal,
       desconto: 0,
       pagamentos: []
     });
@@ -1436,7 +1601,7 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const tipoPedido = viewComanda.tipoPedido || '';
     let identificador = 'Balcão';
     if (tipoPedido === 'Mesa') identificador = getMesaIdentificador(viewComanda.mesa, viewComanda.clienteNome);
-    else if (tipoPedido === 'Entrega') identificador = 'Delivery';
+    else if (tipoPedido === 'Entrega') identificador = viewComanda.numeroDiario ? `Delivery #${viewComanda.numeroDiario}` : 'Delivery';
 
     const clienteNome = viewComanda.clienteNome || '';
 
@@ -1477,6 +1642,11 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
           itens: viewComanda.itens || [],
           identificador,
           clienteNome,
+          clienteTelefone: viewComanda.clienteTelefone,
+          endereco: viewComanda.enderecoEntrega,
+          isRetirada: viewComanda.isRetirada,
+          formaPagamento: viewComanda.formaPagamentoStr,
+          taxaEntrega: taxaEntregaCupom,
           subtotal: subtotalBruto,
           desconto,
           total,
@@ -1497,6 +1667,11 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
         itens: viewComanda.itens || [],
         identificador,
         clienteNome,
+        clienteTelefone: viewComanda.clienteTelefone,
+        endereco: viewComanda.enderecoEntrega,
+        isRetirada: viewComanda.isRetirada,
+        formaPagamento: viewComanda.formaPagamentoStr,
+        taxaEntrega: taxaEntregaCupom,
         subtotal: subtotalBruto,
         desconto,
         total,
@@ -1514,6 +1689,22 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
     const dt = new Date(viewComanda.timestamp);
     const dataStr = dt.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' });
     const horaStr = dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+
+    let deliveryHtml = '';
+    if (viewComanda.tipoPedido === 'Entrega') {
+      let enderecoLinha = '';
+      if (viewComanda.isRetirada) {
+        enderecoLinha = '<div class="center font-bold">RETIRADA NO BALCÃO</div>';
+      } else if (viewComanda.enderecoEntrega) {
+        const e = viewComanda.enderecoEntrega;
+        enderecoLinha = `<div class="center cliente">Endereço: ${e.logradouro || ''}, ${e.numero || ''}${e.bairro ? ` - ${e.bairro}` : ''}${e.complemento ? ` (${e.complemento})` : ''}</div>`;
+      }
+      deliveryHtml = `
+        ${viewComanda.clienteTelefone ? `<div class="center cliente">Tel: ${viewComanda.clienteTelefone}</div>` : ''}
+        ${enderecoLinha}
+        ${viewComanda.formaPagamentoStr ? `<div class="center cliente">Pagamento: ${viewComanda.formaPagamentoStr}</div>` : ''}
+      `;
+    }
 
     const html = `<!DOCTYPE html>
 <html>
@@ -1556,8 +1747,9 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
   <div class="sep"></div>
   <div class="center title">RESUMO DA CONTA</div>
   <div class="sep"></div>
-  <div class="center ident">${identificador}</div>
+  <div class="center ident">${viewComanda.descricao || identificador}</div>
   ${clienteNome ? `<div class="center cliente">Cliente: ${clienteNome}</div>` : ''}
+  ${deliveryHtml}
   <div class="sep"></div>
   <table>
     <thead>
@@ -1743,20 +1935,20 @@ ${lancadoPor ? `<div class="lancado">LANÇADO POR: ${lancadoPor}</div>` : ''}
       });
       valorLiquidoTotal = Number((valorLiquidoTotal - custoPedido).toFixed(2));
   
+      const numDiario = pdvTipoPedido === 'Entrega' ? getNumeroDiario('Entrega', entregaSelecionada) : getNumeroDiario('Balcão/Mesa', null);
+
       let ident = 'Balcão';
-      if (pdvTipoPedido === 'Entrega') ident = `Delivery: ${pdvCliente?.nome || ''}`;
+      if (pdvTipoPedido === 'Entrega') ident = `Delivery #${numDiario} - ${pdvCliente?.nome || ''}`;
       else if (pdvTipoPedido === 'Mesa') ident = getMesaIdentificador(mesaSelecionada, pdvCliente?.nome);
       else if (pdvCliente) ident = `Balcão: ${pdvCliente.nome}`;
       dispararImpressaoSeparada(ident, pdvCarrinho, currentUser?.nome);
       await dispararParaCozinha(ident, pdvTipoPedido);
       const detalhesPag = pagamentosProcessados.map(p => `${p.nomeTaxa}: R$ ${p.valor.toFixed(2)}`).join(', ');
       registrarLogX9(pdvSessaoId, ident, 'fechamento', `Venda finalizada. Pago: ${detalhesPag}`, currentUser?.nome || 'Sistema', pdvDescontoAplicado?.autorizadoPorNome, { total: totalPdv, pagamentos: pagamentosProcessados });
-  
+
       const statusEntregaAtual = pdvTipoPedido === 'Entrega' && entregaSelecionada && entregasAbertas[entregaSelecionada]?.statusEntrega
         ? entregasAbertas[entregaSelecionada].statusEntrega
         : 'Pendente';
-
-      const numDiario = pdvTipoPedido === 'Entrega' ? getNumeroDiario('Entrega', entregaSelecionada) : getNumeroDiario('Balcão/Mesa', null);
 
       const novaVendaId = (pdvTipoPedido === 'Entrega' && entregaSelecionada) ? entregaSelecionada : push(ref(db, 'vendas_pdv')).key;
 
@@ -2307,6 +2499,7 @@ Formato esperado:
           onReimprimirMesa={handleReimprimirMesa}
           onAbrirPainelEntregas={() => setShowPainelEntregas(true)}
           onAddMesa={() => set(ref(db, 'configuracoes/pdv/qtdMesas'), qtdMesas + 1)}
+          onFecharCaixa={() => setShowFecharCaixaModal(true)}
           onAbrirDelivery={() => { setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Entrega'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvDescontoFrete(0); setPdvView('caixa'); }}
           onAbrirBalcao={() => { setPdvSessaoId(`balcao_${Date.now()}`); setMesaSelecionada(null); setEntregaSelecionada(null); setPdvTipoPedido('Balcão'); setPdvCarrinho({}); setPdvCliente(null); setPdvItemModal(null); setPdvSearchProd(''); setPdvSearchCliente(''); setIsCartExpanded(false); setPdvDescricao(''); setPdvPagamentos([{ taxaId: '', valor: 0 }]); setPdvRecompensasResgatadas([]); setPdvDescontoRecompensas(0); setPdvDescontoFrete(0); setPdvView('caixa'); }}
         />
@@ -2775,6 +2968,42 @@ Formato esperado:
         onSalvar={handleCriarClienteVinculado}
         formatPhone={formatPhone}
       />
+
+      {isCaixaOrAdmin && caixaSessoesCarregado && !caixaSessaoAtual && (
+        <CaixaContagemModal
+          title="Abertura de Caixa"
+          subtitle="Conte as cédulas e moedas do fundo de caixa para iniciar o dia."
+          onConfirm={handleAbrirCaixa}
+        />
+      )}
+
+      {showFecharCaixaModal && (
+        <CaixaContagemModal
+          title="Fechamento de Caixa"
+          subtitle="Conte as cédulas e moedas presentes no caixa agora."
+          onConfirm={handleFecharCaixa}
+          onClose={() => setShowFecharCaixaModal(false)}
+        />
+      )}
+
+      {resultadoFechamentoCaixa && (
+        <div className="fixed inset-0 bg-black/60 z-[210] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm animate-in zoom-in-95 duration-200 p-6 text-center">
+            <h3 className="font-black text-lg text-gray-800 mb-4">Caixa Fechado</h3>
+            <div className="space-y-2 text-sm text-left bg-gray-50 rounded-xl p-4">
+              <div className="flex justify-between"><span className="text-gray-500">Valor Esperado</span><span className="font-bold text-gray-800">R$ {(resultadoFechamentoCaixa.valorEsperado || 0).toFixed(2)}</span></div>
+              <div className="flex justify-between"><span className="text-gray-500">Valor Contado</span><span className="font-bold text-gray-800">R$ {(resultadoFechamentoCaixa.valorFechamento || 0).toFixed(2)}</span></div>
+              <div className="flex justify-between border-t border-gray-200 pt-2 mt-2">
+                <span className="text-gray-500">Diferença</span>
+                <span className={`font-black ${(resultadoFechamentoCaixa.diferenca || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                  {(resultadoFechamentoCaixa.diferenca || 0) >= 0 ? 'Sobra' : 'Falta'} R$ {Math.abs(resultadoFechamentoCaixa.diferenca || 0).toFixed(2)}
+                </span>
+              </div>
+            </div>
+            <button onClick={() => setResultadoFechamentoCaixa(null)} className="w-full mt-5 py-3 bg-orange-500 text-white rounded-xl font-bold hover:bg-orange-600 transition-colors">Ok</button>
+          </div>
+        </div>
+      )}
 
     </div>
   );

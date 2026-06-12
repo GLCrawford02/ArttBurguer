@@ -52,6 +52,7 @@ export default function TaxasEntregaManager() {
   const [editingZonaTipo, setEditingZonaTipo] = useState<'restrita' | 'valor' | null>(null);
   const [renamingZonaId, setRenamingZonaId] = useState<string | null>(null);
   const [nomeEdit, setNomeEdit] = useState('');
+  const [hoveredZona, setHoveredZona] = useState<{ tipo: 'restrita' | 'valor'; id: string } | null>(null);
 
   useEffect(() => {
     return onValue(ref(db, 'configuracoes/taxas_entrega'), snap => {
@@ -279,7 +280,36 @@ export default function TaxasEntregaManager() {
         </div>
         
         {drawingMode && <p className="text-xs text-orange-600 font-bold mb-3 animate-pulse">Clique no mapa para adicionar os pontos. Arraste as bolinhas para ajustar. Clique em uma bolinha para ver a opção de remover. No mínimo 3 pontos.</p>}
-        
+
+        {(zonasRestritas.length > 0 || zonasValor.length > 0) && (
+          <div className="mb-4">
+            <p className="text-xs font-bold text-gray-500 uppercase mb-2">Áreas Cadastradas — passe o mouse para destacar no mapa</p>
+            <div className="grid grid-cols-3 sm:grid-cols-4 xl:grid-cols-8 gap-3 sm:gap-4 max-h-64 overflow-y-auto p-1">
+              {[
+                ...zonasRestritas.map(z => ({ ...z, tipo: 'restrita' as const })),
+                ...zonasValor.map(z => ({ ...z, tipo: 'valor' as const })),
+              ].map((zona, idx) => {
+                const isHovered = hoveredZona?.tipo === zona.tipo && hoveredZona?.id === zona.id;
+                const isRestrita = zona.tipo === 'restrita';
+                return (
+                  <div
+                    key={`${zona.tipo}_${zona.id}`}
+                    onMouseEnter={() => setHoveredZona({ tipo: zona.tipo, id: zona.id })}
+                    onMouseLeave={() => setHoveredZona(null)}
+                    className={`h-20 sm:h-24 rounded-xl border-2 flex flex-col items-center justify-center text-center px-1 transition-all cursor-default ${
+                      isRestrita ? 'border-red-300 bg-red-50' : 'border-green-300 bg-green-50'
+                    } ${isHovered ? (isRestrita ? 'ring-4 ring-red-400 border-red-400 scale-105 shadow-lg' : 'ring-4 ring-green-400 border-green-400 scale-105 shadow-lg') : ''}`}
+                  >
+                    <span className={`text-xl sm:text-2xl font-black ${isRestrita ? 'text-red-600' : 'text-green-600'}`}>{idx + 1}</span>
+                    <span className="text-[10px] font-bold text-gray-600 mt-0.5 truncate w-full">{zona.nome}</span>
+                    {!isRestrita && <span className="text-[10px] font-black text-green-700">R$ {zona.valor.toFixed(2)}</span>}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="border border-gray-200 rounded-xl overflow-hidden relative" style={{ height: 800, zIndex: 0 }}>
           <MapContainer 
             center={lojaCoords ? [lojaCoords.lat, lojaCoords.lng] : [-18.7580961, -44.4333648]} 
@@ -298,12 +328,14 @@ export default function TaxasEntregaManager() {
             
             {zonasRestritas.map(zona => {
               if (editingZonaId === zona.id) return null;
-              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#ef4444', fillColor: '#fca5a5', fillOpacity: 0.5, weight: 2 }} />
+              const isHovered = hoveredZona?.tipo === 'restrita' && hoveredZona?.id === zona.id;
+              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#ef4444', fillColor: isHovered ? '#ef4444' : '#fca5a5', fillOpacity: isHovered ? 0.8 : 0.5, weight: isHovered ? 4 : 2 }} />
             })}
 
             {zonasValor.map(zona => {
               if (editingZonaId === zona.id) return null;
-              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#22c55e', fillColor: '#86efac', fillOpacity: 0.5, weight: 2 }} />
+              const isHovered = hoveredZona?.tipo === 'valor' && hoveredZona?.id === zona.id;
+              return <Polygon key={zona.id} positions={zona.coords} pathOptions={{ color: '#22c55e', fillColor: isHovered ? '#22c55e' : '#86efac', fillOpacity: isHovered ? 0.8 : 0.5, weight: isHovered ? 4 : 2 }} />
             })}
             
             {currentZona.length > 0 && (

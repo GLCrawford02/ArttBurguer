@@ -44,6 +44,12 @@ export interface Produto {
   ingredientes: IngredienteReceita[];
   custoTotal: number;
   oculto?: boolean;
+  // Dados fiscais para emissão de NFC-e
+  ncm?: string;
+  cfop?: string;
+  csosn?: string;
+  unidadeComercial?: string;
+  origem?: string;
 }
 
 export interface ItemCombo {

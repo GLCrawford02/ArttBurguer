@@ -24,6 +24,8 @@
     "vendas": { ".write": true },
     "fechamentos": { ".write": true },
     "caixa_atual": { ".write": true },
+    "caixa_sessoes": { ".write": true },
+    "impressoras": { ".write": true },
     "taxas_cartoes": { ".write": true },
     "fornecedores": { ".write": true },
     "tipos_uso": { ".write": true },

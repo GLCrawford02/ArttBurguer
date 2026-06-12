@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Printer, Save, CheckCircle, AlertTriangle, Search, Play } from 'lucide-react';
+import { Printer, Save, CheckCircle, AlertTriangle, Search, Play, MessageCircle } from 'lucide-react';
 
 const DESTINOS = [
   { value: 'cozinha', label: 'Cozinha' },
@@ -16,6 +16,8 @@ export default function ImpressorasManager() {
   const [categorias, setCategorias] = useState<string[]>([]);
   const [config, setConfig] = useState<Record<string, string>>({});
   const [nomes, setNomes] = useState({ cozinha: '', balcao: '' });
+  const [whatsappGrupos, setWhatsappGrupos] = useState<{ id: string; nome: string }[]>([]);
+  const [grupoCaixaId, setGrupoCaixaId] = useState('');
   const [impressorasLocais, setImpressorasLocais] = useState<string[]>([]);
   const [isDetecting, setIsDetecting] = useState(false);
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null);
@@ -42,13 +44,23 @@ export default function ImpressorasManager() {
     const nomesRef = ref(db, 'configuracoes/impressoras_nomes');
     const unsubNomes = onValue(nomesRef, (snap) => setNomes(snap.val() || { cozinha: '', balcao: '' }));
 
-    return () => { unsubProd(); unsubConfig(); unsubNomes(); };
+    const gruposRef = ref(db, 'configuracoes/whatsapp_grupos');
+    const unsubGrupos = onValue(gruposRef, (snap) => {
+      const val = snap.val();
+      setWhatsappGrupos(Array.isArray(val) ? val : []);
+    });
+
+    const whatsappRef = ref(db, 'configuracoes/whatsapp');
+    const unsubWhatsapp = onValue(whatsappRef, (snap) => setGrupoCaixaId(snap.val()?.grupoCaixaId || ''));
+
+    return () => { unsubProd(); unsubConfig(); unsubNomes(); unsubGrupos(); unsubWhatsapp(); };
   }, []);
 
   const handleSalvar = async () => {
     try {
       await set(ref(db, 'configuracoes/impressoras'), config);
       await set(ref(db, 'configuracoes/impressoras_nomes'), nomes);
+      await set(ref(db, 'configuracoes/whatsapp/grupoCaixaId'), grupoCaixaId);
       showToast('Configuração de impressoras salva!');
     } catch {
       showToast('Erro ao salvar.', 'error');
@@ -183,6 +195,37 @@ export default function ImpressorasManager() {
         <p className="text-xs text-gray-400 mt-3">
           Você pode utilizar o IP para impressoras de rede Ethernet/Wi-Fi ou selecionar o nome exato da impressora para conexões USB (apenas no App Windows).
         </p>
+      </div>
+
+      {/* Relatório de Caixa - WhatsApp */}
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex items-center mb-4 border-b border-gray-100 pb-3">
+          <div className="bg-green-100 p-2.5 rounded-xl mr-3 text-green-600">
+            <MessageCircle size={20} />
+          </div>
+          <div>
+            <h4 className="font-bold text-gray-700">Relatório de Caixa por WhatsApp</h4>
+            <p className="text-xs text-gray-400 mt-0.5">Escolha o grupo do WhatsApp que receberá o relatório ao fechar o caixa.</p>
+          </div>
+        </div>
+        <div className="max-w-md">
+          <label className="block text-sm font-bold text-gray-700 mb-2 uppercase tracking-wide">Grupo do WhatsApp</label>
+          <select
+            value={grupoCaixaId}
+            onChange={e => setGrupoCaixaId(e.target.value)}
+            className="w-full p-2.5 border border-gray-300 rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-500 bg-white"
+          >
+            <option value="">Não enviar</option>
+            {whatsappGrupos.map(({ id, nome }) => (
+              <option key={id} value={id}>{nome}</option>
+            ))}
+          </select>
+          {whatsappGrupos.length === 0 && (
+            <p className="text-xs text-gray-400 mt-2">
+              Nenhum grupo encontrado. Verifique se o bot do WhatsApp está conectado e participa de algum grupo.
+            </p>
+          )}
+        </div>
       </div>
 
       {/* Roteamento por categoria */}

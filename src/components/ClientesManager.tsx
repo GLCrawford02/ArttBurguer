@@ -30,6 +30,7 @@ export interface Cliente {
   favoritos?: any[];
   categorias?: string[];
   googleMapsLink?: string;
+  enderecos?: any[];
 }
 
 const validarCPF = (cpf: string): boolean => {
@@ -98,6 +99,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
   const [observacaoEntregador, setObservacaoEntregador] = useState('');
   const [googleMapsLink, setGoogleMapsLink] = useState('');
   const [categoriasSelecionadas, setCategoriasSelecionadas] = useState<string[]>([]);
+  const [enderecosExtras, setEnderecosExtras] = useState<any[]>([]);
 
   const [latInput, setLatInput] = useState('');
   const [lngInput, setLngInput] = useState('');
@@ -230,6 +232,7 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     setCidade(''); setUf(''); setObservacaoCliente(''); setObservacaoEntregador('');
     setGoogleMapsLink('');
     setCategoriasSelecionadas([]);
+    setEnderecosExtras([]);
     setLatInput(''); setLngInput('');
     setGeocodingError(''); setGeocodingFeito(false); setPendingCoordsData({});
   };
@@ -386,9 +389,19 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
     setCategoriasSelecionadas(cliente.categorias || []);
     setLatInput(cliente.lat != null ? String(cliente.lat) : '');
     setLngInput(cliente.lng != null ? String(cliente.lng) : '');
+    setEnderecosExtras(Array.isArray(cliente.enderecos) ? cliente.enderecos : []);
     setGeocodingError(''); setGeocodingFeito(false); setPendingCoordsData({});
     setShowForm(true);
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleRemoverEnderecoExtra = async (idx: number) => {
+    if (!editId) return;
+    if (!window.confirm('Remover este endereço adicional do cliente?')) return;
+    const novaLista = enderecosExtras.filter((_, i) => i !== idx);
+    await update(ref(db, `clientes/${editId}`), { enderecos: novaLista });
+    setEnderecosExtras(novaLista);
+    showToast('Endereço removido.', 'success');
   };
 
   useEffect(() => {
@@ -643,6 +656,35 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
             </div>
           </div>
 
+          {enderecosExtras.length > 0 && (
+            <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-3 lg:col-span-2">
+              <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2 flex items-center">
+                <MapPin size={16} className="mr-1 text-indigo-500"/> Endereços Adicionais (cadastrados pelo cliente no app)
+              </h4>
+              <div className="space-y-2">
+                {enderecosExtras.map((end: any, idx: number) => (
+                  <div key={idx} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex justify-between items-start gap-2">
+                    <div className="text-sm">
+                      <p className="font-bold text-gray-800">{end.logradouro}, {end.numero}</p>
+                      <p className="text-gray-500">{end.bairro} - {end.cidade}/{end.uf}</p>
+                      {end.complemento && <p className="text-gray-400 text-xs">Comp: {end.complemento}</p>}
+                    </div>
+                    <div className="flex items-center gap-1 shrink-0">
+                      {end.lat && end.lng && (
+                        <button type="button" onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${end.lat},${end.lng}`, '_blank')} className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors" title="Abrir no Mapa">
+                          <Map size={16}/>
+                        </button>
+                      )}
+                      <button type="button" onClick={() => handleRemoverEnderecoExtra(idx)} className="text-gray-400 hover:text-red-600 p-1.5 rounded-lg hover:bg-red-50 transition-colors" title="Remover Endereço">
+                        <Trash2 size={16}/>
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
 
           <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 space-y-4 lg:col-span-2">
             <h4 className="text-sm font-bold text-gray-700 mb-2 border-b border-gray-200 pb-2">Observações (Cadastro / Entrega)</h4>
@@ -890,7 +932,43 @@ export default function ClientesManager({ currentUser, temPermissao }: { current
                   ))}
                 </div>
               )}
-              
+
+              {(() => {
+                const enderecoPrincipal = perfilClienteModal.logradouro ? {
+                  logradouro: perfilClienteModal.logradouro, numero: perfilClienteModal.numero, bairro: perfilClienteModal.bairro,
+                  cidade: perfilClienteModal.cidade, uf: perfilClienteModal.uf, complemento: perfilClienteModal.complemento,
+                  cep: perfilClienteModal.cep, lat: perfilClienteModal.lat, lng: perfilClienteModal.lng
+                } : null;
+                const enderecosExtras = Array.isArray(perfilClienteModal.enderecos) ? perfilClienteModal.enderecos : [];
+                const todosEnderecos = [...(enderecoPrincipal ? [enderecoPrincipal] : []), ...enderecosExtras];
+                return (
+                  <div>
+                    <h4 className="text-sm font-bold text-gray-700 flex items-center mb-3"><MapPin size={16} className="mr-1 text-indigo-500"/> Endereços Cadastrados</h4>
+                    {todosEnderecos.length === 0 ? (
+                      <p className="text-sm text-gray-400 italic">Nenhum endereço cadastrado.</p>
+                    ) : (
+                      <div className="space-y-2">
+                        {todosEnderecos.map((end: any, idx: number) => (
+                          <div key={idx} className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm flex justify-between items-start gap-2">
+                            <div className="text-sm">
+                              {idx === 0 && enderecoPrincipal && <span className="text-[10px] font-bold text-indigo-600 uppercase block mb-0.5">Principal</span>}
+                              <p className="font-bold text-gray-800">{end.logradouro}, {end.numero}</p>
+                              <p className="text-gray-500">{end.bairro} - {end.cidade}/{end.uf}</p>
+                              {end.complemento && <p className="text-gray-400 text-xs">Comp: {end.complemento}</p>}
+                            </div>
+                            {end.lat && end.lng && (
+                              <button onClick={() => window.open(`https://www.google.com/maps/search/?api=1&query=${end.lat},${end.lng}`, '_blank')} className="text-gray-400 hover:text-indigo-600 p-1.5 rounded-lg hover:bg-indigo-50 transition-colors shrink-0" title="Abrir no Mapa">
+                                <Map size={16}/>
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })()}
+
               {(() => {
                 const historicoCliente = vendasPdv.filter(v => v.clienteId === perfilClienteModal.id).sort((a, b) => b.timestamp - a.timestamp);
                 const totalGasto = historicoCliente.reduce((acc, ped) => acc + (ped.valor || 0), 0);

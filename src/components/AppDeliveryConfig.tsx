@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
 import { ref, onValue, update, push, remove, set } from 'firebase/database';
 import { db } from '../firebase';
-import { Filter, ChevronUp as ChevronUpIcon, ChevronDown as ChevronDownIcon, Eye, EyeOff, Image as ImageIcon, Plus, Trash2, Smartphone } from 'lucide-react';
+import { Filter, ChevronUp as ChevronUpIcon, ChevronDown as ChevronDownIcon, Eye, EyeOff, Image as ImageIcon, Plus, Trash2, Smartphone, FileText, CheckCircle } from 'lucide-react';
 
 export default function AppDeliveryConfig() {
-  const [activeTab, setActiveTab] = useState<'organizacao' | 'carrossel'>('organizacao');
+  const [activeTab, setActiveTab] = useState<'organizacao' | 'carrossel' | 'legal'>('organizacao');
   const [categoriasDb, setCategoriasDb] = useState<any[]>([]);
   const [produtos, setProdutos] = useState<any[]>([]);
   const [carrossel, setCarrossel] = useState<any[]>([]);
   const [novaUrl, setNovaUrl] = useState('');
+  const [termosCondicoes, setTermosCondicoes] = useState('');
+  const [politicaPrivacidade, setPoliticaPrivacidade] = useState('');
+  const [horarioAbertura, setHorarioAbertura] = useState('18:30');
+  const [salvandoLegal, setSalvandoLegal] = useState(false);
+  const [toastLegal, setToastLegal] = useState(false);
 
   useEffect(() => {
     const categoriasRef = ref(db, 'categorias_produtos');
@@ -45,8 +50,31 @@ export default function AppDeliveryConfig() {
       }
     });
 
-    return () => { unsubCat(); unsubProd(); unsubCar(); };
+    const legalRef = ref(db, 'configuracoes/app_delivery');
+    const unsubLegal = onValue(legalRef, snap => {
+      const data = snap.val();
+      setTermosCondicoes(data?.termosCondicoes || '');
+      setPoliticaPrivacidade(data?.politicaPrivacidade || '');
+      setHorarioAbertura(data?.horarioAbertura || '18:30');
+    });
+
+    return () => { unsubCat(); unsubProd(); unsubCar(); unsubLegal(); };
   }, []);
+
+  const handleSalvarLegal = async () => {
+    setSalvandoLegal(true);
+    try {
+      await update(ref(db, 'configuracoes/app_delivery'), {
+        termosCondicoes: termosCondicoes.trim(),
+        politicaPrivacidade: politicaPrivacidade.trim(),
+        horarioAbertura: horarioAbertura.trim() || '18:30',
+      });
+      setToastLegal(true);
+      setTimeout(() => setToastLegal(false), 2500);
+    } finally {
+      setSalvandoLegal(false);
+    }
+  };
 
   const handleMoveCategoria = async (index: number, direction: 'up' | 'down') => {
     const sorted = [...categoriasDb].sort((a, b) => ((a as any).ordem || 0) - ((b as any).ordem || 0) || a.nome.localeCompare(b.nome));
@@ -93,6 +121,7 @@ export default function AppDeliveryConfig() {
       <div className="flex bg-gray-200 p-1 rounded-xl w-fit">
         <button onClick={() => setActiveTab('organizacao')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'organizacao' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Organização e Visibilidade</button>
         <button onClick={() => setActiveTab('carrossel')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'carrossel' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Carrossel de Imagens</button>
+        <button onClick={() => setActiveTab('legal')} className={`px-6 py-2 rounded-lg font-bold text-sm transition-colors ${activeTab === 'legal' ? 'bg-white text-gray-800 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Termos e Privacidade</button>
       </div>
 
       {activeTab === 'organizacao' && (
@@ -153,6 +182,39 @@ export default function AppDeliveryConfig() {
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {activeTab === 'legal' && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-6 animate-in slide-in-from-bottom-4">
+          <h3 className="text-lg font-bold text-gray-800 flex items-center"><FileText className="mr-2 text-orange-500" /> Termos e Condições / Política de Privacidade</h3>
+          <p className="text-sm text-gray-500">Esse texto será exibido para o cliente no app de delivery, em um link clicável durante o cadastro. O cliente precisa aceitar os dois para criar a conta.</p>
+
+          <div className="space-y-2 max-w-xs">
+            <label className="font-bold text-gray-700 text-sm">Horário de Abertura da Loja</label>
+            <input type="time" value={horarioAbertura} onChange={e => setHorarioAbertura(e.target.value)} className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm" />
+            <p className="text-xs text-gray-400">Antes desse horário, o app exibirá um aviso informando que a loja ainda não abriu (o cliente pode fazer o pedido normalmente).</p>
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-bold text-gray-700 text-sm">Termos e Condições</label>
+            <textarea value={termosCondicoes} onChange={e => setTermosCondicoes(e.target.value)} rows={10} placeholder="Cole ou escreva aqui o texto dos Termos e Condições de uso..." className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm font-mono" />
+          </div>
+
+          <div className="space-y-2">
+            <label className="font-bold text-gray-700 text-sm">Política de Privacidade</label>
+            <textarea value={politicaPrivacidade} onChange={e => setPoliticaPrivacidade(e.target.value)} rows={10} placeholder="Cole ou escreva aqui o texto da Política de Privacidade..." className="w-full p-3 border border-gray-200 rounded-lg outline-none focus:ring-2 focus:ring-orange-500 text-sm font-mono" />
+          </div>
+
+          <button onClick={handleSalvarLegal} disabled={salvandoLegal} className="bg-orange-500 text-white px-6 py-3 rounded-lg font-bold hover:bg-orange-600 disabled:opacity-50 transition-colors">
+            {salvandoLegal ? 'Salvando...' : 'Salvar Alterações'}
+          </button>
+        </div>
+      )}
+
+      {toastLegal && (
+        <div className="fixed bottom-4 right-4 p-4 rounded-lg shadow-lg text-white font-bold flex items-center z-50 bg-green-600">
+          <CheckCircle className="mr-2" size={20} /><span>Textos salvos com sucesso!</span>
         </div>
       )}
     </div>

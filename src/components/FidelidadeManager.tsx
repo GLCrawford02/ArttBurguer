@@ -20,8 +20,8 @@ export interface Recompensa {
   ordem?: number;
   tipo?: 'desconto' | 'produto' | 'frete';
   valorDesconto?: number;
-  produtoId?: string;
-  produtoNome?: string;
+  produtoId?: string | null;
+  produtoNome?: string | null;
 }
 
 export interface Missao {
@@ -161,8 +161,8 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       ordem,
       tipo,
       valorDesconto: tipo !== 'produto' ? Number(novaRecompensa.valorDesconto || 0) : 0,
-      produtoId: tipo === 'produto' ? novaRecompensa.produtoId : undefined,
-      produtoNome: tipo === 'produto' ? (produtoEscolhido?.nome || '') : undefined,
+      produtoId: tipo === 'produto' && novaRecompensa.produtoId ? novaRecompensa.produtoId : null,
+      produtoNome: tipo === 'produto' && produtoEscolhido ? produtoEscolhido.nome : null,
     } } };
     setConfig(updated);
     await set(ref(db, 'fidelidade_config'), updated);
@@ -226,8 +226,8 @@ export default function FidelidadeManager({ currentUser, temPermissao }: { curre
       custoPontos: Number(editRecompensa.custoPontos),
       tipo,
       valorDesconto: tipo !== 'produto' ? Number(editRecompensa.valorDesconto || 0) : 0,
-      produtoId: tipo === 'produto' ? editRecompensa.produtoId : undefined,
-      produtoNome: tipo === 'produto' ? (produtoEscolhido?.nome || editRecompensa.produtoNome || '') : undefined,
+      produtoId: tipo === 'produto' && editRecompensa.produtoId ? editRecompensa.produtoId : null,
+      produtoNome: tipo === 'produto' && (produtoEscolhido || editRecompensa.produtoNome) ? (produtoEscolhido?.nome || editRecompensa.produtoNome) : null,
     } } };
     setConfig(updated);
     await set(ref(db, 'fidelidade_config'), updated);

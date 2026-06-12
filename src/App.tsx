@@ -595,6 +595,22 @@ export default function App() {
             await update(ref(db, `funcionarios/${user.id}`), { pin: newPin, pinLastChanged: agora });
             setPinRotacaoNotif({ pin: newPin, nome: user.nome });
             logInfo('Login', 'PIN rotacionado automaticamente (15 dias)', { nome: user.nome, novoPIN: newPin });
+
+            // Avisa o usuário por WhatsApp sobre a nova senha, se houver telefone cadastrado
+            const telefoneUser = (user as any).telefone as string | undefined;
+            if (telefoneUser) {
+              let telLimpo = telefoneUser.replace(/\D/g, '');
+              if (telLimpo.length >= 10) {
+                if (!telLimpo.startsWith('55')) telLimpo = '55' + telLimpo;
+                const msgNovaSenha = `Olá *${user.nome.split(' ')[0]}*! 🔐\n\nSua senha de acesso ao sistema ArttBurger foi atualizada automaticamente (rotação de segurança a cada 15 dias).\n\nSua nova senha é: *${newPin}*\n\nGuarde-a com cuidado e não a compartilhe com ninguém.`;
+                await set(push(ref(db, 'fila_mensagens')), {
+                  telefone: telLimpo,
+                  mensagem: msgNovaSenha,
+                  status: 'pendente',
+                  timestamp: Date.now()
+                });
+              }
+            }
           }
         }
 

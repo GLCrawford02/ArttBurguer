@@ -521,10 +521,10 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
 
                       const relacionados = ped.isAberta
                         ? pedidosCozinha.filter(p => p.referenciaId === ped.id)
-                        : pedidosCozinha.filter(p => p.identificador === `Delivery: ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
+                        : pedidosCozinha.filter(p => p.identificador === `Delivery #${ped.numeroDiario} - ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
                       const isPronto = relacionados.length === 0 || relacionados.every(p => p.status === 'Concluído' || p.status === 'Cancelado');
 
-                      const minutos = Math.floor((Date.now() - ped.timestamp) / 60000);
+                      const minutos = Math.floor((Date.now() - (ped.inicioPrazoEntrega || ped.timestamp)) / 60000);
                       const cor = !isPronto ? '#9ca3af'
                         : minutos < 40 ? '#22c55e'
                         : minutos < 50 ? '#eab308'
@@ -624,7 +624,7 @@ export default function DespachoManager({ currentUser, temPermissao }: { current
                   if (ped.isAberta) {
                     relacionados = pedidosCozinha.filter(p => p.referenciaId === ped.id);
                   } else {
-                    relacionados = pedidosCozinha.filter(p => p.identificador === `Delivery: ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
+                    relacionados = pedidosCozinha.filter(p => p.identificador === `Delivery #${ped.numeroDiario} - ${ped.clienteNome}` && Math.abs(p.timestamp - ped.timestamp) < 120000);
                   }
                   if (relacionados.length === 0) return true;
                   return relacionados.every(p => p.status === 'Concluído' || p.status === 'Cancelado');
